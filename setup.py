@@ -20,14 +20,15 @@ setup(
 #     author_email='me@kennethreitz.com',
 #     url='https://github.com/kennethreitz/samplemod',
 #     license=license,
-    python_requires='~=3.7',
+    python_requires='~=3.6',
     packages=find_packages(exclude=('tests',)),
     install_requires=[
         'torch',
         'numpy',
-        'importlib'
+        'importlib',
+        'pandas'
     ],
-    package_data={
-        "tKGR": ["data/ICEWS18_forecasting/*.txt"]
-    }
+#     package_data={
+#         "tKGR": ["data/ICEWS18_forecasting/*.txt"]
+#     }
 )
