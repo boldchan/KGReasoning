@@ -1,5 +1,6 @@
 import os
 
+from collections import defaultdict
 import numpy as np
 
 import tKGR.data
@@ -70,11 +71,45 @@ class Data:
                 id2relation[rel2idx[1].strip()+'_reverse'] = 'REVERSED ' + rel2idx[0].strip()
         return id2relation
 
+    def get_adj_list(self, train_val_test=0):
+        '''
+        :param: train_val_test: return adj_list for training data, validation data or test data
+        if train_val_test equals 0, 1, 2
+        :return:
+        adj_list: List[List[(o(int), p(str), t(int))]], adj_list[i] is the list of (o,p,t) of events where entity i is the subject
+        '''
+        if train_val_test == 0:
+            dataset = self.train_data
+        elif train_val_test == 1:
+            dataset = self.valid_data
+        elif train_val_test == 2:
+            dataset = self.test_data
+        else:
+            raise ValueError("Wrong value for train_val_test")
+
+        adj_list_dict = defaultdict(list)
+        for event in dataset:
+            adj_list_dict[int(event[0])].append((int(event[2]), event[1], int(event[3])))
+
+        subject_index_sorted = sorted(adj_list_dict.keys())
+        adj_list = [sorted(adj_list_dict[_], key=lambda x: x[2]) for _ in subject_index_sorted]
+        # for _ in subject_index_sorted:
+        #     adj_list_line = adj_list_dict[_]
+        #     adj_list_line.sort(key=lambda x: x[2])
+        #     adj_list.append(adj_list_line)
+        return adj_list
+
+
+
+
+
+
 class NeighborFinder:
     def __init__(self, adj_list, uniform=False):
         """
         Params
         ------
+        adj_list: adj_list[i] is the list of all (o,p,t) for entity i
         node_idx_l: List[int]
         node_ts_l: List[int]
         off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i]
@@ -100,9 +135,10 @@ class NeighborFinder:
         n_ts_l = []
         e_idx_l = []
         off_set_l = [0]
+
         for i in range(len(adj_list)):
             curr = adj_list[i]
-            curr = sorted(curr, key=lambda x: x[1])
+            curr = sorted(curr, key=lambda x: int(x[2]))
             n_idx_l.extend([x[0] for x in curr])
             e_idx_l.extend([x[1] for x in curr])
             n_ts_l.extend([x[2] for x in curr])
@@ -120,7 +156,7 @@ class NeighborFinder:
 
     def find_before(self, src_idx, cut_time):
         """
-
+        build neighborhood sequence of entity sec_idx before cut_time
         Params
         ------
         src_idx: int
@@ -150,12 +186,14 @@ class NeighborFinder:
                 right = mid
 
         if neighbors_ts[right] < cut_time:
-            return neighbors_idx[:right], neighbors_e_idx[:right], neighbors_ts[:right]
+            return neighbors_idx[:right+1], neighbors_e_idx[:right+1], neighbors_ts[:right+1]
         else:
-            return neighbors_idx[:left], neighbors_e_idx[:left], neighbors_ts[:left]
+            return neighbors_idx[:left+1], neighbors_e_idx[:left+1], neighbors_ts[:left+1]
 
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
         """
+        each entity has exact num_neighbors neighbors, either by uniform sampling or by picking from the first
+        num_neighbors events
         Params
         ------
         src_idx_l: List[int]
