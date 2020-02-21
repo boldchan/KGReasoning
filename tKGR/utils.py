@@ -9,31 +9,45 @@ DataDir = os.path.dirname(tKGR.data.__file__)
 class Data:
     def __init__(self, dataset=None):
         # load data
+        self.id2entity = self._id2entity(dataset=dataset)
+        self.id2relation = self._id2relation(dataset=dataset)
+        num_relations = len(self.id2relation)# number of pure relations, i.e. no reversed relation
+        reversed_id2relation={}
+        for id, rel in self.id2relation.items():
+            reversed_id2relation[id+num_relations] = 'Reversed '+rel
+        self.id2relation.update(reversed_id2relation)
+
+
         self.train_data = self._load_data(os.path.join(DataDir, dataset), "train")
         self.valid_data = self._load_data(os.path.join(DataDir, dataset), "valid")
         self.test_data = self._load_data(os.path.join(DataDir, dataset), "test")
-        self.id2entity = self._id2entity(dataset=dataset)
-        self.id2relation = self._id2relation(dataset=dataset)
+
+        # add reverse event into the data set
+        self.train_data += [[event[2], event[1]+num_relations, event[0], event[3]] for event in self.train_data]
+        self.valid_data += [[event[2], event[1]+num_relations, event[0], event[3]] for event in self.valid_data]
+        self.test_data += [[event[2], event[1]+num_relations, event[0], event[3]] for event in self.test_data]
+
+        self.num_relations = 2*num_relations
+        self.num_entities = len(self.id2entity)
+
         self.data = self.train_data + self.valid_data + self.test_data
 
-
-        self.entities = self._get_entities(self.data)
-        self.train_relations = self._get_relations(self.train_data)
-        self.valid_relations = self._get_relations(self.valid_data)
-        self.test_relations = self._get_relations(self.test_data)
-        self.relations = self.train_relations + [i for i in self.valid_relations
-                                                 if i not in self.train_relations] + [i for i in self.test_relations
-                                                                                      if i not in self.train_relations]
+        # self.entities = self._get_entities(self.data)
+        # self.train_relations = self._get_relations(self.train_data)
+        # self.valid_relations = self._get_relations(self.valid_data)
+        # self.test_relations = self._get_relations(self.test_data)
+        # self.relations = self.train_relations + [i for i in self.valid_relations
+        #                                          if i not in self.train_relations] + [i for i in self.test_relations
+        #                                                                               if i not in self.train_relations]
         self.timestamps = self._get_timestamps(self.data)
 
-        self.entity_idxs, self.relation_idxs, self.timestamp_idxs = self._get_idx()
+        # self.entity_idxs, self.relation_idxs, self.timestamp_idxs = self._get_idx()
 
     def _load_data(self, data_dir, data_type="train"):
         with open(os.path.join(data_dir, "{}.txt".format(data_type))) as f:
             data = f.readlines()
             data = [line.split("\t") for line in data] #only cut by "\t", not by white space.
-            data = [[_.strip() for _ in line] for line in data] # remove white space
-            data += [[i[2], i[1]+"_reverse", i[0], i[3]] for i in data]
+            data = [[int(_.strip()) for _ in line] for line in data] # remove white space
         return data
 
     def _get_relations(self, data):
@@ -67,42 +81,23 @@ class Data:
             mapping = [relation.strip().split("\t") for relation in mapping]
             id2relation={}
             for rel2idx in mapping: 
-                id2relation[rel2idx[1].strip()] = rel2idx[0].strip()
-                id2relation[rel2idx[1].strip()+'_reverse'] = 'REVERSED ' + rel2idx[0].strip()
+                id2relation[int(rel2idx[1].strip())] = rel2idx[0].strip()
         return id2relation
 
-    def get_adj_list(self, train_val_test=0):
+    def get_adj_list(self):
         '''
-        :param: train_val_test: return adj_list for training data, validation data or test data
-        if train_val_test equals 0, 1, 2
+        adj_list for the whole dataset, including training data, validation data and test data
         :return:
         adj_list: List[List[(o(int), p(str), t(int))]], adj_list[i] is the list of (o,p,t) of events where entity i is the subject
         '''
-        if train_val_test == 0:
-            dataset = self.train_data
-        elif train_val_test == 1:
-            dataset = self.valid_data
-        elif train_val_test == 2:
-            dataset = self.test_data
-        else:
-            raise ValueError("Wrong value for train_val_test")
-
         adj_list_dict = defaultdict(list)
-        for event in dataset:
+        for event in self.data:
             adj_list_dict[int(event[0])].append((int(event[2]), event[1], int(event[3])))
 
         subject_index_sorted = sorted(adj_list_dict.keys())
         adj_list = [sorted(adj_list_dict[_], key=lambda x: x[2]) for _ in subject_index_sorted]
-        # for _ in subject_index_sorted:
-        #     adj_list_line = adj_list_dict[_]
-        #     adj_list_line.sort(key=lambda x: x[2])
-        #     adj_list.append(adj_list_line)
+
         return adj_list
-
-
-
-
-
 
 class NeighborFinder:
     def __init__(self, adj_list, uniform=False):

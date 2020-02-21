@@ -382,19 +382,18 @@ class MergeLayerV2(torch.nn.Module):
 class TGAN(torch.nn.Module):
     def __init__(self, ngh_finder, n_feat, e_feat,
                  attn_mode='prod', use_time='time', agg_method='attn',
-                 num_layers=3, n_head=4, null_idx=0, num_heads=1, drop_out=0.1, seq_len=None):
+                 num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None):
         '''
 
-        :param ngh_finder:
-        :param n_feat:
-        :param e_feat:
-        :param attn_mode:
-        :param use_time:
-        :param agg_method:
+        :param ngh_finder: an instance of NeighborFinder
+        :param n_feat: numpy array of node embedding,
+        :param e_feat: numpy array of edge embedding
+        :param attn_mode: attention method
+        :param use_time: use time embedding
+        :param agg_method: aggregation method
         :param num_layers:
-        :param n_head:
+        :param n_head: number of multihead
         :param null_idx:
-        :param num_heads:
         :param drop_out:
         :param seq_len:
         '''
@@ -402,13 +401,13 @@ class TGAN(torch.nn.Module):
         self.num_layers = num_layers
         self.ngh_finder = ngh_finder
         self.null_idx = null_idx
-        
+
         self.logger = logging.getLogger(__name__)
 
         self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))
         self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
-        self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=True)
-        self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=True)
+        self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
+        self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False)
 
         self.feat_dim = self.n_feat_th.shape[1]
 
@@ -426,11 +425,25 @@ class TGAN(torch.nn.Module):
                                                                   attn_mode=attn_mode,
                                                                   n_head=n_head,
                                                                   drop_out=drop_out) for _ in range(num_layers)])
+        elif agg_method == 'lstm':
+            self.logger.info('Aggregation uses LSTM model')
+            self.attn_model_list = torch.nn.ModuleList([LSTMPool(self.feat_dim,
+                                                                 self.feat_dim) for _ in range(num_layers)])
+        elif agg_method == 'mean':
+            self.logger.info('Aggregation uses constant mean model')
+            self.attn_model_list = torch.nn.ModuleList([MeanPool(self.feat_dim) for _ in range(num_layers)])
         else:
             raise ValueError('invalid agg_method value')
 
         if use_time == 'time':
             self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim)
+        elif use_time == 'pos':
+            assert(seq_len is not None)
+            self.logger.info('Using positional encoding')
+            self.time_encoder = PosEncode(expand_dim=self.n_feat_th.shape[1], seq_len=seq_len)
+        elif use_time == 'empty':
+            self.logger.info('Using empty encoding')
+            self.time_encoder = EmptyEncode(expand_dim=self.n_feat_th.shape[1])
         else:
             raise ValueError('invalid time option')
 
@@ -454,10 +467,10 @@ class TGAN(torch.nn.Module):
         For target node at time t, aggregate features of its neighborhood $\mathcal{N}(v_0; t)={v_1, ..., v_N}$,
         i.e. entities that have interaction with target node prior to t,
         and combined it with its own feature.
-        :param src_idx_l: batch_size x
-        :param cut_time_l:
-        :param curr_layers:
-        :param num_neighbors:
+        :param src_idx_l: a batch of source node index
+        :param cut_time_l: a batch of cutting time
+        :param curr_layers: indicator for recursion
+        :param num_neighbors: number of neighbors to draw for a source node
         :return:
         '''
         assert(curr_layers>=0)
