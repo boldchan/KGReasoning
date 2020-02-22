@@ -3,39 +3,47 @@ import os
 from collections import defaultdict
 import numpy as np
 
-import tKGR.data
-DataDir = os.path.dirname(tKGR.data.__file__)
+# import tKGR.data
+DataDir = os.path.join(os.path.dirname(__file__), 'data')
 
 class Data:
     def __init__(self, dataset=None):
         # load data
         self.id2entity = self._id2entity(dataset=dataset)
         self.id2relation = self._id2relation(dataset=dataset)
-        num_relations = len(self.id2relation)# number of pure relations, i.e. no reversed relation
+        num_relations = len(self.id2relation)  # number of pure relations, i.e. no reversed relation
         reversed_id2relation={}
         for id, rel in self.id2relation.items():
             reversed_id2relation[id+num_relations] = 'Reversed '+rel
         self.id2relation.update(reversed_id2relation)
-
 
         self.train_data = self._load_data(os.path.join(DataDir, dataset), "train")
         self.valid_data = self._load_data(os.path.join(DataDir, dataset), "valid")
         self.test_data = self._load_data(os.path.join(DataDir, dataset), "test")
 
         # add reverse event into the data set
-        self.train_data += [[event[2], event[1]+num_relations, event[0], event[3]] for event in self.train_data]
-        self.valid_data += [[event[2], event[1]+num_relations, event[0], event[3]] for event in self.valid_data]
-        self.test_data += [[event[2], event[1]+num_relations, event[0], event[3]] for event in self.test_data]
+        self.train_data = np.concatenate([self.train_data[:, :-1],
+                                          np.vstack(
+                                              [[event[2], event[1]+num_relations, event[0], event[3]]
+                                               for event in self.train_data])], axis=0)
+        self.valid_data = np.concatenate([self.valid_data[:, :-1],
+                                          np.vstack(
+                                              [[event[2], event[1]+num_relations, event[0], event[3]]
+                                               for event in self.valid_data])], axis=0)
+        self.test_data = np.concatenate([self.test_data[:, :-1],
+                                         np.vstack(
+                                              [[event[2], event[1]+num_relations, event[0], event[3]]
+                                               for event in self.test_data])], axis=0)
 
         self.num_relations = 2*num_relations
         self.num_entities = len(self.id2entity)
 
-        self.data = self.train_data + self.valid_data + self.test_data
+        self.data = np.concatenate([self.train_data, self.valid_data, self.test_data], axis=0)
 
-        # self.entities = self._get_entities(self.data)
-        # self.train_relations = self._get_relations(self.train_data)
-        # self.valid_relations = self._get_relations(self.valid_data)
-        # self.test_relations = self._get_relations(self.test_data)
+        # self.entities = _get_entities(self.data)
+        # self.train_relations = _get_relations(self.train_data)
+        # self.valid_relations = _get_relations(self.valid_data)
+        # self.test_relations = _get_relations(self.test_data)
         # self.relations = self.train_relations + [i for i in self.valid_relations
         #                                          if i not in self.train_relations] + [i for i in self.test_relations
         #                                                                               if i not in self.train_relations]
@@ -46,21 +54,53 @@ class Data:
     def _load_data(self, data_dir, data_type="train"):
         with open(os.path.join(data_dir, "{}.txt".format(data_type))) as f:
             data = f.readlines()
-            data = [line.split("\t") for line in data] #only cut by "\t", not by white space.
-            data = [[int(_.strip()) for _ in line] for line in data] # remove white space
+            data = np.array([line.split("\t") for line in data])  # only cut by "\t", not by white space.
+            data = np.vstack([[int(_.strip()) for _ in line] for line in data])  # remove white space
         return data
 
-    def _get_relations(self, data):
+    @staticmethod
+    def _get_relations(data):
         relations = sorted(list(set([d[1] for d in data])))
         return relations
 
-    def _get_entities(self, data):
+    @staticmethod
+    def _get_entities(data):
         entities = sorted(list(set([d[0] for d in data]+[d[2] for d in data])))
         return entities
 
-    def _get_timestamps(self, data):
-        timestamps = sorted(list(set([d[3] for d in data])))
+    @staticmethod
+    def _get_timestamps(data):
+        timestamps = np.array(sorted(list(set([d[3] for d in data]))))
         return timestamps
+
+    def neg_sampling_object(self, Q, start_time = 0):
+        '''
+
+        :param Q: number of negative sampling for each real quadruple
+        :param start_time: neg sampling for events since start_time (inclusive)
+        :return:
+        List[List[int]]: [len(train_data), Q], list of Q negative sampling for each event in train_data
+        '''
+        neg_object = []
+        spt_o = defaultdict(list)  # dict: (s, p, r)--> [o]
+        train_data_after_start_time = [event for event in self.train_data if event[3]>=start_time]
+        for event in train_data_after_start_time:
+            spt_o[(event[0], event[1], event[3])].append(event[2])
+        for event in train_data_after_start_time:
+            neg_object_one_node = []
+            while True:
+                candidate = np.random.choice(self.num_entities)
+                if candidate not in spt_o[(event[0], event[1], event[3])]:
+                    neg_object_one_node.append(candidate)
+                if len(neg_object_one_node) == Q:
+                    neg_object.append(neg_object_one_node)
+                    break
+        # for event in train_data_after_start_time:
+        #     neg_candidate = np.setdiff1d(np.arange(self.num_entities),
+        #                                  np.array(spt_o[(event[0], event[1], event[3])])) + 1  # 0-th is dummy node
+        #     neg_object.append(np.random.choice(neg_candidate, Q, replace=True))
+        #     # replace=True, in case there are not enough negative sampling
+        return np.stack(neg_object, axis=0)
 
     def _get_idx(self):
         entity_idxs = {self.entities[i]: i for i in range(len(self.entities))}
@@ -79,7 +119,7 @@ class Data:
         with open(os.path.join(DataDir, dataset, "relation2id.txt")) as f:
             mapping = f.readlines()
             mapping = [relation.strip().split("\t") for relation in mapping]
-            id2relation={}
+            id2relation = {}
             for rel2idx in mapping: 
                 id2relation[int(rel2idx[1].strip())] = rel2idx[0].strip()
         return id2relation

@@ -416,7 +416,7 @@ class TGAN(torch.nn.Module):
         self.model_dim = self.feat_dim
 
         self.use_time = use_time
-        # self.merge_layer = MergeLayerV1(self.feat_dim, self.feat_dim, self.feat_dim)
+        self.merge_layer = MergeLayerV1(self.feat_dim, self.feat_dim, self.feat_dim)
 
         if agg_method == 'attn':
             self.attn_model_list = torch.nn.ModuleList([AttnModel(self.feat_dim,
@@ -447,31 +447,61 @@ class TGAN(torch.nn.Module):
         else:
             raise ValueError('invalid time option')
 
-    def forward(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
+        self.affinity_score = MergeLayerV2(self.feat_dim, self.feat_dim, self.feat_dim, 1)  # torch.nn.Bilinear(self.feat_dim, self.feat_dim, 1, bias=True)
+
+    def link_predict(self, src_idx_l, rel_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
         '''
-        predict the link between entity src_idx_l and entity target_idx_l at time cut_time_l
-        :param src_idx_l: subject entity
-        :param target_idx_l: object entity
-        :param cut_time_l: timestamp
+        predict the probability of link exists between entity src_idx_l and entity target_idx_l at time cut_time_l
+        :param src_idx_l: tensor of subject index [batch_size, ]
+        :param rel_idx_l: tensor of predicate index [batch_size, ]
+        :param target_idx_l: tensor of object index [batch_size, ]
+        :param cut_time_l: tensor of timestamp [batch_size, ]
         :param num_neighbors:
         :return:
         '''
         src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)
         target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers, num_neighbors)
+        rel_embed = self.edge_raw_embed(rel_idx_l)
+        rel_embed_diag = torch.diag_embed(rel_embed)
 
+        # TBD: inference using s(t),p(t),o
         score = self.affinity_score(src_embed, target_embed).squeeze(dim=-1)
         return score
+
+    def forward(self, src_idx, target_idx, neg_idx, cut_time, num_neighbors=20):
+        '''
+        :param src_idx: tensor of subject index [batch_size, ]
+        :param target_idx: tensor of object index [batch_size, ]
+        :param neg_idx: tensor of false object index, [batch_size, num_neg Q]
+        :param cut_time: tensor of timestamp [batch_size, ]
+        :param num_neighbors:
+        :return:
+        output of encoder, i.e. representation of src_idx_l, target_idx_l and neg_idx_l
+        src_idx_l: [batch_size, num_dim]
+        target_idx_l: [batch_size, num_dim]
+        neg_idx_l: [batch_size, num_neg Q, num_dim]
+        '''
+        batch_size = neg_idx.shape[0]
+        num_neg =neg_idx.shape[1]
+
+        src_embed = self.tem_conv(src_idx.numpy(), cut_time.numpy(), self.num_layers, num_neighbors)
+        target_embed = self.tem_conv(target_idx.numpy(), cut_time.numpy(), self.num_layers, num_neighbors)
+        neg_idx_flatten = neg_idx.numpy().flatten()  # [batch_size x num_neg,]
+        # repeat cut_time num_neg times along axis = 0, so that each negative sampling have a cutting time
+        cut_time_repeat = np.repeat(cut_time.numpy(), num_neg, axis=0)  # [batch_size x num_neg, ]
+        neg_embed = self.tem_conv(neg_idx_flatten, cut_time_repeat, self.num_layers, num_neighbors)
+        return src_embed, target_embed, neg_embed.view(batch_size, num_neg, -1)
 
     def tem_conv(self, src_idx_l, cut_time_l, curr_layers, num_neighbors):
         '''
         For target node at time t, aggregate features of its neighborhood $\mathcal{N}(v_0; t)={v_1, ..., v_N}$,
         i.e. entities that have interaction with target node prior to t,
         and combined it with its own feature.
-        :param src_idx_l: a batch of source node index
-        :param cut_time_l: a batch of cutting time
+        :param src_idx: a batch of source node index
+        :param cut_time: a batch of cutting time
         :param curr_layers: indicator for recursion
         :param num_neighbors: number of neighbors to draw for a source node
-        :return:
+        :return: a new feature representation for nodes in src_idx_l at corresponding cutting time
         '''
         assert(curr_layers>=0)
 
