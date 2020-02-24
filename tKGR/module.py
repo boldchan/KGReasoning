@@ -204,7 +204,7 @@ class TimeEncode(torch.nn.Module):
         seq_len = ts.size(1)
 
         ts = torch.unsqueeze(ts, dim=2)
-        print("Forward in TimeEncode: ts is on ", ts.get_device())
+        # print("Forward in TimeEncode: ts is on ", ts.get_device())
         map_ts = ts * self.basis_freq.view(1,1,-1) # [batch_size, seq_len, time_dim]
         map_ts += self.phase.view(1,1,-1)
 
@@ -511,12 +511,12 @@ class TGAN(torch.nn.Module):
         device = self.n_feat_th.device
 
         batch_size = len(src_idx_l)
-        print(cut_time_l)
+        # print(cut_time_l)
         src_node_batch_th = torch.from_numpy(src_idx_l).long().to(self.device)
         cut_time_l_th = torch.from_numpy(cut_time_l).long().to(self.device)
         cut_time_l_th = torch.unsqueeze(cut_time_l_th, dim=1)
-        print(cut_time_l_th.shape)
-        print('cut_time_l_th in ', cut_time_l_th.get_device())
+        # print(cut_time_l_th.shape)
+        # print('cut_time_l_th in ', cut_time_l_th.get_device())
         src_node_t = self.time_encoder(cut_time_l_th)
         src_node_t = torch.squeeze(src_node_t, dim=1)
 
@@ -535,11 +535,11 @@ class TGAN(torch.nn.Module):
                 cut_time_l,
                 num_neighbors=num_neighbors)
 
-            src_ngh_node_batch_th = torch.from_numpy(src_ngh_node_batch).long()
-            src_ngh_eidx_batch = torch.from_numpy(src_ngh_eidx_batch).long()
+            src_ngh_node_batch_th = torch.from_numpy(src_ngh_node_batch).long().to(self.device)
+            src_ngh_eidx_batch = torch.from_numpy(src_ngh_eidx_batch).long().to(self.device)
 
             src_ngh_t_batch_delta = cut_time_l[:, np.newaxis] - src_ngh_t_batch
-            src_ngh_t_batch_th = torch.from_numpy(src_ngh_t_batch_delta).float()
+            src_ngh_t_batch_th = torch.from_numpy(src_ngh_t_batch_delta).float().to(device)
 
             # get previous layer's node features
             src_ngh_node_batch_flat = src_ngh_node_batch.flatten()  # reshape(batch_size, -1)
@@ -551,6 +551,8 @@ class TGAN(torch.nn.Module):
             src_ngh_feat = src_ngh_node_conv_feat.view(batch_size, num_neighbors, -1)
 
             # get edge time features and node features
+            # print("src_ngb_t_batch shape: ", src_ngh_t_batch_th.shape)
+            # print("src_ngb_t_batch on ", src_ngh_t_batch_th.get_device())
             src_ngh_t_embed = self.time_encoder(src_ngh_t_batch_th)
             src_ngn_edge_feat = self.edge_raw_embed(src_ngh_eidx_batch)
 
