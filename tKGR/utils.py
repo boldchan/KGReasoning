@@ -91,7 +91,7 @@ class Data:
             while True:
                 candidate = np.random.choice(self.num_entities)
                 if candidate not in spt_o[(event[0], event[1], event[3])]:
-                    neg_object_one_node.append(candidate)
+                    neg_object_one_node.append(candidate+1) # 0-th is a dummy node used to stuff the neighborhood when there is not enough nodes in the neighborhood
                 if len(neg_object_one_node) == Q:
                     neg_object.append(neg_object_one_node)
                     break
