@@ -237,7 +237,7 @@ class NeighborFinder:
         """
         assert (len(src_idx_l) == len(cut_time_l))
 
-        out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
+        out_ngh_node_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
         out_ngh_eidx_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
 

@@ -42,11 +42,11 @@ def prepare_inputs(contents, num_neg_sampling=5, start_time=0):
 class SimpleCustomBatch:
     def __init__(self, data):
         transposed_data = list(zip(*data))
-        self.src_idx = np.array(transposed_data[0])
+        self.src_idx = np.array(transposed_data[0]) + 1  # reindex, start from 1, since 0 indicates dummy node
         self.rel_idx = np.array(transposed_data[1])
-        self.obj_idx = np.array(transposed_data[2])
+        self.obj_idx = np.array(transposed_data[2]) + 1  # reindex, start from 1, since 0 indicates dummy node
         self.ts = np.array(transposed_data[3])
-        self.neg_idx = np.array(transposed_data[4:]).T
+        self.neg_idx = np.array(transposed_data[4:]).T + 1 # reindex, start from 1, since 0 indicates dummy node
 
     # custom memory pinning method on custom type
     def pin_memory(self):
@@ -91,13 +91,8 @@ if __name__ == '__main__':
     # DataLoader
     train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
 
-    # # check if data is on GPU
-    # for sample in train_data_loader:
-    #     print("Data is pinned? :{}".format(sample.ts.is_pinned()))
-    #     break
-
     # randomly initialize node and edge feature
-    node_feature = np.random.randn(len(adj_list), args.node_feat_dim)
+    node_feature = np.random.randn(len(adj_list)+1, args.node_feat_dim)  # first row: embedding for dummy node
     # ignore the correlation between relation and reversed relation
     edge_feature = np.random.randn(len(contents.train_data), args.edge_feat_dim)
 

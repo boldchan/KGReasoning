@@ -405,8 +405,8 @@ class TGAN(torch.nn.Module):
 
         self.logger = logging.getLogger(__name__)
 
-        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)), requires_grad=False)
-        self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)), requires_grad=False)
+        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))
+        self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
         self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
         self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False)
 
@@ -557,7 +557,7 @@ class TGAN(torch.nn.Module):
             src_ngn_edge_feat = self.edge_raw_embed(src_ngh_eidx_batch)
 
             # attention aggregation
-            mask = src_ngh_node_batch_th == -1
+            mask = src_ngh_node_batch_th == 0
             attn_m = self.attn_model_list[curr_layers - 1]
 
             local, weight = attn_m(src_node_conv_feat,
