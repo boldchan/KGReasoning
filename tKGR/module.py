@@ -191,7 +191,7 @@ class TimeEncode(torch.nn.Module):
         super(TimeEncode, self).__init__()
 
         time_dim = expand_dim
-        self.basis_freq = torch.nn.Parameter(torch.from_numpy(1/10 ** np.linspace(0, 10, time_dim)).float())
+        self.basis_freq = torch.nn.Parameter(torch.from_numpy(1/10 ** np.linspace(0, 9, time_dim)).float())
         self.phase = torch.nn.Parameter(torch.zeros(time_dim).float())
 
     def forward(self, ts):
@@ -296,16 +296,29 @@ class MeanPool(torch.nn.Module):
 
 
 class AttnModel(torch.nn.Module):
+    """Attention based temporal layers
+    """
     def __init__(self, feat_dim, edge_dim, time_dim,
                  attn_mode='prod', n_head=2, drop_out=0.1):
+        """
+        args:
+          feat_dim: dim for the node features
+          edge_dim: dim for the temporal edge features
+          time_dim: dim for the time encoding
+          attn_mode: choose from 'prod' and 'map'
+          n_head: number of heads in attention
+          drop_out: probability of dropping a neural.
+        """
         super(AttnModel, self).__init__()
 
-        self.model_dim = feat_dim + time_dim
-        self.edge_in_dim = (feat_dim + edge_dim + time_dim)
-        self.out_dim = feat_dim
+        self.feat_dim = feat_dim
+        self.time_dim = time_dim
 
-        self.edge_fc = torch.nn.Linear(self.edge_in_dim, self.model_dim)
-        self.output_fc = torch.nn.Linear(self.model_dim, self.out_dim)
+        self.edge_in_dim = (feat_dim + edge_dim + time_dim)
+        self.model_dim = self.edge_in_dim
+        # self.edge_fc = torch.nn.Linear(self.edge_in_dim, self.feat_dim, bias=False)
+
+        self.merger = MergeLayer(self.model_dim, feat_dim, feat_dim, feat_dim)
         # self.act = torch.nn.ReLU()
 
         assert (self.model_dim % n_head == 0)
@@ -313,72 +326,71 @@ class AttnModel(torch.nn.Module):
         self.attn_mode = attn_mode
 
         if attn_mode == 'prod':
-            self.multi_head = MultiHeadAttention(n_head,
-                                                 d_model=self.model_dim,
-                                                 d_k=self.model_dim // n_head,
-                                                 d_v=self.model_dim // n_head,
-                                                 dropout=drop_out)
+            self.multi_head_target = MultiHeadAttention(n_head,
+                                                        d_model=self.model_dim,
+                                                        d_k=self.model_dim // n_head,
+                                                        d_v=self.model_dim // n_head,
+                                                        dropout=drop_out)
             self.logger.info('Using scaled prod attention')
 
         elif attn_mode == 'map':
-            self.multi_head = MapBasedMultiHeadAttention(n_head,
-                                                         d_model=self.model_dim,
-                                                         d_k=self.model_dim // n_head,
-                                                         d_v=self.model_dim // n_head,
-                                                         dropout=drop_out)
+            self.multi_head_target = MapBasedMultiHeadAttention(n_head,
+                                                                d_model=self.model_dim,
+                                                                d_k=self.model_dim // n_head,
+                                                                d_v=self.model_dim // n_head,
+                                                                dropout=drop_out)
             self.logger.info('Using map based attention')
         else:
             raise ValueError('attn_mode can only be prod or map')
 
     def forward(self, src, src_t, seq, seq_t, seq_e, mask):
-        # seq [B, N, D]
-        # mask [B, N]
-        num_ngh = seq.shape[1]
+        '''
 
-        src_x = torch.cat([src, src_t], dim=1)  # src_x [B, D]
-
-        q = torch.unsqueeze(src_x, dim=1)  # src_x [B, 1, D]
-
-        k = torch.cat([seq, seq_t], dim=2)  # seq_x [B, N, D]
-
-        v = self.edge_fc(torch.cat([seq, seq_t, seq_e], dim=2))  # seq_x [B, N, D]
+        :param src: float Tensor of shape [B, D]
+        :param src_t: float Tensor of shape [B, 1, Dt], Dt == D
+        :param seq: float Tensor of shape [B, N, D]
+        :param seq_t: float Tensor of shape [B, N, Dt]
+        :param seq_e: float Tensor of shape [B, N, De], De == D
+        :param mask: boolean Tensor of shape [B, N], where the true value indicate a null value in the sequence.
+        :return:
+        output, weight
+        output: float Tensor of shape [B, D]
+        weight: float Tensor of shape [B, N]
+        '''
+        src_ext = torch.unsqueeze(src, dim=1)  # src [B, 1, D]
+        src_e_ph = torch.zeros_like(src_ext)
+        q = torch.cat([src_ext, src_e_ph, src_t], dim=2)  # [B, 1, D + De + Dt] -> [B, 1, D]
+        k = torch.cat([seq, seq_e, seq_t], dim=2)  # [B, 1, D + De + Dt] -> [B, 1, D]
 
         mask = torch.unsqueeze(mask, dim=2)  # mask [B, N, 1]
         mask = mask.permute([0, 2, 1])  # mask [B, 1, N]
 
-        output, attn = self.multi_head(q=q, k=k, v=v, mask=mask)
+        # target-attention
+        output, attn = self.multi_head_target(q=q, k=k, v=k, mask=mask)  # output: [B, 1, D + Dt], attn: [B, 1, N]
         output = output.squeeze()
         attn = attn.squeeze()
 
-        # outout = self.act(output)
-        output = self.output_fc(output)
+        output = self.merger(output, src)
         return output, attn
 
 
-class MergeLayerV1(torch.nn.Module):
-    def __init__(self, dim1, dim2, dim3):
-        super().__init__()
-        self.fc1 = torch.nn.Linear(dim1 + dim2, dim3)
-        # self.fc2 = torch.nn.Linear(dim3, dim3)
-        # self.act = torch.nn.ReLU()
-
-    def forward(self, x1, x2):
-        x = torch.cat([x1, x2], dim=1)
-        return self.fc1(x)
-
-
-class MergeLayerV2(torch.nn.Module):
+class MergeLayer(torch.nn.Module):
     def __init__(self, dim1, dim2, dim3, dim4):
         super().__init__()
+        # self.layer_norm = torch.nn.LayerNorm(dim1 + dim2)
         self.fc1 = torch.nn.Linear(dim1 + dim2, dim3)
         self.fc2 = torch.nn.Linear(dim3, dim4)
         self.act = torch.nn.ReLU()
 
+        torch.nn.init.xavier_normal_(self.fc1.weight)
+        torch.nn.init.xavier_normal_(self.fc2.weight)
+
     def forward(self, x1, x2):
         x = torch.cat([x1, x2], dim=1)
-        h = self.fc1(x)
-        h = self.act(h)
+        # x = self.layer_norm(x)
+        h = self.act(self.fc1(x))
         return self.fc2(h)
+
 
 class TGAN(torch.nn.Module):
     def __init__(self, ngh_finder, n_feat, e_feat,
@@ -405,8 +417,8 @@ class TGAN(torch.nn.Module):
 
         self.logger = logging.getLogger(__name__)
 
-        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)), requires_grad=False)
-        self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)), requires_grad=False)
+        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))
+        self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
         self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
         self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False)
 
@@ -418,7 +430,7 @@ class TGAN(torch.nn.Module):
 
         self.use_time = use_time
         self.device = device
-        self.merge_layer = MergeLayerV1(self.feat_dim, self.feat_dim, self.feat_dim)
+        self.merge_layer = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, self.feat_dim)
 
         if agg_method == 'attn':
             self.attn_model_list = torch.nn.ModuleList([AttnModel(self.feat_dim,
@@ -449,7 +461,7 @@ class TGAN(torch.nn.Module):
         else:
             raise ValueError('invalid time option')
 
-        self.affinity_score = MergeLayerV2(self.feat_dim, self.feat_dim, self.feat_dim, 1)  # torch.nn.Bilinear(self.feat_dim, self.feat_dim, 1, bias=True)
+        self.affinity_score = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, 1)  # torch.nn.Bilinear(self.feat_dim, self.feat_dim, 1, bias=True)
 
     def link_predict(self, src_idx_l, rel_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
         '''
@@ -517,10 +529,10 @@ class TGAN(torch.nn.Module):
         cut_time_l_th = torch.unsqueeze(cut_time_l_th, dim=1)
         # print(cut_time_l_th.shape)
         # print('cut_time_l_th in ', cut_time_l_th.get_device())
-        src_node_t = self.time_encoder(cut_time_l_th)
-        src_node_t = torch.squeeze(src_node_t, dim=1)
 
-        src_node_feat = self.node_raw_embed(src_node_batch_th)
+        # query node always has the start time -> time span == 0
+        src_node_t_embed = self.time_encoder(torch.zeros_like(cut_time_l_th))
+        src_node_feat = self.node_raw_embed(src_node_batch_th+1)
 
         if curr_layers == 0:
             return src_node_feat
@@ -557,13 +569,13 @@ class TGAN(torch.nn.Module):
             src_ngn_edge_feat = self.edge_raw_embed(src_ngh_eidx_batch)
 
             # attention aggregation
-            mask = src_ngh_node_batch_th == -1
+            mask = src_ngh_node_batch_th == 0
             attn_m = self.attn_model_list[curr_layers - 1]
 
             local, weight = attn_m(src_node_conv_feat,
-                                   src_node_t,
+                                   src_node_t_embed,
                                    src_ngh_feat,
                                    src_ngh_t_embed,
                                    src_ngn_edge_feat,
                                    mask)
-            return self.merge_layer(src_node_conv_feat, local)
+            return local
