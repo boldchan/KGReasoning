@@ -1,13 +1,15 @@
 import os
 import sys
 import argparse
+import time
 
 import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
+from tqdm import tqdm
 
-PackageDir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tKGR')
+PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
 from utils import Data, NeighborFinder
@@ -64,25 +66,32 @@ class SimpleCustomBatch:
 
         return self
 
+    def to(self, device):
+        self.src_idx.to(device)
+        self.rel_idx.to(device)
+        self.obj_idx.to(device)
+        self.neg_idx.to(device)
+        self.ts.to(device)
 
 # help function for custom Dataloader
 def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('num_neg_sammpling', type=int, help="number of negative sampling of objects for each event")
-parser.add_argument('warm_start_time', type=int, help="training data start from what timestamp")
-parser.add_argument('node_feat_dim', type=int, default=100, help='dimension of embedding for node')
-parser.add_argument('edge_feat_dim', type=int, default=100, help='dimension of embedding for edge')
-parser.add_argument('lr', type=float, default=0.001)
-parser.add_argument('epoch', type=int, default=5)
-parser.add_argument('batch_size', type=int, default=10)
-parser.add_argument('num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
+parser.add_argument('--num_neg_sampling', type=int, default=5, help="number of negative sampling of objects for each event")
+parser.add_argument('--warm_start_time', type=int, default=1200, help="training data start from what timestamp")
+parser.add_argument('--node_feat_dim', type=int, default=100, help='dimension of embedding for node')
+parser.add_argument('--edge_feat_dim', type=int, default=100, help='dimension of embedding for edge')
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--epoch', type=int, default=5)
+parser.add_argument('--batch_size', type=int, default=10)
+parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
                                                                 'check paper Inductive Representation Learning '
                                                                 'for Temporal Graph for detail')
 args = parser.parse_args()
 
-if __file__ == '__main__':
+if __name__ == '__main__':
+    start_time = time.time()
     # load dataset
     contents = Data(dataset='ICEWS18_forecasting')
 
@@ -96,25 +105,27 @@ if __file__ == '__main__':
 
     # DataLoader
     src_and_t = TensorDataset(sub_idx_train_t, rel_idx_train_t, obj_idx_train_t, neg_obj_idx_train_t, ts_train_t)
-    train_data_loader = DataLoader(src_and_t, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=True, shuffle=True)
+    train_data_loader = DataLoader(src_and_t, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
 
-    # check if data is on GPU
-    for sample in train_data_loader:
-        print("Data is pinned in GPU? :{}".format(sample.ts.is_pinned()))
-        break
+    # # check if data is on GPU
+    # for sample in train_data_loader:
+    #     print("Data is pinned? :{}".format(sample.ts.is_pinned()))
+    #     break
 
     # randomly initialize node and edge feature
     node_feature = np.random.randn(len(adj_list), args.node_feat_dim)
     # ignore the correlation between relation and reversed relation
     edge_feature = np.random.randn(len(contents.train_data), args.edge_feat_dim)
 
-    model = TGAN(nf, node_feature, edge_feature)
+    model = TGAN(nf, node_feature, edge_feature, device=device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
     for epoch in range(args.epoch):
         running_loss = 0.0
-        for batch_ndx, sample in enumerate(train_data_loader):
+        for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             # zero the parameter gradients
+            sample.to(device)
+            model.to(device)
             optimizer.zero_grad()
 
             # forward + backward + optimize
@@ -138,6 +149,18 @@ if __file__ == '__main__':
                 print('[%d, %5d] loss: %.3f' %
                       (epoch + 1, batch_ndx + 1, running_loss / 2000))
                 running_loss = 0.0
+        CHECKPOINT_PATH = os.path.join(PackageDir, 'checkpoints_{}_{}'.format(start_time, epoch))
+        if not os.path.exists(CHECKPOINT_PATH):
+            os.makedirs(CHECKPOINT_PATH)
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+            'entity_embedding': model.node_raw_embed,
+            'relation_embedding': model.edge_raw_embed,
+            'time_embedding': model.time_encoder
+        }, CHECKPOINT_PATH)
 
     print("Finished Training")
 

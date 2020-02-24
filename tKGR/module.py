@@ -182,7 +182,7 @@ class TimeEncode(torch.nn.Module):
     '''
     This class implemented the Bochner's time embedding
     '''
-    def __init__(self, expand_dim):
+    def __init__(self, expand_dim, device='cpu'):
         '''
 
         :param expand_dim: number of samples draw from p(w), which are used to estimate kernel based on MCMC
@@ -382,7 +382,7 @@ class MergeLayerV2(torch.nn.Module):
 class TGAN(torch.nn.Module):
     def __init__(self, ngh_finder, n_feat, e_feat,
                  attn_mode='prod', use_time='time', agg_method='attn',
-                 num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None):
+                 num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None, device='cpu'):
         '''
 
         :param ngh_finder: an instance of NeighborFinder
@@ -404,8 +404,8 @@ class TGAN(torch.nn.Module):
 
         self.logger = logging.getLogger(__name__)
 
-        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))
-        self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
+        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)), requires_grad=False)
+        self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)), requires_grad=False)
         self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
         self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False)
 
@@ -436,7 +436,7 @@ class TGAN(torch.nn.Module):
             raise ValueError('invalid agg_method value')
 
         if use_time == 'time':
-            self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim)
+            self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim, device=device)
         elif use_time == 'pos':
             assert(seq_len is not None)
             self.logger.info('Using positional encoding')
@@ -508,8 +508,8 @@ class TGAN(torch.nn.Module):
         device = self.n_feat_th.device
 
         batch_size = len(src_idx_l)
-        src_node_batch_th = torch.from_numpy(src_idx_l).long().to(device)
-        cut_time_l_th = torch.from_numpy(cut_time_l).long().to(device)
+        src_node_batch_th = torch.from_numpy(src_idx_l).long()
+        cut_time_l_th = torch.from_numpy(cut_time_l).long()
         cut_time_l_th = torch.unsqueeze(cut_time_l_th, dim=1)
         src_node_t = self.time_encoder(cut_time_l_th)
         src_node_t = torch.squeeze(src_node_t, dim=1)
@@ -529,11 +529,11 @@ class TGAN(torch.nn.Module):
                 cut_time_l,
                 num_neighbors=num_neighbors)
 
-            src_ngh_node_batch_th = torch.from_numpy(src_ngh_node_batch).long().to(device)
-            src_ngh_eidx_batch = torch.from_numpy(src_ngh_eidx_batch).long().to(device)
+            src_ngh_node_batch_th = torch.from_numpy(src_ngh_node_batch).long()
+            src_ngh_eidx_batch = torch.from_numpy(src_ngh_eidx_batch).long()
 
             src_ngh_t_batch_delta = cut_time_l[:, np.newaxis] - src_ngh_t_batch
-            src_ngh_t_batch_th = torch.from_numpy(src_ngh_t_batch_delta).float().to(device)
+            src_ngh_t_batch_th = torch.from_numpy(src_ngh_t_batch_delta).float()
 
             # get previous layer's node features
             src_ngh_node_batch_flat = src_ngh_node_batch.flatten()  # reshape(batch_size, -1)

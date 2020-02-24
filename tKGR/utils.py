@@ -52,7 +52,7 @@ class Data:
         # self.entity_idxs, self.relation_idxs, self.timestamp_idxs = self._get_idx()
 
     def _load_data(self, data_dir, data_type="train"):
-        with open(os.path.join(data_dir, "{}.txt".format(data_type))) as f:
+        with open(os.path.join(data_dir, "{}.txt".format(data_type)), 'r', encoding='utf-8') as f:
             data = f.readlines()
             data = np.array([line.split("\t") for line in data])  # only cut by "\t", not by white space.
             data = np.vstack([[int(_.strip()) for _ in line] for line in data])  # remove white space
@@ -109,14 +109,14 @@ class Data:
         return  entity_idxs, relation_idxs, timestamp_idxs
     
     def _id2entity(self, dataset):
-        with open(os.path.join(DataDir, dataset, "entity2id.txt")) as f:
+        with open(os.path.join(DataDir, dataset, "entity2id.txt"), 'r', encoding='utf-8') as f:
             mapping = f.readlines()
             mapping = [entity.strip().split("\t") for entity in mapping]
             mapping = {int(ent2idx[1].strip()):ent2idx[0].strip() for ent2idx in mapping}
         return mapping
     
     def _id2relation(self, dataset):
-        with open(os.path.join(DataDir, dataset, "relation2id.txt")) as f:
+        with open(os.path.join(DataDir, dataset, "relation2id.txt"), 'r', encoding='utf-8') as f:
             mapping = f.readlines()
             mapping = [relation.strip().split("\t") for relation in mapping]
             id2relation = {}
