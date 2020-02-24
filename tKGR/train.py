@@ -34,12 +34,6 @@ def prepare_inputs(contents, num_neg_sampling=5, start_time=0):
     '''
     events_train = np.vstack([np.array(event) for event in contents.train_data if event[3] >= start_time])
     neg_obj_idx_train = contents.neg_sampling_object(num_neg_sampling, start_time=start_time)
-
-    # sub_idx_train_t = torch.from_numpy(sub_idx_train).long()
-    # rel_idx_train_t = torch.from_numpy(rel_idx_train).long()
-    # obj_idx_train_t = torch.from_numpy(obj_idx_train).long()
-    # neg_obj_idx_train_t = torch.from_numpy(neg_obj_idx_train).long()
-    # ts_train_t = torch.from_numpy(ts_train).long()
     return np.concatenate([events_train, neg_obj_idx_train], axis=1)
 
 
@@ -47,11 +41,11 @@ def prepare_inputs(contents, num_neg_sampling=5, start_time=0):
 class SimpleCustomBatch:
     def __init__(self, data):
         transposed_data = list(zip(*data))
-        self.src_idx = np.vstack(transposed_data[0])
-        self.rel_idx = np.vstack(transposed_data[1])
-        self.obj_idx = np.vstack(transposed_data[2])
-        self.ts = np.vstack(transposed_data[3])
-        self.neg_idx = np.vstack(transposed_data[4:]).T
+        self.src_idx = np.array(transposed_data[0])
+        self.rel_idx = np.array(transposed_data[1])
+        self.obj_idx = np.array(transposed_data[2])
+        self.ts = np.array(transposed_data[3])
+        self.neg_idx = np.array(transposed_data[4:]).T
 
     # custom memory pinning method on custom type
     def pin_memory(self):
@@ -91,11 +85,10 @@ if __name__ == '__main__':
     nf = NeighborFinder(adj_list)
 
     # prepare training data
-    # numpy array, each raw: [src_idx, rel_idx, obj_idx, timestampl, neg_idx[0], neg_idx[1], ...]
-    train_data = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
+    train_inputs= prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
 
     # DataLoader
-    train_data_loader = DataLoader(train_data, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
+    train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
 
     # # check if data is on GPU
     # for sample in train_data_loader:
@@ -115,13 +108,12 @@ if __name__ == '__main__':
         running_loss = 0.0
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             # zero the parameter gradients
-            sample.to(device)
             optimizer.zero_grad()
 
             # forward + backward + optimize
             src_embed, target_embed, neg_embed = model.forward(
                 sample.src_idx, sample.obj_idx, sample.neg_idx, sample.ts, num_neighbors=args.num_neighbors)
-            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(sample.rel_idx))
+            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(torch.from_numpy(sample.rel_idx)))
 
             loss_pos_term = -torch.nn.LogSigmoid()(
                 -torch.bmm(

@@ -486,16 +486,12 @@ class TGAN(torch.nn.Module):
         batch_size = neg_idx.shape[0]
         num_neg =neg_idx.shape[1]
 
-        src_idx_np = src_idx.numpy()
-        target_idx_np = target_idx.numpy()
-        neg_idx_np = neg_idx.numpy()
-        cut_time_np = cut_time.numpy()
-
-        src_embed = self.tem_conv(src_idx_np, cut_time_np, self.num_layers, num_neighbors)
-        target_embed = self.tem_conv(target_idx_np, cut_time_np, self.num_layers, num_neighbors)
-        neg_idx_flatten = neg_idx_np.flatten()  # [batch_size x num_neg,]
+        src_embed = self.tem_conv(src_idx, cut_time, self.num_layers, num_neighbors)
+        target_embed = self.tem_conv(target_idx, cut_time, self.num_layers, num_neighbors)
+        neg_idx_flatten = neg_idx.flatten()  # [batch_size x num_neg,]
         # repeat cut_time num_neg times along axis = 0, so that each negative sampling have a cutting time
-        cut_time_repeat = np.repeat(cut_time_np, num_neg, axis=0)  # [batch_size x num_neg, ]
+        cut_time_repeat = np.repeat(cut_time, num_neg, axis=0)  # [batch_size x num_neg, ]
+
         neg_embed = self.tem_conv(neg_idx_flatten, cut_time_repeat, self.num_layers, num_neighbors)
         return src_embed, target_embed, neg_embed.view(batch_size, num_neg, -1)
 
@@ -504,8 +500,8 @@ class TGAN(torch.nn.Module):
         For target node at time t, aggregate features of its neighborhood $\mathcal{N}(v_0; t)={v_1, ..., v_N}$,
         i.e. entities that have interaction with target node prior to t,
         and combined it with its own feature.
-        :param src_idx: a batch of source node index
-        :param cut_time: a batch of cutting time
+        :param src_idx: a batch of source node index [batch_size, ]
+        :param cut_time: a batch of cutting time [batch_size, ]
         :param curr_layers: indicator for recursion
         :param num_neighbors: number of neighbors to draw for a source node
         :return: a new feature representation for nodes in src_idx_l at corresponding cutting time
