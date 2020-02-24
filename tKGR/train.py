@@ -32,29 +32,22 @@ def prepare_inputs(contents, num_neg_sampling=5, start_time=0):
     neg_obj_idx_train: tensor of negtive sampling of objects [N, num_neg_sampling]
     ts_train_t: tensor of timestamp [N, ]
     '''
-    sub_idx_train = np.array([event[0] for event in contents.train_data if event[3] >= start_time])
-    rel_idx_train = np.array([event[1] for event in contents.train_data if event[3] >= start_time])
-    obj_idx_train = np.array([event[2] for event in contents.train_data if event[3] >= start_time])
-    ts_train = np.array([event[3] for event in contents.train_data if event[3] >= start_time])
+
+    events_train = np.vstack([np.array(event) for event in contents.train_data if event[3] >= start_time])
     neg_obj_idx_train = contents.neg_sampling_object(num_neg_sampling, start_time=start_time)
 
-    sub_idx_train_t = torch.from_numpy(sub_idx_train).long()
-    rel_idx_train_t = torch.from_numpy(rel_idx_train).long()
-    obj_idx_train_t = torch.from_numpy(obj_idx_train).long()
-    neg_obj_idx_train_t = torch.from_numpy(neg_obj_idx_train).long()
-    ts_train_t = torch.from_numpy(ts_train).long()
-    return sub_idx_train_t, rel_idx_train_t, obj_idx_train_t, neg_obj_idx_train_t, ts_train_t
+    return np.concatenate([events_train, neg_obj_idx_train], axis=1)
 
 
 # help Module for custom Dataloader
 class SimpleCustomBatch:
     def __init__(self, data):
         transposed_data = list(zip(*data))
-        self.src_idx = torch.stack(transposed_data[0], 0)
-        self.rel_idx = torch.stack(transposed_data[1], 0)
-        self.obj_idx = torch.stack(transposed_data[2], 0)
-        self.neg_idx = torch.stack(transposed_data[3], 0)
-        self.ts = torch.stack(transposed_data[4], 0)
+        self.src_idx = np.array(transposed_data[0])
+        self.rel_idx = np.array(transposed_data[1])
+        self.obj_idx = np.array(transposed_data[2])
+        self.ts = np.array(transposed_data[3])
+        self.neg_idx = np.array(transposed_data[4:]).T
 
     # custom memory pinning method on custom type
     def pin_memory(self):
@@ -66,12 +59,6 @@ class SimpleCustomBatch:
 
         return self
 
-    def to(self, device):
-        self.src_idx.to(device)
-        self.rel_idx.to(device)
-        self.obj_idx.to(device)
-        self.neg_idx.to(device)
-        self.ts.to(device)
 
 # help function for custom Dataloader
 def collate_wrapper(batch):
@@ -100,12 +87,10 @@ if __name__ == '__main__':
     nf = NeighborFinder(adj_list)
 
     # prepare training data
-    sub_idx_train_t, rel_idx_train_t, obj_idx_train_t, neg_obj_idx_train_t, ts_train_t = prepare_inputs(
-        contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
+    train_inputs= prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
 
     # DataLoader
-    src_and_t = TensorDataset(sub_idx_train_t, rel_idx_train_t, obj_idx_train_t, neg_obj_idx_train_t, ts_train_t)
-    train_data_loader = DataLoader(src_and_t, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
+    train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
 
     # # check if data is on GPU
     # for sample in train_data_loader:
@@ -118,20 +103,19 @@ if __name__ == '__main__':
     edge_feature = np.random.randn(len(contents.train_data), args.edge_feat_dim)
 
     model = TGAN(nf, node_feature, edge_feature, device=device)
+    model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
     for epoch in range(args.epoch):
         running_loss = 0.0
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             # zero the parameter gradients
-            sample.to(device)
-            model.to(device)
             optimizer.zero_grad()
 
             # forward + backward + optimize
             src_embed, target_embed, neg_embed = model.forward(
                 sample.src_idx, sample.obj_idx, sample.neg_idx, sample.ts, num_neighbors=args.num_neighbors)
-            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(sample.rel_idx))
+            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(torch.from_numpy(sample.rel_idx)))
 
             loss_pos_term = -torch.nn.LogSigmoid()(
                 -torch.bmm(
