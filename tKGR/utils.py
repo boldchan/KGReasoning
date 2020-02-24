@@ -91,7 +91,7 @@ class Data:
             while True:
                 candidate = np.random.choice(self.num_entities)
                 if candidate not in spt_o[(event[0], event[1], event[3])]:
-                    neg_object_one_node.append(candidate+1) # 0-th is a dummy node used to stuff the neighborhood when there is not enough nodes in the neighborhood
+                    neg_object_one_node.append(candidate) # 0-th is a dummy node used to stuff the neighborhood when there is not enough nodes in the neighborhood
                 if len(neg_object_one_node) == Q:
                     neg_object.append(neg_object_one_node)
                     break
@@ -237,7 +237,7 @@ class NeighborFinder:
         """
         assert (len(src_idx_l) == len(cut_time_l))
 
-        out_ngh_node_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
+        out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
         out_ngh_eidx_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
 

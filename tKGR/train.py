@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 import time
+import pdb
 
 import numpy as np
 import torch
@@ -113,7 +114,8 @@ if __name__ == '__main__':
             # forward + backward + optimize
             src_embed, target_embed, neg_embed = model.forward(
                 sample.src_idx, sample.obj_idx, sample.neg_idx, sample.ts, num_neighbors=args.num_neighbors)
-            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(torch.from_numpy(sample.rel_idx)))
+            sample_rel_idx_t = torch.from_numpy(sample.rel_idx).detach_().to(device)
+            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(sample_rel_idx_t))
 
             loss_pos_term = -torch.nn.LogSigmoid()(
                 -torch.bmm(
@@ -123,6 +125,7 @@ if __name__ == '__main__':
                 torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
             loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
             loss.backward()
+            pdb.set_trace()
             optimizer.step()
 
             # print statistics
