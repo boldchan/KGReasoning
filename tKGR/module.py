@@ -204,6 +204,7 @@ class TimeEncode(torch.nn.Module):
         seq_len = ts.size(1)
 
         ts = torch.unsqueeze(ts, dim=2)
+        print("Forward in TimeEncode: ts is on ", ts.get_device())
         map_ts = ts * self.basis_freq.view(1,1,-1) # [batch_size, seq_len, time_dim]
         map_ts += self.phase.view(1,1,-1)
 
@@ -416,6 +417,7 @@ class TGAN(torch.nn.Module):
         self.model_dim = self.feat_dim
 
         self.use_time = use_time
+        self.device = device
         self.merge_layer = MergeLayerV1(self.feat_dim, self.feat_dim, self.feat_dim)
 
         if agg_method == 'attn':
@@ -484,11 +486,16 @@ class TGAN(torch.nn.Module):
         batch_size = neg_idx.shape[0]
         num_neg =neg_idx.shape[1]
 
-        src_embed = self.tem_conv(src_idx.numpy(), cut_time.numpy(), self.num_layers, num_neighbors)
-        target_embed = self.tem_conv(target_idx.numpy(), cut_time.numpy(), self.num_layers, num_neighbors)
-        neg_idx_flatten = neg_idx.numpy().flatten()  # [batch_size x num_neg,]
+        src_idx_np = src_idx.numpy()
+        target_idx_np = target_idx.numpy()
+        neg_idx_np = neg_idx.numpy()
+        cut_time_np = cut_time.numpy()
+
+        src_embed = self.tem_conv(src_idx_np, cut_time_np, self.num_layers, num_neighbors)
+        target_embed = self.tem_conv(target_idx_np, cut_time_np, self.num_layers, num_neighbors)
+        neg_idx_flatten = neg_idx_np.flatten()  # [batch_size x num_neg,]
         # repeat cut_time num_neg times along axis = 0, so that each negative sampling have a cutting time
-        cut_time_repeat = np.repeat(cut_time.numpy(), num_neg, axis=0)  # [batch_size x num_neg, ]
+        cut_time_repeat = np.repeat(cut_time_np, num_neg, axis=0)  # [batch_size x num_neg, ]
         neg_embed = self.tem_conv(neg_idx_flatten, cut_time_repeat, self.num_layers, num_neighbors)
         return src_embed, target_embed, neg_embed.view(batch_size, num_neg, -1)
 
@@ -508,9 +515,12 @@ class TGAN(torch.nn.Module):
         device = self.n_feat_th.device
 
         batch_size = len(src_idx_l)
-        src_node_batch_th = torch.from_numpy(src_idx_l).long()
-        cut_time_l_th = torch.from_numpy(cut_time_l).long()
+        print(cut_time_l)
+        src_node_batch_th = torch.from_numpy(src_idx_l).long().to(self.device)
+        cut_time_l_th = torch.from_numpy(cut_time_l).long().to(self.device)
         cut_time_l_th = torch.unsqueeze(cut_time_l_th, dim=1)
+        print(cut_time_l_th.shape)
+        print('cut_time_l_th in ', cut_time_l_th.get_device())
         src_node_t = self.time_encoder(cut_time_l_th)
         src_node_t = torch.squeeze(src_node_t, dim=1)
 

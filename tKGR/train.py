@@ -117,7 +117,7 @@ if __name__ == '__main__':
     # ignore the correlation between relation and reversed relation
     edge_feature = np.random.randn(len(contents.train_data), args.edge_feat_dim)
 
-    model = TGAN(nf, node_feature, edge_feature, device=device)
+    model = TGAN(nf, node_feature, edge_feature, device=device).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
     for epoch in range(args.epoch):
@@ -125,7 +125,6 @@ if __name__ == '__main__':
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             # zero the parameter gradients
             sample.to(device)
-            model.to(device)
             optimizer.zero_grad()
 
             # forward + backward + optimize
