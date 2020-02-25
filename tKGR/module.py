@@ -520,7 +520,7 @@ class TGAN(torch.nn.Module):
         src_node_t = self.time_encoder(cut_time_l_th)
         src_node_t = torch.squeeze(src_node_t, dim=1)
 
-        src_node_feat = self.node_raw_embed(src_node_batch_th)
+        src_node_feat = self.node_raw_embed(src_node_batch_th+1)  # redindes when looking up node embedding, since 0 represents dummy node
 
         if curr_layers == 0:
             return src_node_feat

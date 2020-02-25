@@ -42,11 +42,11 @@ def prepare_inputs(contents, num_neg_sampling=5, start_time=0):
 class SimpleCustomBatch:
     def __init__(self, data):
         transposed_data = list(zip(*data))
-        self.src_idx = np.array(transposed_data[0]) + 1  # reindex, start from 1, since 0 indicates dummy node
+        self.src_idx = np.array(transposed_data[0])
         self.rel_idx = np.array(transposed_data[1])
-        self.obj_idx = np.array(transposed_data[2]) + 1  # reindex, start from 1, since 0 indicates dummy node
+        self.obj_idx = np.array(transposed_data[2])
         self.ts = np.array(transposed_data[3])
-        self.neg_idx = np.array(transposed_data[4:]).T + 1 # reindex, start from 1, since 0 indicates dummy node
+        self.neg_idx = np.array(transposed_data[4:]).T
 
     # custom memory pinning method on custom type
     def pin_memory(self):
