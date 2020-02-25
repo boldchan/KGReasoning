@@ -17,7 +17,7 @@ from utils import Data, NeighborFinder
 from module import TGAN
 
 if torch.cuda.is_available():
-    device = 'cuda:6'
+    device = 'cuda:4'
 else:
     device = 'cpu'
 
@@ -74,10 +74,15 @@ parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
                                                                 'check paper Inductive Representation Learning '
                                                                 'for Temporal Graph for detail')
+parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 args = parser.parse_args()
 
 if __name__ == '__main__':
     start_time = time.time()
+    if torch.cuda.is_available():
+        device = 'cuda:{}'.format(args.device) if args.device>=0 else 'cpu'
+    else:
+        device = 'cpu'
     # load dataset
     contents = Data(dataset='ICEWS18_forecasting')
 
@@ -120,7 +125,6 @@ if __name__ == '__main__':
                 torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
             loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
             loss.backward()
-            pdb.set_trace()
             optimizer.step()
 
             # print statistics
@@ -143,5 +147,6 @@ if __name__ == '__main__':
         }, CHECKPOINT_PATH)
 
     print("Finished Training")
+
 
 
