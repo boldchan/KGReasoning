@@ -73,7 +73,7 @@ class Data:
         timestamps = np.array(sorted(list(set([d[3] for d in data]))))
         return timestamps
 
-    def neg_sampling_object(self, Q, start_time = 0):
+    def neg_sampling_object(self, Q, dataset = 'train', start_time = 0):
         '''
 
         :param Q: number of negative sampling for each real quadruple
@@ -83,10 +83,27 @@ class Data:
         '''
         neg_object = []
         spt_o = defaultdict(list)  # dict: (s, p, r)--> [o]
-        train_data_after_start_time = [event for event in self.train_data if event[3]>=start_time]
-        for event in train_data_after_start_time:
+        if dataset == 'train':
+            contents_dataset = self.train_data
+            if start_time is None:
+                start_time = 0
+        elif dataset == 'valid':
+            contents_dataset = self.valid_data
+            if start_time is None:
+                start_time = 5760
+            assert start_time >= 5760
+        elif dataset == 'test':
+            contents_dataset = self.test_data
+            if start_time is None:
+                start_time = 6480
+            assert start_time >= 6480
+        else:
+            raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
+
+        data_after_start_time = [event for event in contents_dataset if event[3]>=start_time]
+        for event in data_after_start_time:
             spt_o[(event[0], event[1], event[3])].append(event[2])
-        for event in train_data_after_start_time:
+        for event in data_after_start_time:
             neg_object_one_node = []
             while True:
                 candidate = np.random.choice(self.num_entities)

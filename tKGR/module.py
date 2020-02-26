@@ -466,29 +466,29 @@ class TGAN(torch.nn.Module):
     def link_predict(self, src_idx_l, rel_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
         '''
         predict the probability of link exists between entity src_idx_l and entity target_idx_l at time cut_time_l
-        :param src_idx_l: tensor of subject index [batch_size, ]
-        :param rel_idx_l: tensor of predicate index [batch_size, ]
-        :param target_idx_l: tensor of object index [batch_size, ]
-        :param cut_time_l: tensor of timestamp [batch_size, ]
-        :param num_neighbors:
+        :param src_idx_l: numpy array of subject index [batch_size, ]
+        :param rel_idx_l: numpy array of predicate index [batch_size, ]
+        :param target_idx_l: numpy array of object index [batch_size, ]
+        :param cut_time_l: numpy array of timestamp [batch_size, ]
+        :param num_neighbors: int
         :return:
+        score: tensor [batch]
         '''
-        src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)
-        target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers, num_neighbors)
-        rel_embed = self.edge_raw_embed(rel_idx_l)
-        rel_embed_diag = torch.diag_embed(rel_embed)
+        src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)  # [batch_size, feature_dim]
+        target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers, num_neighbors)  # [batch_size, feature_dim]
+        rel_embed = self.edge_raw_embed(torch.from_numpy(rel_idx_l)).long().to(self.device)  # [batch_size, feature_dim]
 
         # TBD: inference using s(t),p(t),o
-        score = self.affinity_score(src_embed, target_embed).squeeze(dim=-1)
+        score = torch.sum(src_embed*target_embed*rel_embed, dim=1, keepdim=False)
         return score
 
     def forward(self, src_idx, target_idx, neg_idx, cut_time, num_neighbors=20):
         '''
-        :param src_idx: tensor of subject index [batch_size, ]
-        :param target_idx: tensor of object index [batch_size, ]
-        :param neg_idx: tensor of false object index, [batch_size, num_neg Q]
-        :param cut_time: tensor of timestamp [batch_size, ]
-        :param num_neighbors:
+        :param src_idx: numpy array of subject index [batch_size, ]
+        :param target_idx: numpy array of object index [batch_size, ]
+        :param neg_idx: numpy array of false object index, [batch_size, num_neg Q]
+        :param cut_time: numpy array of timestamp [batch_size, ]
+        :param num_neighbors: int
         :return:
         output of encoder, i.e. representation of src_idx_l, target_idx_l and neg_idx_l
         src_idx_l: [batch_size, num_dim]

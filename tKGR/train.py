@@ -9,6 +9,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
+from sklearn.metrics import roc_auc_score, average_precision_score, f1_score
 
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
@@ -21,11 +22,12 @@ if torch.cuda.is_available():
 else:
     device = 'cpu'
 
-def prepare_inputs(contents, num_neg_sampling=5, start_time=0):
+def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=None):
     '''
     :param contents: instance of Data object
     :param num_neg_sampling: how many negtive sampling of objects for each event
     :param start_time: neg sampling for events since start_time (inclusive)
+    :param dataset: 'train', 'valid', 'test'
     :return:
     sub_idx_train_t: tensor of subject index [N, ]
     rel_idx_train_t: tensor of relation index [N, ]
@@ -33,9 +35,25 @@ def prepare_inputs(contents, num_neg_sampling=5, start_time=0):
     neg_obj_idx_train: tensor of negtive sampling of objects [N, num_neg_sampling]
     ts_train_t: tensor of timestamp [N, ]
     '''
-    events_train = np.vstack([np.array(event) for event in contents.train_data if event[3] >= start_time])
-    neg_obj_idx_train = contents.neg_sampling_object(num_neg_sampling, start_time=start_time)
-    return np.concatenate([events_train, neg_obj_idx_train], axis=1)
+    if dataset == 'train':
+        contents_dataset = contents.train_data
+        if start_time is None:
+            start_time = 0
+    elif dataset == 'valid':
+        contents_dataset = contents.valid_data
+        if start_time is None:
+            start_time = 5760
+        assert start_time >= 5760
+    elif dataset == 'test':
+        contents_dataset = contents.test_data
+        if start_time is None:
+            start_time = 6480
+        assert start_time >= 6480
+    else:
+        raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
+    events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
+    neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, datset=dataset, start_time=start_time)
+    return np.concatenate([events, neg_obj_idx], axis=1)
 
 
 # help Module for custom Dataloader
@@ -63,8 +81,51 @@ class SimpleCustomBatch:
 def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
+
+def eval_one_epoch(tgan, sampler, src, dst, ts):
+    '''
+
+    :param hint:
+    :param tgan: TGAN model
+    :param sampler:
+    :param src: list of subject index [N, ]
+    :param dst: list of object index [N, ]
+    :param ts: list of timestamp [N, ]
+    :return:
+    '''
+    val_acc, val_ap, val_f1, val_auc = [], [], [], []
+    with torch.no_grad():
+        tgan = tgan.eval()
+        TEST_BATCH_SIZE = 30
+        num_test_instance = len(src)
+        num_test_batch = int(np.ceil(num_test_instance / TEST_BATCH_SIZE))
+        for k in range(num_test_batch):
+            s_idx = k * TEST_BATCH_SIZE
+            e_idx = min(num_test_instance, s_idx + TEST_BATCH_SIZE)
+            src_l_cut = src[s_idx:e_idx]
+            dst_l_cut = dst[s_idx:e_idx]
+            ts_l_cut = ts[s_idx:e_idx]
+            # label_l_cut = label[s_idx:e_idx]
+
+            size = len(src_l_cut)
+            src_l_fake, dst_l_fake = sampler.sample(size)
+
+            pos_prob, neg_prob = tgan.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, NUM_NEIGHBORS)
+
+            pred_score = np.concatenate([pos_prob.cpu().numpy(), neg_prob.cpu().numpy()])
+            pred_label = pred_score > 0.5
+            true_label = np.concatenate([np.ones(size), np.zeros(size)])
+
+            val_acc.append((pred_label == true_label).mean())
+            val_ap.append(average_precision_score(true_label, pred_score))
+            # val_f1.append(f1_score(true_label, pred_label))
+            val_auc.append(roc_auc_score(true_label, pred_score))
+    return np.mean(val_acc), np.mean(val_ap), np.mean(val_f1), np.mean(val_auc)
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--num_neg_sampling', type=int, default=5, help="number of negative sampling of objects for each event")
+parser.add_argument('--num_layers', type=int, default=2, help='number of TGAN layers')
 parser.add_argument('--warm_start_time', type=int, default=1200, help="training data start from what timestamp")
 parser.add_argument('--node_feat_dim', type=int, default=100, help='dimension of embedding for node')
 parser.add_argument('--edge_feat_dim', type=int, default=100, help='dimension of embedding for edge')
@@ -74,6 +135,7 @@ parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
                                                                 'check paper Inductive Representation Learning '
                                                                 'for Temporal Graph for detail')
+parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 args = parser.parse_args()
 
@@ -91,17 +153,21 @@ if __name__ == '__main__':
     nf = NeighborFinder(adj_list)
 
     # prepare training data
-    train_inputs= prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
+    train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
+    # prepare validation data
+    val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')  # TBD: remove unseen entity and relation in valid and test
+    test_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
 
     # DataLoader
     train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
+    val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
 
     # randomly initialize node and edge feature
     node_feature = np.random.randn(len(adj_list)+1, args.node_feat_dim)  # first row: embedding for dummy node
     # ignore the correlation between relation and reversed relation
     edge_feature = np.random.randn(len(contents.train_data), args.edge_feat_dim)
 
-    model = TGAN(nf, node_feature, edge_feature, device=device)
+    model = TGAN(nf, node_feature, edge_feature, num_layers=args.num_layers, device=device)
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
