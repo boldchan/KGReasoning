@@ -52,7 +52,7 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=Non
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
-    neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, datset=dataset, start_time=start_time)
+    neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
     return np.concatenate([events, neg_obj_idx], axis=1)
 
 
@@ -82,45 +82,39 @@ def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def eval_one_epoch(tgan, sampler, src, dst, ts):
+def val_loss(tgan, valid_dataloader, num_neighbors):
     '''
 
-    :param hint:
-    :param tgan: TGAN model
-    :param sampler:
-    :param src: list of subject index [N, ]
-    :param dst: list of object index [N, ]
-    :param ts: list of timestamp [N, ]
+    :param tgan:
+    :param valid_dataloader:
+    :param num_neighbors:
     :return:
     '''
-    val_acc, val_ap, val_f1, val_auc = [], [], [], []
+    val_loss = []
     with torch.no_grad():
         tgan = tgan.eval()
-        TEST_BATCH_SIZE = 30
-        num_test_instance = len(src)
-        num_test_batch = int(np.ceil(num_test_instance / TEST_BATCH_SIZE))
-        for k in range(num_test_batch):
-            s_idx = k * TEST_BATCH_SIZE
-            e_idx = min(num_test_instance, s_idx + TEST_BATCH_SIZE)
-            src_l_cut = src[s_idx:e_idx]
-            dst_l_cut = dst[s_idx:e_idx]
-            ts_l_cut = ts[s_idx:e_idx]
-            # label_l_cut = label[s_idx:e_idx]
+        for sample in valid_dataloader:
+            src_idx = sample.src_idx
+            obj_idx = sample.obj_idx
+            rel_idx = sample.rel_idx
+            ts = sample.ts
+            neg_idx = sample.neg_idx
 
-            size = len(src_l_cut)
-            src_l_fake, dst_l_fake = sampler.sample(size)
+            src_embed, target_embed, neg_embed = tgan.forward(src_idx, obj_idx, neg_idx, ts, num_neighbors)
 
-            pos_prob, neg_prob = tgan.contrast(src_l_cut, dst_l_cut, dst_l_fake, ts_l_cut, NUM_NEIGHBORS)
+            rel_idx_t = torch.from_numpy(rel_idx).detach_().to(device)
+            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(rel_idx_t))
 
-            pred_score = np.concatenate([pos_prob.cpu().numpy(), neg_prob.cpu().numpy()])
-            pred_label = pred_score > 0.5
-            true_label = np.concatenate([np.ones(size), np.zeros(size)])
+            loss_pos_term = -torch.nn.LogSigmoid()(
+                -torch.bmm(
+                    torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
+                    torch.unsqueeze(target_embed, 2)))  # Bx1
+            loss_neg_term = torch.nn.LogSigmoid()(
+                torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
 
-            val_acc.append((pred_label == true_label).mean())
-            val_ap.append(average_precision_score(true_label, pred_score))
-            # val_f1.append(f1_score(true_label, pred_label))
-            val_auc.append(roc_auc_score(true_label, pred_score))
-    return np.mean(val_acc), np.mean(val_ap), np.mean(val_f1), np.mean(val_auc)
+            loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
+            val_loss.append(loss)
+    return np.mean(val_loss)
 
 
 parser = argparse.ArgumentParser()
@@ -196,8 +190,9 @@ if __name__ == '__main__':
             # print statistics
             running_loss += loss.item()
             if batch_ndx % 2000 == 1999:
-                print('[%d, %5d] loss: %.3f' %
-                      (epoch + 1, batch_ndx + 1, running_loss / 2000))
+                val_loss = val_loss(model, val_data_loader, num_neighbors=args.num_neighbors)
+                print('[%d, %5d] training loss: %.3f, validation loss: %.3f' %
+                      (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss))
                 running_loss = 0.0
         CHECKPOINT_PATH = os.path.join(PackageDir, 'checkpoints_{}_{}'.format(start_time, epoch))
         if not os.path.exists(CHECKPOINT_PATH):

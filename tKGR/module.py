@@ -503,8 +503,8 @@ class TGAN(torch.nn.Module):
         neg_idx_flatten = neg_idx.flatten()  # [batch_size x num_neg,]
         # repeat cut_time num_neg times along axis = 0, so that each negative sampling have a cutting time
         cut_time_repeat = np.repeat(cut_time, num_neg, axis=0)  # [batch_size x num_neg, ]
-
         neg_embed = self.tem_conv(neg_idx_flatten, cut_time_repeat, self.num_layers, num_neighbors)
+
         return src_embed, target_embed, neg_embed.view(batch_size, num_neg, -1)
 
     def tem_conv(self, src_idx_l, cut_time_l, curr_layers, num_neighbors):
