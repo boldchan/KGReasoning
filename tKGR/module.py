@@ -499,7 +499,7 @@ class TGAN(torch.nn.Module):
         cut_time_l = np.array([cut_time])
 
         src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)  # tensor [1, feature_dim]
-        rel_embed = self.edge_raw_embed(torch.from_numpy(rel_idx_l)).long().to(self.device)  # tensor [1, feature_dim]
+        rel_embed = self.edge_raw_embed(torch.from_numpy(rel_idx_l).long().to(self.device))  # tensor [1, feature_dim]
 
         num_entity = len(self.n_feat_th) - 1  # node embedding: first row for dummy node
         all_target_l = np.arange(num_entity)
