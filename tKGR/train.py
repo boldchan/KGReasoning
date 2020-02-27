@@ -143,7 +143,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2
             # prediction accuracy
             if cal_acc:
                 for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
-                    pred_score = tgan.obj_predict(src_idx, rel_idx, ts).numpy()
+                    pred_score = tgan.obj_predict(src_idx, rel_idx, ts).cpu().numpy()
                     if spt2o is not None:
                         pdb.set_trace()
                         mask = np.ones_like(pred_score, dtype=bool)
