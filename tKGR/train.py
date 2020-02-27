@@ -1,5 +1,7 @@
 import os
 import sys
+
+from collections import defaultdict
 import argparse
 import time
 import pdb
@@ -31,11 +33,8 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=Non
     :param start_time: neg sampling for events since start_time (inclusive)
     :param dataset: 'train', 'valid', 'test'
     :return:
-    sub_idx_train_t: tensor of subject index [N, ]
-    rel_idx_train_t: tensor of relation index [N, ]
-    obj_idx_train_t: tensor of object index [N, ]
-    neg_obj_idx_train: tensor of negtive sampling of objects [N, num_neg_sampling]
-    ts_train_t: tensor of timestamp [N, ]
+    [1]:events concatenated with negativesampling
+    spt2o: mapping from (s,p,t) to list of objects
     '''
     if dataset == 'train':
         contents_dataset = contents.train_data
@@ -55,7 +54,12 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=Non
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
     neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
-    return np.concatenate([events, neg_obj_idx], axis=1)
+    spt2o = defaultdict(list)
+    # objects share the same subject, predicate and time. calculated for the convenience of evaluation w.r.t. "fil"
+    if dataset in ['valid', 'test']:
+        for event in events:
+            spt2o[(event[0], event[1], event[3])].append(event[2])
+    return np.concatenate([events, neg_obj_idx], axis=1), spt2o
 
 
 # help Module for custom Dataloader
@@ -84,7 +88,7 @@ def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False):
+def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2o=None):
     '''
 
     :param tgan:
@@ -140,7 +144,13 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False):
             if cal_acc:
                 for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
                     pred_score = tgan.obj_predict(src_idx, rel_idx, ts).numpy()
-                    rank = np.sum(pred_score >= pred_score[obj_idx])  # int
+                    if spt2o is not None:
+                        pdb.set_trace()
+                        mask = np.ones_like(pred_score, dtype=bool)
+                        np.put(mask, spt2o[(src_idx, rel_idx, ts)], False)  # exclude all event with same (s,p,t) even the one with current object
+                        rank = np.sum(pred_score[mask] > pred_score[obj_idx]) + 1
+                        measure.update(rank, 'fil')
+                    rank = np.sum(pred_score > pred_score[obj_idx]) + 1 # int
                     measure.update(rank, 'raw')
 
         measure.normalize(num_events)
@@ -179,10 +189,10 @@ if __name__ == '__main__':
     nf = NeighborFinder(adj_list)
 
     # prepare training data
-    train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
+    train_inputs, _ = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
     # prepare validation data
-    val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')  # TBD: remove unseen entity and relation in valid and test
-    test_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
+    val_inputs, val_spt2o = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')  # TBD: remove unseen entity and relation in valid and test
+    test_inputs, test_spt2o = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
 
     # DataLoader
     train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
@@ -242,13 +252,14 @@ if __name__ == '__main__':
             # print statistics
             running_loss += loss.item()
             if batch_ndx % 2000 == 1999:
-                val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader, num_neighbors=args.num_neighbors, cal_acc=False)
+                val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader, num_neighbors=args.num_neighbors, cal_acc=True, spt2o=val_spt2o)
                 print('[%d, %5d] training loss: %.3f, validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f'%
                       (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss, hit1, hit3, hit10, mr, mrr))
                 running_loss = 0.0
 
         val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
-                                                            num_neighbors=args.num_neighbors, cal_acc=True)
+                                                            num_neighbors=args.num_neighbors,
+                                                            cal_acc=True, spt2o=val_spt2o)
         print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
               (epoch + 1, val_loss, hit1, hit3, hit10, mr, mrr))
         CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
