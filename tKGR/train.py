@@ -235,7 +235,7 @@ if __name__ == '__main__':
 
             # print statistics
             running_loss += loss.item()
-            if batch_ndx % 10 == 9:
+            if batch_ndx % 2000 == 1999:
                 val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader, num_neighbors=args.num_neighbors)
                 print('[%d, %5d] training loss: %.3f, validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f'%
                       (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss, hit1, hit3, hit10, mr, mrr))
