@@ -406,7 +406,7 @@ class TGAN(torch.nn.Module):
         :param agg_method: aggregation method
         :param num_layers:
         :param n_head: number of multihead
-        :param null_idx:
+        :param null_idx: use null_idx to represent dummy node when there is fewer neighbors than required
         :param drop_out:
         :param seq_len:
         '''
