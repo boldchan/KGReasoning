@@ -483,13 +483,14 @@ class TGAN(torch.nn.Module):
         score = torch.sum(score_temp, dim=2, keepdim=False)  # [batch_size, num_relation]
         return score
 
-    def obj_predict(self, src_idx, rel_idx, cut_time, num_neighbors=20):
+    def obj_predict(self, src_idx, rel_idx, cut_time, num_neighbors=20, eval_batch=128):
         '''
         predict the probability distribution of all objects given (s, p, t)
         :param src_idx_l: int
         :param rel_idx_l: int
         :param cut_time_l: int
         :param num_neighbors: int
+        :param eval_batch: how many objects are fed to calculate the score
         :return:
         obj_score: tensor [num_entity, ]
         '''
@@ -502,9 +503,16 @@ class TGAN(torch.nn.Module):
 
         num_entity = len(self.n_feat_th) - 1  # node embedding: first row for dummy node
         all_target_l = np.arange(num_entity)
-        target_embed = self.tem_conv(all_target_l, np.repeat(cut_time_l, num_entity),
-                                     self.num_layers, num_neighbors)  # tensor [num_entity, feature_dim]
 
+        # too much entity, split them
+        target_embed_list = []
+        for target_start_index in np.arange(0, num_entity, eval_batch):
+            target_batch_l = all_target_l[target_start_index:target_start_index+eval_batch]
+            target_embed = self.tem_conv(target_batch_l, np.repeat(cut_time_l, len(target_batch_l)),
+                                         self.num_layers, num_neighbors)  # tensor [num_entity, feature_dim]
+            target_embed_list.append(target_embed)
+
+        target_embed = torch.cat(target_embed_list, dim=0)
         obj_score = torch.sum(src_embed * rel_embed * target_embed, dim=1, keepdim=False)  # [num_entity]
         return obj_score
 
