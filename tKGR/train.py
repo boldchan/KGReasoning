@@ -84,7 +84,7 @@ def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def val_loss_acc(tgan, valid_dataloader, num_neighbors):
+def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False):
     '''
 
     :param tgan:
@@ -137,10 +137,12 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors):
             num_neg_events += len(neg_score)
 
             # prediction accuracy
-            for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
-                pred_score = tgan.obj_predict(src_idx, rel_idx, ts).numpy()
-                rank = np.sum(pred_score >= pred_score[obj_idx])  # int
-                measure.update(rank, 'raw')
+            if cal_acc:
+                for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
+                    pred_score = tgan.obj_predict(src_idx, rel_idx, ts).numpy()
+                    rank = np.sum(pred_score >= pred_score[obj_idx])  # int
+                    measure.update(rank, 'raw')
+
         measure.normalize(num_events)
         val_loss /= (num_neg_events + num_events)
     return val_loss, measure.hit1['raw'], measure.hit3['raw'], measure.hit10['raw'], measure.mr['raw'], measure.mrr['raw']
@@ -221,10 +223,14 @@ if __name__ == '__main__':
                 pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
                 neg_label = torch.zeros(neg_embed.shape[0]*neg_embed.shape[1], dtype=torch.float, device=device)
 
-            pos_score = torch.bmm(
-                torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
-                torch.unsqueeze(target_embed, 2)).view(-1)
-            neg_score = torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1)
+            pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
+            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed,
+                                  dim=2).view(-1)  # [batch_size x num_neg_sampling, ]
+
+            # pos_score = torch.bmm(
+            #     torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
+            #     torch.unsqueeze(target_embed, 2)).view(-1)
+            # neg_score = torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1)
 
             loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
             loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
@@ -236,10 +242,15 @@ if __name__ == '__main__':
             # print statistics
             running_loss += loss.item()
             if batch_ndx % 2000 == 1999:
-                val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader, num_neighbors=args.num_neighbors)
+                val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader, num_neighbors=args.num_neighbors, cal_acc=False)
                 print('[%d, %5d] training loss: %.3f, validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f'%
                       (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss, hit1, hit3, hit10, mr, mrr))
                 running_loss = 0.0
+
+        val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
+                                                            num_neighbors=args.num_neighbors, cal_acc=True)
+        print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
+              (epoch + 1, val_loss, hit1, hit3, hit10, mr, mrr))
         CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
             struct_time.tm_year,
             struct_time.tm_mon,
