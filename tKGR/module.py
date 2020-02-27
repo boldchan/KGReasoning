@@ -367,8 +367,8 @@ class AttnModel(torch.nn.Module):
 
         # target-attention
         output, attn = self.multi_head_target(q=q, k=k, v=k, mask=mask)  # output: [B, 1, D + Dt], attn: [B, 1, N]
-        output = output.squeeze()
-        attn = attn.squeeze()
+        output = output.squeeze(dim=1)
+        attn = attn.squeeze(dim=1)
 
         output = self.merger(output, src)
         return output, attn
@@ -417,7 +417,7 @@ class TGAN(torch.nn.Module):
 
         self.logger = logging.getLogger(__name__)
 
-        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))
+        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))  # len(n_feat_th) = num_enitiy + 1
         self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
         self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
         self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False)
@@ -463,24 +463,52 @@ class TGAN(torch.nn.Module):
 
         self.affinity_score = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, 1)  # torch.nn.Bilinear(self.feat_dim, self.feat_dim, 1, bias=True)
 
-    def link_predict(self, src_idx_l, rel_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
+    def link_predict(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
         '''
         predict the probability of link exists between entity src_idx_l and entity target_idx_l at time cut_time_l
         :param src_idx_l: numpy array of subject index [batch_size, ]
-        :param rel_idx_l: numpy array of predicate index [batch_size, ]
         :param target_idx_l: numpy array of object index [batch_size, ]
         :param cut_time_l: numpy array of timestamp [batch_size, ]
         :param num_neighbors: int
         :return:
-        score: tensor [batch]
+        score: tensor [batch, num_relation]
         '''
         src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)  # [batch_size, feature_dim]
         target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers, num_neighbors)  # [batch_size, feature_dim]
-        rel_embed = self.edge_raw_embed(torch.from_numpy(rel_idx_l)).long().to(self.device)  # [batch_size, feature_dim]
+        rel_embed = self.edge_raw_embed(torch.from_numpy(np.arange(len(self.e_feat_th)))).long().to(self.device)  # [Num_relations, feature_dim]
+        rel_embed = torch.unsqueeze(rel_embed, 0)  # [1, num_relations, feature_dim]
 
         # TBD: inference using s(t),p(t),o
-        score = torch.sum(src_embed*target_embed*rel_embed, dim=1, keepdim=False)
+        score_temp = torch.unsqueeze(src_embed, 1)*rel_embed*torch.unsqueeze(target_embed, 1)  # [batch_size, num_relation, feature_dim]
+        score = torch.sum(score_temp, dim=2, keepdim=False)  # [batch_size, num_relation]
         return score
+
+    def obj_predict(self, src_idx, rel_idx, cut_time, num_neighbors=20):
+        '''
+        predict the probability distribution of all objects given (s, p, t)
+        :param src_idx_l: int
+        :param rel_idx_l: int
+        :param cut_time_l: int
+        :param num_neighbors: int
+        :return:
+        obj_score: tensor [num_entity, ]
+        '''
+        src_idx_l = np.array([src_idx])
+        rel_idx_l = np.array([rel_idx])
+        cut_time_l = np.array([cut_time])
+
+        src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)  # tensor [1, feature_dim]
+        rel_embed = self.edge_raw_embed(torch.from_numpy(rel_idx_l)).long().to(self.device)  # tensor [1, feature_dim]
+
+        num_entity = len(self.n_feat_th) - 1  # node embedding: first row for dummy node
+        all_target_l = np.arange(num_entity)
+        target_embed = self.tem_conv(all_target_l, np.repeat(cut_time_l, num_entity),
+                                     self.num_layers, num_neighbors)  # tensor [num_entity, feature_dim]
+
+        obj_score = torch.sum(src_embed * rel_embed * target_embed, dim=1, keepdim=False)  # [num_entity]
+        return obj_score
+
+
 
     def forward(self, src_idx, target_idx, neg_idx, cut_time, num_neighbors=20):
         '''
@@ -512,8 +540,8 @@ class TGAN(torch.nn.Module):
         For target node at time t, aggregate features of its neighborhood $\mathcal{N}(v_0; t)={v_1, ..., v_N}$,
         i.e. entities that have interaction with target node prior to t,
         and combined it with its own feature.
-        :param src_idx: a batch of source node index [batch_size, ]
-        :param cut_time: a batch of cutting time [batch_size, ]
+        :param src_idx_l: a batch of source node index [batch_size, ]
+        :param cut_time_l: a batch of cutting time [batch_size, ]
         :param curr_layers: indicator for recursion
         :param num_neighbors: number of neighbors to draw for a source node
         :return: a new feature representation for nodes in src_idx_l at corresponding cutting time [batch_size, dim]

@@ -10,11 +10,12 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score, average_precision_score, f1_score
+import pdb
 
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder
+from utils import Data, NeighborFinder, Measure
 from module import TGAN
 
 # Reproducibility
@@ -83,7 +84,7 @@ def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def val_loss(tgan, valid_dataloader, num_neighbors):
+def val_loss_acc(tgan, valid_dataloader, num_neighbors):
     '''
 
     :param tgan:
@@ -91,31 +92,58 @@ def val_loss(tgan, valid_dataloader, num_neighbors):
     :param num_neighbors:
     :return:
     '''
-    val_loss = []
+    val_loss = 0
+    measure = Measure()
+
     with torch.no_grad():
         tgan = tgan.eval()
+        num_events = 0
+        num_neg_events = 0
         for sample in valid_dataloader:
-            src_idx = sample.src_idx
-            obj_idx = sample.obj_idx
-            rel_idx = sample.rel_idx
-            ts = sample.ts
-            neg_idx = sample.neg_idx
+            src_idx_l = sample.src_idx
+            obj_idx_l = sample.obj_idx
+            rel_idx_l = sample.rel_idx
+            ts_l = sample.ts
+            neg_idx_l = sample.neg_idx
+            num_events += len(src_idx_l)
 
-            src_embed, target_embed, neg_embed = tgan.forward(src_idx, obj_idx, neg_idx, ts, num_neighbors)
+            src_embed, target_embed, neg_embed = tgan.forward(src_idx_l, obj_idx_l, neg_idx_l, ts_l, num_neighbors)
 
-            rel_idx_t = torch.from_numpy(rel_idx).detach_().to(device)
-            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(rel_idx_t))
+            rel_idx_t = torch.from_numpy(rel_idx_l).detach_().to(device)
+            rel_embed = model.edge_raw_embed(rel_idx_t)
 
-            loss_pos_term = -torch.nn.LogSigmoid()(
-                -torch.bmm(
-                    torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
-                    torch.unsqueeze(target_embed, 2)))  # Bx1
-            loss_neg_term = torch.nn.LogSigmoid()(
-                torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
+            # rel_embed_diag = torch.diag_embed(rel_embed)
+            # loss_pos_term = -torch.nn.LogSigmoid()(
+            #     -torch.bmm(
+            #         torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
+            #         torch.unsqueeze(target_embed, 2)))  # Bx1
+            # loss_neg_term = torch.nn.LogSigmoid()(
+            #     torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
+            #
+            # loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
+            # val_loss.append(loss.item()/(len()))
 
-            loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
-            val_loss.append(loss.item())
-    return np.mean(val_loss)
+            with torch.no_grad():
+                pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
+                neg_label = torch.zeros(neg_embed.shape[0]*neg_embed.shape[1], dtype=torch.float, device=device)
+
+            pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
+            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed, dim=2).view(-1)  # [batch_size x num_neg_sampling]
+
+            loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
+            loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
+            val_loss += loss.item()
+
+            num_neg_events += len(neg_score)
+
+            # prediction accuracy
+            for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
+                pred_score = tgan.obj_predict(src_idx, rel_idx, ts).numpy()
+                rank = np.sum(pred_score >= pred_score[obj_idx])  # int
+                measure.update(rank, 'raw')
+        measure.normalize(num_events)
+        val_loss /= (num_neg_events + num_events)
+    return val_loss, measure.hit1['raw'], measure.hit3['raw'], measure.hit10['raw'], measure.mr['raw'], measure.mrr['raw']
 
 
 parser = argparse.ArgumentParser()
@@ -207,10 +235,10 @@ if __name__ == '__main__':
 
             # print statistics
             running_loss += loss.item()
-            if batch_ndx % 2000 == 1999:
-                val_loss = val_loss(model, val_data_loader, num_neighbors=args.num_neighbors)
-                print('[%d, %5d] training loss: %.3f, validation loss: %.3f' %
-                      (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss))
+            if batch_ndx % 10 == 9:
+                val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader, num_neighbors=args.num_neighbors)
+                print('[%d, %5d] training loss: %.3f, validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f'%
+                      (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss, hit1, hit3, hit10, mr, mrr))
                 running_loss = 0.0
         CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
             struct_time.tm_year,

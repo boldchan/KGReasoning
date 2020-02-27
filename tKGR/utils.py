@@ -2,9 +2,11 @@ import os
 
 from collections import defaultdict
 import numpy as np
+import pdb
 
 # import tKGR.data
 DataDir = os.path.join(os.path.dirname(__file__), 'data')
+
 
 class Data:
     def __init__(self, dataset=None):
@@ -156,6 +158,7 @@ class Data:
 
         return adj_list
 
+
 class NeighborFinder:
     def __init__(self, adj_list, uniform=False):
         """
@@ -219,10 +222,12 @@ class NeighborFinder:
         edge_idx_l = self.edge_idx_l
         off_set_l = self.off_set_l
 
-        neighbors_idx = node_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
-        neighbors_ts = node_ts_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
-        neighbors_e_idx = edge_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
-
+        try:
+            neighbors_idx = node_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
+            neighbors_ts = node_ts_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
+            neighbors_e_idx = edge_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
+        except:
+            print(src_idx)
         if len(neighbors_idx) == 0 or len(neighbors_ts) == 0:
             return neighbors_idx, neighbors_ts, neighbors_e_idx
 
@@ -288,3 +293,62 @@ class NeighborFinder:
                     out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
 
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
+
+
+class Measure:
+    '''
+    Evaluation of link prediction.
+    raw: Given (s, o, t), measurement based on the rank of a true (s, r, o, t) in all possible (s, r, o, t)
+    fil: Given (s, o, t), measurement based on the rank of a true (s, r, o, t) in all (s, r, o, t) that don't happen.
+    '''
+    def __init__(self):
+        '''
+        mr: mean rank
+        mrr: mean reciprocal rank
+        '''
+        self.hit1 = {"raw": 0.0, "fil": 0.0}
+        self.hit3 = {"raw": 0.0, "fil": 0.0}
+        self.hit10 = {"raw": 0.0, "fil": 0.0}
+        self.mrr = {"raw": 0.0, "fil": 0.0}
+        self.mr = {"raw": 0.0, "fil": 0.0}
+
+    def update(self, rank, raw_or_fil):
+        if rank == 1:
+            self.hit1[raw_or_fil] += 1.0
+        if rank <= 3:
+            self.hit3[raw_or_fil] += 1.0
+        if rank <= 10:
+            self.hit10[raw_or_fil] += 1.0
+
+        self.mr[raw_or_fil] += rank
+        self.mrr[raw_or_fil] += (1.0 / rank)
+
+    def batch_update(self, rank_l, raw_or_fil):
+        '''
+
+        :param rank: [batch_size,]
+        :param raw_or_fil:
+        :return:
+        '''
+        self.hit1[raw_or_fil] += np.sum(rank_l == 1)
+        self.hit3[raw_or_fil] += np.sum(rank_l <= 3)
+        self.hit10[raw_or_fil] += np.sum(rank_l <= 10)
+        self.mr[raw_or_fil] += np.sum(rank_l)
+        self.mrr[raw_or_fil] += np.reciprocal(rank_l)
+
+    def normalize(self, num_facts):
+        for raw_or_fil in ["raw", "fil"]:
+            self.hit1[raw_or_fil] /= (2 * num_facts)
+            self.hit3[raw_or_fil] /= (2 * num_facts)
+            self.hit10[raw_or_fil] /= (2 * num_facts)
+            self.mr[raw_or_fil] /= (2 * num_facts)
+            self.mrr[raw_or_fil] /= (2 * num_facts)
+
+    def print_(self):
+        for raw_or_fil in ["raw", "fil"]:
+            print(raw_or_fil.title() + " setting:")
+            print("\tHit@1 =", self.hit1[raw_or_fil])
+            print("\tHit@3 =", self.hit3[raw_or_fil])
+            print("\tHit@10 =", self.hit10[raw_or_fil])
+            print("\tMR =", self.mr[raw_or_fil])
+            print("\tMRR =", self.mrr[raw_or_fil])
