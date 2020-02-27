@@ -516,7 +516,7 @@ class TGAN(torch.nn.Module):
         :param cut_time: a batch of cutting time [batch_size, ]
         :param curr_layers: indicator for recursion
         :param num_neighbors: number of neighbors to draw for a source node
-        :return: a new feature representation for nodes in src_idx_l at corresponding cutting time
+        :return: a new feature representation for nodes in src_idx_l at corresponding cutting time [batch_size, dim]
         '''
         assert(curr_layers>=0)
 

@@ -172,20 +172,36 @@ if __name__ == '__main__':
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             # zero the parameter gradients
             optimizer.zero_grad()
+            model.train()
 
             # forward + backward + optimize
             src_embed, target_embed, neg_embed = model.forward(
                 sample.src_idx, sample.obj_idx, sample.neg_idx, sample.ts, num_neighbors=args.num_neighbors)
             sample_rel_idx_t = torch.from_numpy(sample.rel_idx).detach_().to(device)
-            rel_embed_diag = torch.diag_embed(model.edge_raw_embed(sample_rel_idx_t))
+            rel_embed = model.edge_raw_embed(sample_rel_idx_t)
+            rel_embed_diag = torch.diag_embed(rel_embed)
 
-            loss_pos_term = -torch.nn.LogSigmoid()(
-                -torch.bmm(
-                    torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
-                    torch.unsqueeze(target_embed, 2)))  # Bx1
-            loss_neg_term = torch.nn.LogSigmoid()(
-                torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
-            loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
+            # loss_pos_term = -torch.nn.LogSigmoid()(
+            #     -torch.bmm(
+            #         torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
+            #         torch.unsqueeze(target_embed, 2)))  # Bx1
+            # loss_neg_term = torch.nn.LogSigmoid()(
+            #     torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
+            # loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
+
+            with torch.no_grad():
+                pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
+                neg_label = torch.zeros(neg_embed.shape[0]*neg_embed.shape[1], dtype=torch.float, device=device)
+
+            pos_score = torch.bmm(
+                torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
+                torch.unsqueeze(target_embed, 2)).view(-1)
+            neg_score = torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1)
+
+            loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
+            loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
+            loss /= len(pos_score) + len(neg_score)
+
             loss.backward()
             optimizer.step()
 
@@ -196,7 +212,6 @@ if __name__ == '__main__':
                 print('[%d, %5d] training loss: %.3f, validation loss: %.3f' %
                       (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss))
                 running_loss = 0.0
-                model.train()  # not sure if it's necessary
         CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
             struct_time.tm_year,
             struct_time.tm_mon,
