@@ -113,7 +113,7 @@ def val_loss(tgan, valid_dataloader, num_neighbors):
                 torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
 
             loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
-            val_loss.append(loss)
+            val_loss.append(loss.item())
     return np.mean(val_loss)
 
 
@@ -135,6 +135,7 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     start_time = time.time()
+    structed_time = time.gmtime(start_time)
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device>=0 else 'cpu'
     else:
@@ -194,7 +195,13 @@ if __name__ == '__main__':
                 print('[%d, %5d] training loss: %.3f, validation loss: %.3f' %
                       (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss))
                 running_loss = 0.0
-        CHECKPOINT_PATH = os.path.join(PackageDir, 'checkpoints_{}_{}'.format(start_time, epoch))
+        CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
+            structed_time.tm_year,
+            structed_time.tm_mon,
+            structed_time.tm_mday,
+            structed_time.tm_hour,
+            structed_time.tm_min))
+
         if not os.path.exists(CHECKPOINT_PATH):
             os.makedirs(CHECKPOINT_PATH)
         torch.save({
@@ -205,7 +212,7 @@ if __name__ == '__main__':
             'entity_embedding': model.node_raw_embed,
             'relation_embedding': model.edge_raw_embed,
             'time_embedding': model.time_encoder
-        }, CHECKPOINT_PATH)
+        }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
 
     print("Finished Training")
 
