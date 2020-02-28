@@ -82,12 +82,13 @@ def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2o=None):
+def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2o=None, num_batchs=1e8):
     '''
 
     :param tgan:
     :param valid_dataloader:
     :param num_neighbors:
+    :param num_batchs: how many batches are used to calculate **accuracy**
     :return:
     '''
     val_loss = 0
@@ -97,7 +98,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2
         tgan = tgan.eval()
         num_events = 0
         num_neg_events = 0
-        for sample in valid_dataloader:
+        for batch_idx, sample in enumerate(valid_dataloader):
             src_idx_l = sample.src_idx
             obj_idx_l = sample.obj_idx
             rel_idx_l = sample.rel_idx
@@ -135,7 +136,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2
             num_neg_events += len(neg_score)
 
             # prediction accuracy
-            if cal_acc:
+            if cal_acc and batch_idx < num_batchs:
                 for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
                     pred_score = tgan.obj_predict(src_idx, rel_idx, ts).cpu().numpy()
                     if spt2o is not None:
@@ -143,7 +144,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2
                         np.put(mask, spt2o[(src_idx, rel_idx, ts)], False)  # exclude all event with same (s,p,t) even the one with current object
                         rank = np.sum(pred_score[mask] > pred_score[obj_idx]) + 1
                         measure.update(rank, 'fil')
-                    rank = np.sum(pred_score > pred_score[obj_idx]) + 1 # int
+                    rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
                     measure.update(rank, 'raw')
 
         measure.normalize(num_events)
@@ -166,6 +167,8 @@ parser.add_argument('--num_neighbors', type=int, default=20, help='how many neig
                                                                 'for Temporal Graph for detail')
 parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
+parser.add_argument('--val_num_batch', type=int, default=1e8, help='how many validation batches are used for calculating accuracy '
+                                                                       'specify a really large integer to use all validation set')
 args = parser.parse_args()
 
 if __name__ == '__main__':
@@ -204,8 +207,6 @@ if __name__ == '__main__':
         # DataLoader
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                        pin_memory=False, shuffle=True)
-        val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
-                                     pin_memory=False, shuffle=True)
 
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             # zero the parameter gradients
@@ -243,6 +244,8 @@ if __name__ == '__main__':
                 running_loss = 0.0
 
         if epoch%5 == 4:
+            val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                         pin_memory=False, shuffle=True)
             val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
                                                                 num_neighbors=args.num_neighbors,
                                                                 cal_acc=True, spt2o=val_spt2o)
