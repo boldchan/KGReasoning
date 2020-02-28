@@ -14,9 +14,9 @@ class Data:
         self.id2entity = self._id2entity(dataset=dataset)
         self.id2relation = self._id2relation(dataset=dataset)
         num_relations = len(self.id2relation)  # number of pure relations, i.e. no reversed relation
-        reversed_id2relation={}
-        for id, rel in self.id2relation.items():
-            reversed_id2relation[id+num_relations] = 'Reversed '+rel
+        reversed_id2relation = {}
+        for ind, rel in self.id2relation.items():
+            reversed_id2relation[ind+num_relations] = 'Reversed '+rel
         self.id2relation.update(reversed_id2relation)
 
         self.num_relations = 2*num_relations
@@ -98,7 +98,7 @@ class Data:
         '''
 
         :param Q: number of negative sampling for each real quadruple
-        :param start_time: neg sampling for events since start_time (inclusive)
+        :param start_time: neg sampling for events since start_time (inclusive), used for warm start training
         :param dataset: indicate which data set to choose negative sampling from
         :return:
         List[List[int]]: [len(train_data), Q], list of Q negative sampling for each event in train_data
@@ -107,22 +107,17 @@ class Data:
         spt_o = defaultdict(list)  # dict: (s, p, r)--> [o]
         if dataset == 'train':
             contents_dataset = self.train_data
-            if start_time is None:
-                start_time = 0
+            assert start_time < max(self.train_data[:, 3])
         elif dataset == 'valid':
             contents_dataset = self.valid_data_seen_entity
-            if start_time is None:
-                start_time = 5760
-            assert start_time >= 5760
+            assert start_time < max(self.valid_data_seen_entity[:, 3])
         elif dataset == 'test':
             contents_dataset = self.test_data_seen_entity
-            if start_time is None:
-                start_time = 6480
-            assert start_time >= 6480
+            assert start_time < max(self.test_data_seen_entity)
         else:
             raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
 
-        data_after_start_time = [event for event in contents_dataset if event[3]>=start_time]
+        data_after_start_time = [event for event in contents_dataset if event[3] >= start_time]
         for event in data_after_start_time:
             spt_o[(event[0], event[1], event[3])].append(event[2])
         for event in data_after_start_time:

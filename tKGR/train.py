@@ -26,29 +26,24 @@ np.random.seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=None):
+def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
     '''
     :param contents: instance of Data object
     :param num_neg_sampling: how many negtive sampling of objects for each event
     :param start_time: neg sampling for events since start_time (inclusive)
     :param dataset: 'train', 'valid', 'test'
     :return:
-    events concatenated with negativesampling
+    events concatenated with negative sampling
     '''
     if dataset == 'train':
         contents_dataset = contents.train_data
-        if start_time is None:
-            start_time = 0
+        assert start_time < max(contents_dataset[:, 3])
     elif dataset == 'valid':
         contents_dataset = contents.valid_data_seen_entity
-        if start_time is None:
-            start_time = 5760
-        assert start_time >= 5760
+        assert start_time < max(contents_dataset[:, 3])
     elif dataset == 'test':
         contents_dataset = contents.test_data_seen_entity
-        if start_time is None:
-            start_time = 6480
-        assert start_time >= 6480
+        assert start_time < max(contents_dataset[:, 3])
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
@@ -200,8 +195,6 @@ if __name__ == '__main__':
         # prepare training data
         train_inputs= prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
                                          start_time=args.warm_start_time)
-        # prepare validation data
-        val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')  # TBD: remove unseen entity and relation in valid and test
         # test_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
 
         # DataLoader
@@ -244,6 +237,8 @@ if __name__ == '__main__':
                 running_loss = 0.0
 
         if epoch%5 == 4:
+            # prepare validation data
+            val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                          pin_memory=False, shuffle=True)
             val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
