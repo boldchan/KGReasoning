@@ -399,7 +399,7 @@ class TGAN(torch.nn.Module):
         '''
 
         :param ngh_finder: an instance of NeighborFinder
-        :param n_feat: numpy array of node embedding,
+        :param n_feat: numpy array of node embedding, [num_nodes+1, feature_dim]
         :param e_feat: numpy array of edge embedding
         :param attn_mode: attention method
         :param use_time: use time embedding
