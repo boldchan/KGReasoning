@@ -152,13 +152,14 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', type=str, default='ICEWS18_forecasting', help='specify data set')
 parser.add_argument('--num_neg_sampling', type=int, default=5, help="number of negative sampling of objects for each event")
 parser.add_argument('--num_layers', type=int, default=2, help='number of TGAN layers')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--node_feat_dim', type=int, default=100, help='dimension of embedding for node')
 parser.add_argument('--edge_feat_dim', type=int, default=100, help='dimension of embedding for edge')
 parser.add_argument('--lr', type=float, default=0.001)
-parser.add_argument('--epoch', type=int, default=5)
+parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
                                                                 'check paper Inductive Representation Learning '
@@ -177,7 +178,7 @@ if __name__ == '__main__':
     else:
         device = 'cpu'
     # load dataset
-    contents = Data(dataset='ICEWS18_forecasting')
+    contents = Data(dataset=args.dataset)
 
     # mapping between (s,p,t) -> o, will be used by evaluating object-prediction
     val_spt2o = contents.get_spt2o('valid')
@@ -187,7 +188,7 @@ if __name__ == '__main__':
     adj_list = contents.get_adj_list()
     nf = NeighborFinder(adj_list)
 
-    model = TGAN(nf, contents.num_entities+1, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers, device=device)
+    model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers, device=device)
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
@@ -241,11 +242,12 @@ if __name__ == '__main__':
                 print('[%d, %5d] training loss: %.3f %(epoch + 1, batch_ndx + 1, running_loss / 2000)')
                 running_loss = 0.0
 
-        val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
-                                                            num_neighbors=args.num_neighbors,
-                                                            cal_acc=True, spt2o=val_spt2o)
-        print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
-              (epoch + 1, val_loss, hit1, hit3, hit10, mr, mrr))
+        if epoch%5 == 4:
+            val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
+                                                                num_neighbors=args.num_neighbors,
+                                                                cal_acc=True, spt2o=val_spt2o)
+            print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
+                  (epoch + 1, val_loss, hit1, hit3, hit10, mr, mrr))
         CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
             struct_time.tm_year,
             struct_time.tm_mon,

@@ -393,7 +393,7 @@ class MergeLayer(torch.nn.Module):
 
 
 class TGAN(torch.nn.Module):
-    def __init__(self, ngh_finder, num_nodes=None, num_edge=None, embed_dim=None, n_feat=None, e_feat=None,
+    def __init__(self, ngh_finder, num_nodes=None, num_edges=None, embed_dim=None, n_feat=None, e_feat=None,
                  attn_mode='prod', use_time='time', agg_method='attn',
                  num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None, device='cpu'):
         '''
@@ -416,12 +416,15 @@ class TGAN(torch.nn.Module):
         '''
         super(TGAN, self).__init__()
         assert num_nodes is not None or n_feat is not None
-        assert num_edge is not None or e_feat is not None
+        assert num_edges is not None or e_feat is not None
         assert embed_dim is not None or n_feat is not None
 
         self.num_layers = num_layers
         self.ngh_finder = ngh_finder
         self.null_idx = null_idx
+
+        self.num_nodes = num_nodes
+        self.num_edges = num_edges
 
         self.logger = logging.getLogger(__name__)
 
@@ -437,7 +440,7 @@ class TGAN(torch.nn.Module):
             self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
             self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
         else:
-            self.edge_raw_embed = torch.nn.Embedding(num_edge, embed_dim)
+            self.edge_raw_embed = torch.nn.Embedding(num_edges, embed_dim)
             nn.init.xavier_normal_(self.edge_raw_embed.weight)
 
         self.n_feat_dim = self.feat_dim
@@ -470,10 +473,10 @@ class TGAN(torch.nn.Module):
         elif use_time == 'pos':
             assert(seq_len is not None)
             self.logger.info('Using positional encoding')
-            self.time_encoder = PosEncode(expand_dim=self.n_feat_th.shape[1], seq_len=seq_len)
+            self.time_encoder = PosEncode(expand_dim=self.n_feat_dim, seq_len=seq_len)
         elif use_time == 'empty':
             self.logger.info('Using empty encoding')
-            self.time_encoder = EmptyEncode(expand_dim=self.n_feat_th.shape[1])
+            self.time_encoder = EmptyEncode(expand_dim=self.n_feat_dim)
         else:
             raise ValueError('invalid time option')
 
@@ -491,7 +494,7 @@ class TGAN(torch.nn.Module):
         '''
         src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)  # [batch_size, feature_dim]
         target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers, num_neighbors)  # [batch_size, feature_dim]
-        rel_embed = self.edge_raw_embed(torch.from_numpy(np.arange(len(self.e_feat_th)))).long().to(self.device)  # [Num_relations, feature_dim]
+        rel_embed = self.edge_raw_embed(torch.from_numpy(np.arange(self.num_edges))).long().to(self.device)  # [Num_relations, feature_dim]
         rel_embed = torch.unsqueeze(rel_embed, 0)  # [1, num_relations, feature_dim]
 
         # TBD: inference using s(t),p(t),o
@@ -517,7 +520,7 @@ class TGAN(torch.nn.Module):
         src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)  # tensor [1, feature_dim]
         rel_embed = self.edge_raw_embed(torch.from_numpy(rel_idx_l).long().to(self.device))  # tensor [1, feature_dim]
 
-        num_entity = len(self.n_feat_th) - 1  # node embedding: first row for dummy node
+        num_entity = self.num_nodes
         all_target_l = np.arange(num_entity)
 
         # too much entity, split them
@@ -572,8 +575,6 @@ class TGAN(torch.nn.Module):
         '''
         assert(curr_layers>=0)
 
-        device = self.n_feat_th.device
-
         batch_size = len(src_idx_l)
         # print(cut_time_l)
         src_node_batch_th = torch.from_numpy(src_idx_l).long().to(self.device)
@@ -603,7 +604,7 @@ class TGAN(torch.nn.Module):
             src_ngh_eidx_batch = torch.from_numpy(src_ngh_eidx_batch).long().to(self.device)
 
             src_ngh_t_batch_delta = cut_time_l[:, np.newaxis] - src_ngh_t_batch
-            src_ngh_t_batch_th = torch.from_numpy(src_ngh_t_batch_delta).float().to(device)
+            src_ngh_t_batch_th = torch.from_numpy(src_ngh_t_batch_delta).float().to(self.device)
 
             # get previous layer's node features
             src_ngh_node_batch_flat = src_ngh_node_batch.flatten()  # reshape(batch_size, -1)
