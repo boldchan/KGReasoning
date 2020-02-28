@@ -33,20 +33,19 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=Non
     :param start_time: neg sampling for events since start_time (inclusive)
     :param dataset: 'train', 'valid', 'test'
     :return:
-    [1]:events concatenated with negativesampling
-    spt2o: mapping from (s,p,t) to list of objects
+    events concatenated with negativesampling
     '''
     if dataset == 'train':
         contents_dataset = contents.train_data
         if start_time is None:
             start_time = 0
     elif dataset == 'valid':
-        contents_dataset = contents.valid_data
+        contents_dataset = contents.valid_data_seen_entity
         if start_time is None:
             start_time = 5760
         assert start_time >= 5760
     elif dataset == 'test':
-        contents_dataset = contents.test_data
+        contents_dataset = contents.test_data_seen_entity
         if start_time is None:
             start_time = 6480
         assert start_time >= 6480
@@ -54,12 +53,7 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=Non
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
     neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
-    spt2o = defaultdict(list)
-    # objects share the same subject, predicate and time. calculated for the convenience of evaluation w.r.t. "fil"
-    if dataset in ['valid', 'test']:
-        for event in events:
-            spt2o[(event[0], event[1], event[3])].append(event[2])
-    return np.concatenate([events, neg_obj_idx], axis=1), spt2o
+    return np.concatenate([events, neg_obj_idx], axis=1)
 
 
 # help Module for custom Dataloader
@@ -174,6 +168,8 @@ parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda d
 args = parser.parse_args()
 
 if __name__ == '__main__':
+    assert args.node_feat_dim == args.edge_feat_dim
+
     start_time = time.time()
     struct_time = time.gmtime(start_time)
     if torch.cuda.is_available():
@@ -183,31 +179,33 @@ if __name__ == '__main__':
     # load dataset
     contents = Data(dataset='ICEWS18_forecasting')
 
+    # mapping between (s,p,t) -> o, will be used by evaluating object-prediction
+    val_spt2o = contents.get_spt2o('valid')
+    test_spt2o = contents.get_spt2o('test')
+
     # init NeighborFinder
     adj_list = contents.get_adj_list()
     nf = NeighborFinder(adj_list)
 
-    # prepare training data
-    train_inputs, _ = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
-    # prepare validation data
-    val_inputs, val_spt2o = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')  # TBD: remove unseen entity and relation in valid and test
-    test_inputs, test_spt2o = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
-
-    # DataLoader
-    train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
-    val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
-
-    # randomly initialize node and edge feature
-    node_feature = np.random.randn(len(adj_list)+1, args.node_feat_dim)  # first row: embedding for dummy node
-    # ignore the correlation between relation and reversed relation
-    edge_feature = np.random.randn(len(contents.train_data), args.edge_feat_dim)
-
-    model = TGAN(nf, node_feature, edge_feature, num_layers=args.num_layers, device=device)
+    model = TGAN(nf, contents.num_entities+1, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers, device=device)
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
     for epoch in range(args.epoch):
         running_loss = 0.0
+        # prepare training data
+        train_inputs= prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
+                                         start_time=args.warm_start_time)
+        # prepare validation data
+        val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')  # TBD: remove unseen entity and relation in valid and test
+        # test_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
+
+        # DataLoader
+        train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                       pin_memory=False, shuffle=True)
+        val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                     pin_memory=False, shuffle=True)
+
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -218,15 +216,6 @@ if __name__ == '__main__':
                 sample.src_idx, sample.obj_idx, sample.neg_idx, sample.ts, num_neighbors=args.num_neighbors)
             sample_rel_idx_t = torch.from_numpy(sample.rel_idx).detach_().to(device)
             rel_embed = model.edge_raw_embed(sample_rel_idx_t)
-            rel_embed_diag = torch.diag_embed(rel_embed)
-
-            # loss_pos_term = -torch.nn.LogSigmoid()(
-            #     -torch.bmm(
-            #         torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
-            #         torch.unsqueeze(target_embed, 2)))  # Bx1
-            # loss_neg_term = torch.nn.LogSigmoid()(
-            #     torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
-            # loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
 
             with torch.no_grad():
                 pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
@@ -235,11 +224,6 @@ if __name__ == '__main__':
             pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
             neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed,
                                   dim=2).view(-1)  # [batch_size x num_neg_sampling, ]
-
-            # pos_score = torch.bmm(
-            #     torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
-            #     torch.unsqueeze(target_embed, 2)).view(-1)
-            # neg_score = torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1)
 
             loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
             loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)

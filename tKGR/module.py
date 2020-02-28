@@ -393,12 +393,16 @@ class MergeLayer(torch.nn.Module):
 
 
 class TGAN(torch.nn.Module):
-    def __init__(self, ngh_finder, n_feat, e_feat,
+    def __init__(self, ngh_finder, num_nodes=None, num_edge=None, embed_dim=None, n_feat=None, e_feat=None,
                  attn_mode='prod', use_time='time', agg_method='attn',
                  num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None, device='cpu'):
         '''
-
+        initialize TGAN, either (num_nodes, num_edge, embed_dim) are given or (n_feat, e_feat) are given.
+        If (n_feat, e_feat) are given, this pre-trained embedding is being used.
         :param ngh_finder: an instance of NeighborFinder
+        :param num_nodes:
+        :param num_edge:
+        :param embed_dim: dimension of node/edge embedding
         :param n_feat: numpy array of node embedding, [num_nodes+1, feature_dim]
         :param e_feat: numpy array of edge embedding
         :param attn_mode: attention method
@@ -411,18 +415,30 @@ class TGAN(torch.nn.Module):
         :param seq_len:
         '''
         super(TGAN, self).__init__()
+        assert num_nodes is not None or n_feat is not None
+        assert num_edge is not None or e_feat is not None
+        assert embed_dim is not None or n_feat is not None
+
         self.num_layers = num_layers
         self.ngh_finder = ngh_finder
         self.null_idx = null_idx
 
         self.logger = logging.getLogger(__name__)
 
-        self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))  # len(n_feat_th) = num_enitiy + 1
-        self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
-        self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
-        self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False)
-
-        self.feat_dim = self.n_feat_th.shape[1]
+        if n_feat is not None:
+            self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))  # len(n_feat_th) = num_enitiy + 1
+            self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False)
+            self.feat_dim = self.n_feat_th.shape[1]
+        else:
+            self.node_raw_embed = torch.nn.Embedding(num_nodes+1, embed_dim)
+            nn.init.xavier_normal_(self.node_raw_embed.weight)
+            self.feat_dim = embed_dim
+        if e_feat is not None:
+            self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
+            self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
+        else:
+            self.edge_raw_embed = torch.nn.Embedding(num_edge, embed_dim)
+            nn.init.xavier_normal_(self.edge_raw_embed.weight)
 
         self.n_feat_dim = self.feat_dim
         self.e_feat_dim = self.feat_dim

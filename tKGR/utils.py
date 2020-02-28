@@ -19,6 +19,9 @@ class Data:
             reversed_id2relation[id+num_relations] = 'Reversed '+rel
         self.id2relation.update(reversed_id2relation)
 
+        self.num_relations = 2*num_relations
+        self.num_entities = len(self.id2entity)
+
         self.train_data = self._load_data(os.path.join(DataDir, dataset), "train")
         self.valid_data = self._load_data(os.path.join(DataDir, dataset), "valid")
         self.test_data = self._load_data(os.path.join(DataDir, dataset), "test")
@@ -28,17 +31,33 @@ class Data:
                                           np.vstack(
                                               [[event[2], event[1]+num_relations, event[0], event[3]]
                                                for event in self.train_data])], axis=0)
+        seen_entities = set(self.train_data[:, 0])
+        seen_relations = set(self.train_data[:, 1])
+
+        # remove events in valid data set and test data set that contains unseen entity and unseen relation
+        val_mask = [evt[0] in seen_entities and evt[2] in seen_entities and evt[1] in seen_relations
+                    for evt in self.valid_data]
+        self.valid_data_seen_entity = self.valid_data[val_mask]
         self.valid_data = np.concatenate([self.valid_data[:, :-1],
                                           np.vstack(
                                               [[event[2], event[1]+num_relations, event[0], event[3]]
                                                for event in self.valid_data])], axis=0)
+        self.valid_data_seen_entity = np.concatenate([self.valid_data_seen_entity[:, :-1],
+                                          np.vstack(
+                                              [[event[2], event[1]+num_relations, event[0], event[3]]
+                                               for event in self.valid_data_seen_entity])], axis=0)
+
+        test_mask = [evt[0] in seen_entities and evt[2] in seen_entities and evt[1] in seen_relations
+                     for evt in self.test_data]
+        self.test_data_seen_entity = self.test_data[test_mask]
         self.test_data = np.concatenate([self.test_data[:, :-1],
                                          np.vstack(
                                               [[event[2], event[1]+num_relations, event[0], event[3]]
                                                for event in self.test_data])], axis=0)
-
-        self.num_relations = 2*num_relations
-        self.num_entities = len(self.id2entity)
+        self.test_data_seen_entity = np.concatenate([self.test_data_seen_entity[:, :-1],
+                                          np.vstack(
+                                              [[event[2], event[1]+num_relations, event[0], event[3]]
+                                               for event in self.test_data_seen_entity])], axis=0)
 
         self.data = np.concatenate([self.train_data, self.valid_data, self.test_data], axis=0)
 
@@ -75,11 +94,12 @@ class Data:
         timestamps = np.array(sorted(list(set([d[3] for d in data]))))
         return timestamps
 
-    def neg_sampling_object(self, Q, dataset = 'train', start_time = 0):
+    def neg_sampling_object(self, Q, dataset='train', start_time=0):
         '''
 
         :param Q: number of negative sampling for each real quadruple
         :param start_time: neg sampling for events since start_time (inclusive)
+        :param dataset: indicate which data set to choose negative sampling from
         :return:
         List[List[int]]: [len(train_data), Q], list of Q negative sampling for each event in train_data
         '''
@@ -90,12 +110,12 @@ class Data:
             if start_time is None:
                 start_time = 0
         elif dataset == 'valid':
-            contents_dataset = self.valid_data
+            contents_dataset = self.valid_data_seen_entity
             if start_time is None:
                 start_time = 5760
             assert start_time >= 5760
         elif dataset == 'test':
-            contents_dataset = self.test_data
+            contents_dataset = self.test_data_seen_entity
             if start_time is None:
                 start_time = 6480
             assert start_time >= 6480
@@ -114,11 +134,7 @@ class Data:
                 if len(neg_object_one_node) == Q:
                     neg_object.append(neg_object_one_node)
                     break
-        # for event in train_data_after_start_time:
-        #     neg_candidate = np.setdiff1d(np.arange(self.num_entities),
-        #                                  np.array(spt_o[(event[0], event[1], event[3])])) + 1  # 0-th is dummy node
-        #     neg_object.append(np.random.choice(neg_candidate, Q, replace=True))
-        #     # replace=True, in case there are not enough negative sampling
+
         return np.stack(neg_object, axis=0)
 
     def _get_idx(self):
@@ -157,6 +173,26 @@ class Data:
         adj_list = [sorted(adj_list_dict[_], key=lambda x: x[2]) for _ in subject_index_sorted]
 
         return adj_list
+
+    def get_spt2o(self, dataset:str):
+        '''
+        mapping between (s, p, t) -> o, i.e. values of dict are objects share the same subject, predicate and time.
+        calculated for the convenience of evaluation w.r.t. "fil"
+        :param dataset: 'train', 'valid', 'test'
+        :return:
+        '''
+        if dataset == 'train':
+            events = self.train_data
+        elif dataset == 'valid':
+            events = self.valid_data
+        elif dataset == 'test':
+            events = self.test_data
+        else:
+            raise ValueError("invalid input {} for dataset, please input 'train', 'valid' or 'test'".format(dataset))
+        spt2o = defaultdict(list)
+        for event in events:
+            spt2o[(event[0], event[1], event[3])].append(event[2])
+        return spt2o
 
 
 class NeighborFinder:
