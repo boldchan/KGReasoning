@@ -1,4 +1,5 @@
 import os
+import json
 
 from collections import defaultdict
 import numpy as np
@@ -397,3 +398,9 @@ class Measure:
             print("\tHit@10 =", self.hit10[raw_or_fil])
             print("\tMR =", self.mr[raw_or_fil])
             print("\tMRR =", self.mrr[raw_or_fil])
+
+
+def save_config(args, dir:str):
+    args_dict = vars(args)
+    with open(os.path.join(dir, 'config.json'), 'w') as fp:
+        json.dump(args_dict, fp)

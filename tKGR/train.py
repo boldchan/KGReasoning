@@ -17,7 +17,7 @@ import pdb
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure
+from utils import Data, NeighborFinder, Measure, save_config
 from module import TGAN
 
 # Reproducibility
@@ -273,6 +273,9 @@ if __name__ == '__main__':
             struct_time.tm_mday,
             struct_time.tm_hour,
             struct_time.tm_min))
+
+        if epoch == 0:
+            save_config(args, CHECKPOINT_PATH)
 
         if not os.path.exists(CHECKPOINT_PATH):
             os.makedirs(CHECKPOINT_PATH)
