@@ -1,4 +1,5 @@
 import os
+import json
 
 from collections import defaultdict
 import numpy as np
@@ -171,10 +172,11 @@ class Data:
 
     def get_spt2o(self, dataset:str):
         '''
-        mapping between (s, p, t) -> o, i.e. values of dict are objects share the same subject, predicate and time.
-        calculated for the convenience of evaluation w.r.t. "fil"
+        mapping between (s, p, t) -> list(o), i.e. values of dict are objects share the same subject, predicate and time.
+        calculated for the convenience of evaluation "fil" on object prediction
         :param dataset: 'train', 'valid', 'test'
         :return:
+        dict (s, p, t) -> o
         '''
         if dataset == 'train':
             events = self.train_data
@@ -189,6 +191,19 @@ class Data:
             spt2o[(event[0], event[1], event[3])].append(event[2])
         return spt2o
 
+    def get_sp2o(self):
+        '''
+        get dict d which mapping between (s, p) -> list(o). More specifically, for each event in the **whole data set**,
+        including training, validation and test data set, its object will be in d[(s,p)]
+        it's calculated for the convenience of a looser evaluation "fil" on object prediction
+        :param dataset: 'train', 'valid', 'test'
+        :return:
+        dict (s, p) -> o
+        '''
+        sp2o = defaultdict(list)
+        for event in self.data:
+            sp2o[(event[0], event[1])].append(event[2])
+        return sp2o
 
 class NeighborFinder:
     def __init__(self, adj_list, uniform=False):
@@ -369,11 +384,11 @@ class Measure:
 
     def normalize(self, num_facts):
         for raw_or_fil in ["raw", "fil"]:
-            self.hit1[raw_or_fil] /= (2 * num_facts)
-            self.hit3[raw_or_fil] /= (2 * num_facts)
-            self.hit10[raw_or_fil] /= (2 * num_facts)
-            self.mr[raw_or_fil] /= (2 * num_facts)
-            self.mrr[raw_or_fil] /= (2 * num_facts)
+            self.hit1[raw_or_fil] /= num_facts
+            self.hit3[raw_or_fil] /= num_facts
+            self.hit10[raw_or_fil] /= num_facts
+            self.mr[raw_or_fil] /= num_facts
+            self.mrr[raw_or_fil] /= num_facts
 
     def print_(self):
         for raw_or_fil in ["raw", "fil"]:
@@ -383,3 +398,9 @@ class Measure:
             print("\tHit@10 =", self.hit10[raw_or_fil])
             print("\tMR =", self.mr[raw_or_fil])
             print("\tMRR =", self.mrr[raw_or_fil])
+
+
+def save_config(args, dir:str):
+    args_dict = vars(args)
+    with open(os.path.join(dir, 'config.json'), 'w') as fp:
+        json.dump(args_dict, fp)

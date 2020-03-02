@@ -17,7 +17,7 @@ import pdb
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure
+from utils import Data, NeighborFinder, Measure, save_config
 from module import TGAN
 
 # Reproducibility
@@ -77,13 +77,15 @@ def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2o=None, num_batchs=1e8):
+def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o=None, spt2o=None, num_batches=1e8):
     '''
 
+    :param spt2o: if sp2o is None and spt2o is not None, a stricter evaluation on object prediction is performed
+    :param sp2o: if sp2o is not None, a looser evaluation on object prediction is performed, in this case spt2o is ignored
     :param tgan:
     :param valid_dataloader:
     :param num_neighbors:
-    :param num_batchs: how many batches are used to calculate **accuracy**
+    :param num_batches: how many batches are used to calculate **accuracy**
     :return:
     '''
     val_loss = 0
@@ -131,20 +133,26 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, spt2
             num_neg_events += len(neg_score)
 
             # prediction accuracy
-            if cal_acc and batch_idx < num_batchs:
+            if cal_acc and batch_idx < num_batches:
                 for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
-                    pred_score = tgan.obj_predict(src_idx, rel_idx, ts).cpu().numpy()
-                    if spt2o is not None:
-                        mask = np.ones_like(pred_score, dtype=bool)
-                        np.put(mask, spt2o[(src_idx, rel_idx, ts)], False)  # exclude all event with same (s,p,t) even the one with current object
-                        rank = np.sum(pred_score[mask] > pred_score[obj_idx]) + 1
+                    if sp2o is not None:
+                        obj_candidate = sp2o[(src_idx, rel_idx)]
+                        pred_score = tgan.obj_predict(src_idx, rel_idx, ts, obj_candidate).cpu().numpy()
+                        rank = np.sum(pred_score > pred_score[obj_candidate.index(obj_idx)]) + 1
                         measure.update(rank, 'fil')
+                    else:
+                        pred_score = tgan.obj_predict(src_idx, rel_idx, ts).cpu().numpy()
+                        if spt2o is not None:
+                            mask = np.ones_like(pred_score, dtype=bool)
+                            np.put(mask, spt2o[(src_idx, rel_idx, ts)], False)  # exclude all event with same (s,p,t) even the one with current object
+                            rank = np.sum(pred_score[mask] > pred_score[obj_idx]) + 1
+                            measure.update(rank, 'fil')
                     rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
                     measure.update(rank, 'raw')
 
         measure.normalize(num_events)
         val_loss /= (num_neg_events + num_events)
-    return val_loss, measure.hit1['raw'], measure.hit3['raw'], measure.hit10['raw'], measure.mr['raw'], measure.mrr['raw']
+    return val_loss, measure
 
 
 parser = argparse.ArgumentParser()
@@ -164,6 +172,12 @@ parser.add_argument('--uniform', action='store_true', help="uniformly sample num
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--val_num_batch', type=int, default=1e8, help='how many validation batches are used for calculating accuracy '
                                                                        'specify a really large integer to use all validation set')
+parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1], help="0: a looser 'fil' evaluation on object prediction,"
+                                                                    "prediction score is ranked among objects that "
+                                                                    "don't exist in whole data set. sp2o will be used"
+                                                                    "1: a stricter 'fil' evaluation on object prediction"
+                                                                    "prediction score is ranked among objects that"
+                                                                    "don't exist in the current timestamp. spt2o is used")
 args = parser.parse_args()
 
 if __name__ == '__main__':
@@ -179,6 +193,7 @@ if __name__ == '__main__':
     contents = Data(dataset=args.dataset)
 
     # mapping between (s,p,t) -> o, will be used by evaluating object-prediction
+    sp2o = contents.get_sp2o()
     val_spt2o = contents.get_spt2o('valid')
     test_spt2o = contents.get_spt2o('test')
 
@@ -241,17 +256,27 @@ if __name__ == '__main__':
         #     val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
         #     val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
         #                                  pin_memory=False, shuffle=True)
-        #     val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
-        #                                                         num_neighbors=args.num_neighbors,
-        #                                                         cal_acc=True, spt2o=val_spt2o)
+        #     if args.evaluation_level == 0:
+        #         val_loss, measure= val_loss_acc(model, val_data_loader,
+        #                                                             num_neighbors=args.num_neighbors,
+        #                                                             cal_acc=True, sp2o=sp2o, spt2o=None)
+        #     elif args.evaluation_level == 1:
+        #         val_loss, measure= val_loss_acc(model, val_data_loader,
+        #                                                             num_neighbors=args.num_neighbors,
+        #                                                             cal_acc=True, sp2o=None, spt2o=val_spt2o)
+        #     else:
+        #         raise ValueError("evaluation_level should be 0 or 1")
         #     print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
-        #           (epoch + 1, val_loss, hit1, hit3, hit10, mr, mrr))
+        #           (epoch + 1, val_loss, measure.hit1[], measure.hit1, measure.hit10, measure.mr, measure.mrr))
         CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
             struct_time.tm_year,
             struct_time.tm_mon,
             struct_time.tm_mday,
             struct_time.tm_hour,
             struct_time.tm_min))
+
+        if epoch == 0:
+            save_config(args, CHECKPOINT_PATH)
 
         if not os.path.exists(CHECKPOINT_PATH):
             os.makedirs(CHECKPOINT_PATH)
