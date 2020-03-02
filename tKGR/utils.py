@@ -384,11 +384,11 @@ class Measure:
 
     def normalize(self, num_facts):
         for raw_or_fil in ["raw", "fil"]:
-            self.hit1[raw_or_fil] /= (2 * num_facts)
-            self.hit3[raw_or_fil] /= (2 * num_facts)
-            self.hit10[raw_or_fil] /= (2 * num_facts)
-            self.mr[raw_or_fil] /= (2 * num_facts)
-            self.mrr[raw_or_fil] /= (2 * num_facts)
+            self.hit1[raw_or_fil] /= num_facts
+            self.hit3[raw_or_fil] /= num_facts
+            self.hit10[raw_or_fil] /= num_facts
+            self.mr[raw_or_fil] /= num_facts
+            self.mrr[raw_or_fil] /= num_facts
 
     def print_(self):
         for raw_or_fil in ["raw", "fil"]:

@@ -139,6 +139,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
                         obj_candidate = sp2o[(src_idx, rel_idx)]
                         pred_score = tgan.obj_predict(src_idx, rel_idx, ts, obj_candidate).cpu().numpy()
                         rank = np.sum(pred_score > pred_score[obj_candidate.index(obj_idx)]) + 1
+                        measure.update(rank, 'fil')
                     else:
                         pred_score = tgan.obj_predict(src_idx, rel_idx, ts).cpu().numpy()
                         if spt2o is not None:
@@ -151,7 +152,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
 
         measure.normalize(num_events)
         val_loss /= (num_neg_events + num_events)
-    return val_loss, measure.hit1['raw'], measure.hit3['raw'], measure.hit10['raw'], measure.mr['raw'], measure.mrr['raw']
+    return val_loss, measure
 
 
 parser = argparse.ArgumentParser()
@@ -256,17 +257,17 @@ if __name__ == '__main__':
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                          pin_memory=False, shuffle=True)
             if args.evaluation_level == 0:
-                val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
+                val_loss, measure= val_loss_acc(model, val_data_loader,
                                                                     num_neighbors=args.num_neighbors,
                                                                     cal_acc=True, sp2o=sp2o, spt2o=None)
             elif args.evaluation_level == 1:
-                val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
+                val_loss, measure= val_loss_acc(model, val_data_loader,
                                                                     num_neighbors=args.num_neighbors,
                                                                     cal_acc=True, sp2o=None, spt2o=val_spt2o)
             else:
                 raise ValueError("evaluation_level should be 0 or 1")
             print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
-                  (epoch + 1, val_loss, hit1, hit3, hit10, mr, mrr))
+                  (epoch + 1, val_loss, measure.hit1[], measure.hit1, measure.hit10, measure.mr, measure.mrr))
         CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
             struct_time.tm_year,
             struct_time.tm_mon,
