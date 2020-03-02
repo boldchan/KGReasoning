@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import argparse
 
 import numpy as np
 import torch
@@ -154,6 +155,30 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
         val_loss /= (num_neg_events + num_events)
     return val_loss, measure
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', type=str, default='ICEWS18_forecasting', help='specify data set')
+parser.add_argument('--num_neg_sampling', type=int, default=5, help="number of negative sampling of objects for each event")
+parser.add_argument('--num_layers', type=int, default=2, help='number of TGAN layers')
+parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
+parser.add_argument('--node_feat_dim', type=int, default=100, help='dimension of embedding for node')
+parser.add_argument('--edge_feat_dim', type=int, default=100, help='dimension of embedding for edge')
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--epoch', type=int, default=20)
+parser.add_argument('--batch_size', type=int, default=10)
+parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
+                                                                'check paper Inductive Representation Learning '
+                                                                'for Temporal Graph for detail')
+parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
+parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
+parser.add_argument('--val_num_batch', type=int, default=1e8, help='how many validation batches are used for calculating accuracy '
+                                                                       'specify a really large integer to use all validation set')
+parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1], help="0: a looser 'fil' evaluation on object prediction,"
+                                                                    "prediction score is ranked among objects that "
+                                                                    "don't exist in whole data set. sp2o will be used"
+                                                                    "1: a stricter 'fil' evaluation on object prediction"
+                                                                    "prediction score is ranked among objects that"
+                                                                    "don't exist in the current timestamp. spt2o is used")
+args = parser.parse_args()
 if __name__ == '__main__':
     start_time = time.time()
     struct_time = time.gmtime(start_time)
@@ -198,12 +223,12 @@ if __name__ == '__main__':
                                                             cal_acc=True, sp2o=None, spt2o=val_spt2o)
         
     print('validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
-          (val_loss/(num_neg_events + num_events), 
-           measure.hit1['fil']/num_events, measure.hit1['raw']/num_events,
-           measure.hit3['fil']/num_events, measure.hit3['raw']/num_events,
-           measure.hit10['fil']/num_events, measure.hit10['raw']/num_events,
-           measure.mr['fil']/num_events, measure.mr['raw']/num_events,
-           measure.mrr['fil']/num_events, measure.mrr['raw']/num_events))
+          (val_loss,
+           measure.hit1['fil'], measure.hit1['raw'],
+           measure.hit3['fil'], measure.hit3['raw'],
+           measure.hit10['fil'], measure.hit10['raw'],
+           measure.mr['fil'], measure.mr['raw'],
+           measure.mrr['fil'], measure.mrr['raw']))
     
     
     

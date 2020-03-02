@@ -268,12 +268,10 @@ class NeighborFinder:
         edge_idx_l = self.edge_idx_l
         off_set_l = self.off_set_l
 
-        try:
-            neighbors_idx = node_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
-            neighbors_ts = node_ts_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
-            neighbors_e_idx = edge_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
-        except:
-            print(src_idx)
+        neighbors_idx = node_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
+        neighbors_ts = node_ts_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
+        neighbors_e_idx = edge_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
+
         if len(neighbors_idx) == 0 or len(neighbors_ts) == 0:
             return neighbors_idx, neighbors_ts, neighbors_e_idx
 
