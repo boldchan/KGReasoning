@@ -141,8 +141,8 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
                             np.put(mask, spt2o[(src_idx, rel_idx, ts)], False)  # exclude all event with same (s,p,t) even the one with current object
                             rank = np.sum(pred_score[mask] > pred_score[obj_idx]) + 1
                             measure.update(rank, 'fil')
-                    rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
-                    measure.update(rank, 'raw')
+                        rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
+                        measure.update(rank, 'raw')
             print('[evaluation level: %d]validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
                   (eval_level, val_loss/(num_neg_events + num_events), 
                    measure.hit1['fil']/num_events, measure.hit1['raw']/num_events,
