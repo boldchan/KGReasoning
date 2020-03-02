@@ -236,16 +236,16 @@ if __name__ == '__main__':
                 print('[%d, %5d] training loss: %.3f' %(epoch + 1, batch_ndx + 1, running_loss / 50))
                 running_loss = 0.0
 
-        if epoch%5 == 4:
-            # prepare validation data
-            val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
-            val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
-                                         pin_memory=False, shuffle=True)
-            val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
-                                                                num_neighbors=args.num_neighbors,
-                                                                cal_acc=True, spt2o=val_spt2o)
-            print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
-                  (epoch + 1, val_loss, hit1, hit3, hit10, mr, mrr))
+        # if epoch%5 == 4:
+        #     # prepare validation data
+        #     val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
+        #     val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+        #                                  pin_memory=False, shuffle=True)
+        #     val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader,
+        #                                                         num_neighbors=args.num_neighbors,
+        #                                                         cal_acc=True, spt2o=val_spt2o)
+        #     print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
+        #           (epoch + 1, val_loss, hit1, hit3, hit10, mr, mrr))
         CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
             struct_time.tm_year,
             struct_time.tm_mon,
