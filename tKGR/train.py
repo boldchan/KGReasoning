@@ -5,6 +5,9 @@ from collections import defaultdict
 import argparse
 import time
 import pdb
+import cProfile
+import re
+cProfile.run('re.compile("foo|bar")')
 
 import numpy as np
 import torch
@@ -275,11 +278,12 @@ if __name__ == '__main__':
             struct_time.tm_hour,
             struct_time.tm_min))
 
+        if not os.path.exists(CHECKPOINT_PATH):
+            os.makedirs(CHECKPOINT_PATH)
+
         if epoch == 0:
             save_config(args, CHECKPOINT_PATH)
 
-        if not os.path.exists(CHECKPOINT_PATH):
-            os.makedirs(CHECKPOINT_PATH)
         model.eval()
         torch.save({
             'epoch': epoch,
