@@ -263,14 +263,9 @@ class NeighborFinder:
         src_idx: int
         cut_time: float
         """
-        node_idx_l = self.node_idx_l
-        node_ts_l = self.node_ts_l
-        edge_idx_l = self.edge_idx_l
-        off_set_l = self.off_set_l
-
-        neighbors_idx = node_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
-        neighbors_ts = node_ts_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
-        neighbors_e_idx = edge_idx_l[off_set_l[src_idx]:off_set_l[src_idx + 1]]
+        neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+        neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+        neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
 
         if len(neighbors_idx) == 0 or len(neighbors_ts) == 0:
             return neighbors_idx, neighbors_ts, neighbors_e_idx
@@ -308,7 +303,12 @@ class NeighborFinder:
         out_ngh_eidx_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
 
         for i, (src_idx, cut_time) in enumerate(zip(src_idx_l, cut_time_l)):
-            ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
+            neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+            neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+            neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+            mid = np.searchsorted(neighbors_ts, cut_time)
+            ngh_idx, ngh_eidx, ngh_ts = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
+            # ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
 
             if len(ngh_idx) > 0:
                 if self.uniform:
