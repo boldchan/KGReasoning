@@ -206,26 +206,28 @@ class Data:
         return sp2o
 
 class NeighborFinder:
-    def __init__(self, adj_list, uniform=False):
+    def __init__(self, adj_list, uniform=False, max_time=366*24):
         """
         Params
         ------
         adj_list: adj_list[i] is the list of all (o,p,t) for entity i
         node_idx_l: List[int]
         node_ts_l: List[int]
-        off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i]
+        off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i][:,1]
+        off_set_t_l: node_idx_l[off_set_l[i]:off_set_l[i + 1]][:off_set_t_l[i][cut_time/24]] --> object of entity i that happen before cut time
         """
 
-        node_idx_l, node_ts_l, edge_idx_l, off_set_l = self.init_off_set(adj_list)
+        node_idx_l, node_ts_l, edge_idx_l, off_set_l, off_set_t_l = self.init_off_set(adj_list, max_time)
         self.node_idx_l = node_idx_l
         self.node_ts_l = node_ts_l
         self.edge_idx_l = edge_idx_l
 
         self.off_set_l = off_set_l
+        self.off_set_t_l = off_set_t_l
 
         self.uniform = uniform
 
-    def init_off_set(self, adj_list):
+    def init_off_set(self, adj_list, max_time):
         """
         Params
         ------
@@ -236,15 +238,18 @@ class NeighborFinder:
         n_ts_l = []
         e_idx_l = []
         off_set_l = [0]
+        off_set_t_l = []
 
         for i in range(len(adj_list)):
             curr = adj_list[i]
             curr = sorted(curr, key=lambda x: int(x[2]))
             n_idx_l.extend([x[0] for x in curr])
             e_idx_l.extend([x[1] for x in curr])
-            n_ts_l.extend([x[2] for x in curr])
+            curr_ts = [x[2] for x in curr]
+            n_ts_l.extend(curr_ts)
 
             off_set_l.append(len(n_idx_l))
+            off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time, 24)])
         n_idx_l = np.array(n_idx_l)
         n_ts_l = np.array(n_ts_l)
         e_idx_l = np.array(e_idx_l)
@@ -253,7 +258,7 @@ class NeighborFinder:
         assert (len(n_idx_l) == len(n_ts_l))
         assert (off_set_l[-1] == len(n_ts_l))
 
-        return n_idx_l, n_ts_l, e_idx_l, off_set_l
+        return n_idx_l, n_ts_l, e_idx_l, off_set_l, off_set_t_l
 
     def find_before(self, src_idx, cut_time):
         """
@@ -306,7 +311,8 @@ class NeighborFinder:
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-            mid = np.searchsorted(neighbors_ts, cut_time)
+            mid = self.off_set_t_l[src_idx][int(cut_time/24)]
+            # mid = np.searchsorted(neighbors_ts, cut_time)
             ngh_idx, ngh_eidx, ngh_ts = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
 

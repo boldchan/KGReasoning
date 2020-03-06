@@ -5,9 +5,6 @@ from collections import defaultdict
 import argparse
 import time
 import pdb
-import cProfile
-import re
-cProfile.run('re.compile("foo|bar")')
 
 import numpy as np
 import torch
