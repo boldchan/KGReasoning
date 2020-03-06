@@ -3,9 +3,10 @@ import sys
 import time
 import argparse
 
+from tqdm import tqdm
 import numpy as np
 import torch
-import torch.utils.data import DataLoader
+from torch.utils.data import DataLoader
 
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
@@ -89,7 +90,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
         tgan = tgan.eval()
         num_events = 0
         num_neg_events = 0
-        for batch_idx, sample in enumerate(valid_dataloader):
+        for batch_idx, sample in tqdm(enumerate(valid_dataloader)):
             src_idx_l = sample.src_idx
             obj_idx_l = sample.obj_idx
             rel_idx_l = sample.rel_idx
@@ -144,7 +145,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
                         rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
                         measure.update(rank, 'raw')
             print('[evaluation level: %d]validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
-                  (eval_level, val_loss/(num_neg_events + num_events), 
+                  (eval_level, val_loss/(num_neg_events + num_events),
                    measure.hit1['fil']/num_events, measure.hit1['raw']/num_events,
                    measure.hit3['fil']/num_events, measure.hit3['raw']/num_events,
                    measure.hit10['fil']/num_events, measure.hit10['raw']/num_events,
@@ -159,11 +160,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='ICEWS18_forecasting', help='specify data set')
 parser.add_argument('--num_neg_sampling', type=int, default=5, help="number of negative sampling of objects for each event")
 parser.add_argument('--num_layers', type=int, default=2, help='number of TGAN layers')
-parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--node_feat_dim', type=int, default=100, help='dimension of embedding for node')
 parser.add_argument('--edge_feat_dim', type=int, default=100, help='dimension of embedding for edge')
-parser.add_argument('--lr', type=float, default=0.001)
-parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
                                                                 'check paper Inductive Representation Learning '
@@ -178,37 +176,39 @@ parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1], h
                                                                     "1: a stricter 'fil' evaluation on object prediction"
                                                                     "prediction score is ranked among objects that"
                                                                     "don't exist in the current timestamp. spt2o is used")
+parser.add_argument('--checkpoint_dir', type=str, help='directory of checkpoint')
+parser.add_argument('--checkpoint_ind', type=int, help='index indicates the epoch of checkpoint')
 args = parser.parse_args()
 if __name__ == '__main__':
     start_time = time.time()
     struct_time = time.gmtime(start_time)
-    
+
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device>=0 else 'cpu'
     else:
         device = 'cpu'
-        
+
     # load dataset
     contents = Data(dataset=args.dataset)
-    
+
     # mapping between (s,p,t) -> o, will be used by evaluating object-prediction
     sp2o = contents.get_sp2o()
     val_spt2o = contents.get_spt2o('valid')
     test_spt2o = contents.get_spt2o('test')
-    
+
     # init NeighborFinder
     adj_list = contents.get_adj_list()
     nf = NeighborFinder(adj_list)
-    
-    model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers, 
+
+    model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
                  device=device)
     model.to(device)
-    
+
     # load checkpoint
-    checkpoint=torch.load(os.path.join(PackageDir, 'Checkpoints', 'checkpoints_2020_3_1_21_16', 'checkpoint_41.pt'),
+    checkpoint=torch.load(os.path.join(PackageDir, 'Checkpoints', args.checkpoint_dir, 'checkpoint_{}.pt'.format(args.checkpoint_ind)),
                      map_location=torch.device(device))
     model.load_state_dict(checkpoint['model_state_dict'])
-    
+
     model.eval()
     val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
     val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
@@ -221,7 +221,7 @@ if __name__ == '__main__':
         val_loss, measure = val_loss_acc(model, val_data_loader,
                                                             num_neighbors=args.num_neighbors,
                                                             cal_acc=True, sp2o=None, spt2o=val_spt2o)
-        
+
     print('validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
           (val_loss,
            measure.hit1['fil'], measure.hit1['raw'],
@@ -229,8 +229,8 @@ if __name__ == '__main__':
            measure.hit10['fil'], measure.hit10['raw'],
            measure.mr['fil'], measure.mr['raw'],
            measure.mrr['fil'], measure.mrr['raw']))
-    
-    
-    
-    
-        
+
+
+
+
+
