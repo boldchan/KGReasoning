@@ -199,7 +199,8 @@ if __name__ == '__main__':
 
     # init NeighborFinder
     adj_list = contents.get_adj_list()
-    nf = NeighborFinder(adj_list)
+    max_time = max(contents.data[:,3])
+    nf = NeighborFinder(adj_list, uniform=True, max_time=max_time)
 
     model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers, device=device)
     model.to(device)
@@ -208,7 +209,7 @@ if __name__ == '__main__':
     for epoch in range(args.epoch):
         running_loss = 0.0
         # prepare training data
-        train_inputs= prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
+        train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
                                          start_time=args.warm_start_time)
         # test_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
 

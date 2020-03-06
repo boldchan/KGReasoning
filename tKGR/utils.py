@@ -312,7 +312,7 @@ class NeighborFinder:
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-            mid = self.off_set_t_l[src_idx][int(cut_time/24)]
+            mid = self.off_set_t_l[src_idx][int(cut_time/24)]  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
             # mid = np.searchsorted(neighbors_ts, cut_time)
             ngh_idx, ngh_eidx, ngh_ts = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
