@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 import numpy as np
 import pdb
+import subprocess
 
 # import tKGR.data
 DataDir = os.path.join(os.path.dirname(__file__), 'data')
@@ -138,20 +139,20 @@ class Data:
         relation_idxs = {self.relations[i]: i for i in range(len(self.relations))}
         timestamp_idxs = {self.timestamps[i]: i for i in range(len(self.timestamps))}
         return  entity_idxs, relation_idxs, timestamp_idxs
-    
+
     def _id2entity(self, dataset):
         with open(os.path.join(DataDir, dataset, "entity2id.txt"), 'r', encoding='utf-8') as f:
             mapping = f.readlines()
             mapping = [entity.strip().split("\t") for entity in mapping]
             mapping = {int(ent2idx[1].strip()):ent2idx[0].strip() for ent2idx in mapping}
         return mapping
-    
+
     def _id2relation(self, dataset):
         with open(os.path.join(DataDir, dataset, "relation2id.txt"), 'r', encoding='utf-8') as f:
             mapping = f.readlines()
             mapping = [relation.strip().split("\t") for relation in mapping]
             id2relation = {}
-            for rel2idx in mapping: 
+            for rel2idx in mapping:
                 id2relation[int(rel2idx[1].strip())] = rel2idx[0].strip()
         return id2relation
 
@@ -403,8 +404,12 @@ class Measure:
             print("\tMR =", self.mr[raw_or_fil])
             print("\tMRR =", self.mrr[raw_or_fil])
 
+def get_git_version_short_hash():
+    return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'])[:-1].decode("utf-8")
 
 def save_config(args, dir:str):
     args_dict = vars(args)
+    git_hash = get_git_version_short_hash()
+    args_dict['git_hash'] = git_hash
     with open(os.path.join(dir, 'config.json'), 'w') as fp:
         json.dump(args_dict, fp)
