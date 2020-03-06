@@ -160,7 +160,8 @@ class Data:
         '''
         adj_list for the whole dataset, including training data, validation data and test data
         :return:
-        adj_list: List[List[(o(int), p(str), t(int))]], adj_list[i] is the list of (o,p,t) of events where entity i is the subject
+        adj_list: List[List[(o(int), p(str), t(int))]], adj_list[i] is the list of (o,p,t) of events
+        where entity i is the subject. Each row is sorted by timestamp of events
         '''
         adj_list_dict = defaultdict(list)
         for event in self.data:
@@ -321,27 +322,32 @@ class NeighborFinder:
                 if self.uniform:
                     sampled_idx = np.random.randint(0, len(ngh_idx), num_neighbors)
 
+                    sampled_idx = np.sort(sampled_idx)
+
                     out_ngh_node_batch[i, :] = ngh_idx[sampled_idx]
                     out_ngh_t_batch[i, :] = ngh_ts[sampled_idx]
                     out_ngh_eidx_batch[i, :] = ngh_eidx[sampled_idx]
 
-                    # resort based on time
-                    pos = out_ngh_t_batch[i, :].argsort()
-                    out_ngh_node_batch[i, :] = out_ngh_node_batch[i, :][pos]
-                    out_ngh_t_batch[i, :] = out_ngh_t_batch[i, :][pos]
-                    out_ngh_eidx_batch[i, :] = out_ngh_eidx_batch[i, :][pos]
+                    # # resort based on time
+                    # pos = out_ngh_t_batch[i, :].argsort()
+                    # out_ngh_node_batch[i, :] = out_ngh_node_batch[i, :][pos]
+                    # out_ngh_t_batch[i, :] = out_ngh_t_batch[i, :][pos]
+                    # out_ngh_eidx_batch[i, :] = out_ngh_eidx_batch[i, :][pos]
                 else:
-                    ngh_ts = ngh_ts[:num_neighbors]
-                    ngh_idx = ngh_idx[:num_neighbors]
-                    ngh_eidx = ngh_eidx[:num_neighbors]
-
-                    assert (len(ngh_idx) <= num_neighbors)
-                    assert (len(ngh_ts) <= num_neighbors)
-                    assert (len(ngh_eidx) <= num_neighbors)
-
-                    out_ngh_node_batch[i, num_neighbors - len(ngh_idx):] = ngh_idx
-                    out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
-                    out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
+                    # ngh_ts = ngh_ts[:num_neighbors]
+                    # ngh_idx = ngh_idx[:num_neighbors]
+                    # ngh_eidx = ngh_eidx[:num_neighbors]
+                    #
+                    # assert (len(ngh_idx) <= num_neighbors)
+                    # assert (len(ngh_ts) <= num_neighbors)
+                    # assert (len(ngh_eidx) <= num_neighbors)
+                    #
+                    # out_ngh_node_batch[i, num_neighbors - len(ngh_idx):] = ngh_idx
+                    # out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
+                    # out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
+                    out_ngh_node_batch[i, num_neighbors - len(ngh_idx):] = ngh_idx[:num_neighbors]
+                    out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts[:num_neighbors]
+                    out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx[:num_neighbors]
 
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
 
