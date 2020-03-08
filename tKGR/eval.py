@@ -178,6 +178,7 @@ parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1], h
                                                                     "don't exist in the current timestamp. spt2o is used")
 parser.add_argument('--checkpoint_dir', type=str, help='directory of checkpoint')
 parser.add_argument('--checkpoint_ind', type=int, help='index indicates the epoch of checkpoint')
+parser.add_argument('--eval_num_batches', type=int, default=128, help='number of batches to perform evaluation')
 args = parser.parse_args()
 if __name__ == '__main__':
     start_time = time.time()
@@ -205,24 +206,28 @@ if __name__ == '__main__':
                  device=device)
     model.to(device)
     val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
-    val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
-                                 pin_memory=False, shuffle=True)
 
     for check_idx in range(args.checkpoint_ind):
         # load checkpoint
-        checkpoint=torch.load(os.path.join(PackageDir, 'Checkpoints', args.checkpoint_dir, 'checkpoint_{}.pt'.format(check_idx)),
-                         map_location=torch.device(device))
+        checkpoint=torch.load(os.path.join(PackageDir, 'Checkpoints', args.checkpoint_dir,
+                                           'checkpoint_{}.pt'.format(check_idx)), map_location=torch.device(device))
         model.load_state_dict(checkpoint['model_state_dict'])
+        val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                     pin_memory=False, shuffle=True)
 
         model.eval()
         if args.evaluation_level == 0:
             val_loss, measure = val_loss_acc(model, val_data_loader,
-                                                                num_neighbors=args.num_neighbors,
-                                                                cal_acc=True, sp2o=sp2o, spt2o=None)
+                                             num_neighbors=args.num_neighbors,
+                                             cal_acc=True, sp2o=sp2o, spt2o=None,
+                                             num_batches=args.eval_num_batches)
         elif args.evaluation_level == 1:
             val_loss, measure = val_loss_acc(model, val_data_loader,
-                                                                num_neighbors=args.num_neighbors,
-                                                                cal_acc=True, sp2o=None, spt2o=val_spt2o)
+                                             num_neighbors=args.num_neighbors,
+                                             cal_acc=True, sp2o=None, spt2o=val_spt2o,
+                                             num_batches=args.eval_num_batches)
+        else:
+            raise ValueError("evaluation level must be 0 or 1")
 
         print('[checkpoint_%d] validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, '
               'Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
