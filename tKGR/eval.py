@@ -20,6 +20,7 @@ np.random.seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
+
 def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
     '''
     :param contents: instance of Data object
@@ -71,7 +72,7 @@ def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o=None, spt2o=None, num_batches=1e8):
+def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc: bool = False, sp2o=None, spt2o=None, num_batches=1e8):
     '''
 
     :param spt2o: if sp2o is None and spt2o is not None, a stricter evaluation on object prediction is performed
@@ -91,6 +92,8 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
         num_events = 0
         num_neg_events = 0
         for batch_idx, sample in tqdm(enumerate(valid_dataloader)):
+            if batch_idx >= num_batches:
+                break
             src_idx_l = sample.src_idx
             obj_idx_l = sample.obj_idx
             rel_idx_l = sample.rel_idx
@@ -116,10 +119,11 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
 
             with torch.no_grad():
                 pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
-                neg_label = torch.zeros(neg_embed.shape[0]*neg_embed.shape[1], dtype=torch.float, device=device)
+                neg_label = torch.zeros(neg_embed.shape[0] * neg_embed.shape[1], dtype=torch.float, device=device)
 
             pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
-            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed, dim=2).view(-1)  # [batch_size x num_neg_sampling]
+            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed,
+                                  dim=2).view(-1)  # [batch_size x num_neg_sampling]
 
             loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
             loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
@@ -128,7 +132,7 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
             num_neg_events += len(neg_score)
 
             # prediction accuracy
-            if cal_acc and batch_idx < num_batches:
+            if cal_acc:
                 for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
                     if sp2o is not None:
                         obj_candidate = sp2o[(src_idx, rel_idx)]
@@ -139,7 +143,8 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
                         pred_score = tgan.obj_predict(src_idx, rel_idx, ts).cpu().numpy()
                         if spt2o is not None:
                             mask = np.ones_like(pred_score, dtype=bool)
-                            np.put(mask, spt2o[(src_idx, rel_idx, ts)], False)  # exclude all event with same (s,p,t) even the one with current object
+                            np.put(mask, spt2o[(src_idx, rel_idx, ts)],
+                                   False)  # exclude all event with same (s,p,t) even the one with current object
                             rank = np.sum(pred_score[mask] > pred_score[obj_idx]) + 1
                             measure.update(rank, 'fil')
                         rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
@@ -156,28 +161,34 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
         val_loss /= (num_neg_events + num_events)
     return val_loss, measure
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='ICEWS18_forecasting', help='specify data set')
-parser.add_argument('--num_neg_sampling', type=int, default=5, help="number of negative sampling of objects for each event")
+parser.add_argument('--num_neg_sampling', type=int, default=5,
+                    help="number of negative sampling of objects for each event")
 parser.add_argument('--num_layers', type=int, default=2, help='number of TGAN layers')
 parser.add_argument('--node_feat_dim', type=int, default=100, help='dimension of embedding for node')
 parser.add_argument('--edge_feat_dim', type=int, default=100, help='dimension of embedding for edge')
 parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
-                                                                'check paper Inductive Representation Learning '
-                                                                'for Temporal Graph for detail')
+                                                                  'check paper Inductive Representation Learning '
+                                                                  'for Temporal Graph for detail')
 parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
-parser.add_argument('--val_num_batch', type=int, default=1e8, help='how many validation batches are used for calculating accuracy '
-                                                                       'specify a really large integer to use all validation set')
-parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1], help="0: a looser 'fil' evaluation on object prediction,"
-                                                                    "prediction score is ranked among objects that "
-                                                                    "don't exist in whole data set. sp2o will be used"
-                                                                    "1: a stricter 'fil' evaluation on object prediction"
-                                                                    "prediction score is ranked among objects that"
-                                                                    "don't exist in the current timestamp. spt2o is used")
+parser.add_argument('--val_num_batch', type=int, default=1e8,
+                    help='how many validation batches are used for calculating accuracy '
+                         'specify a really large integer to use all validation set')
+parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1],
+                    help="0: a looser 'fil' evaluation on object prediction,"
+                         "prediction score is ranked among objects that "
+                         "don't exist in whole data set. sp2o will be used"
+                         "1: a stricter 'fil' evaluation on object prediction"
+                         "prediction score is ranked among objects that"
+                         "don't exist in the current timestamp. spt2o is used")
 parser.add_argument('--checkpoint_dir', type=str, help='directory of checkpoint')
 parser.add_argument('--checkpoint_ind', type=int, help='index indicates the epoch of checkpoint')
+parser.add_argument('--eval_one_epoch', action='store_true', help="set to only evaluate the epoch specified by "
+                                                                  "checkpoint_ind, used for debugging")
 parser.add_argument('--eval_num_batches', type=int, default=128, help='number of batches to perform evaluation')
 args = parser.parse_args()
 if __name__ == '__main__':
@@ -185,11 +196,11 @@ if __name__ == '__main__':
     struct_time = time.gmtime(start_time)
 
     if torch.cuda.is_available():
-        device = 'cuda:{}'.format(args.device) if args.device>=0 else 'cpu'
+        device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
     else:
         device = 'cpu'
 
-    # load dataset
+    # load data set
     contents = Data(dataset=args.dataset)
 
     # mapping between (s,p,t) -> o, will be used by evaluating object-prediction
@@ -207,10 +218,14 @@ if __name__ == '__main__':
     model.to(device)
     val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
 
-    for check_idx in range(args.checkpoint_ind):
+    if args.eval_one_epoch:
+        checkpoint_to_eval = [args.checkpoint_ind]
+    else:
+        checkpoint_to_eval = [_ for _ in range(args.checkpoint_ind)]
+    for check_idx in checkpoint_to_eval:
         # load checkpoint
-        checkpoint=torch.load(os.path.join(PackageDir, 'Checkpoints', args.checkpoint_dir,
-                                           'checkpoint_{}.pt'.format(check_idx)), map_location=torch.device(device))
+        checkpoint = torch.load(os.path.join(PackageDir, 'Checkpoints', args.checkpoint_dir,
+                                             'checkpoint_{}.pt'.format(check_idx)), map_location=torch.device(device))
         model.load_state_dict(checkpoint['model_state_dict'])
         val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                      pin_memory=False, shuffle=True)
@@ -237,8 +252,3 @@ if __name__ == '__main__':
                measure.hit10['fil'], measure.hit10['raw'],
                measure.mr['fil'], measure.mr['raw'],
                measure.mrr['fil'], measure.mrr['raw']))
-
-
-
-
-

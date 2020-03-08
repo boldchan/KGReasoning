@@ -215,7 +215,7 @@ class NeighborFinder:
         adj_list: adj_list[i] is the list of all (o,p,t) for entity i
         node_idx_l: List[int]
         node_ts_l: List[int]
-        off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i][:,1]
+        off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i][:,0]
         off_set_t_l: node_idx_l[off_set_l[i]:off_set_l[i + 1]][:off_set_t_l[i][cut_time/24]] --> object of entity i that happen before cut time
         """
 
