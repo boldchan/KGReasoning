@@ -198,7 +198,8 @@ if __name__ == '__main__':
 
     # init NeighborFinder
     adj_list = contents.get_adj_list()
-    nf = NeighborFinder(adj_list)
+    max_time = max(contents.data[:, 3])
+    nf = NeighborFinder(adj_list, uniform=args.uniform, max_time=max_time)
 
     model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
                  device=device)
