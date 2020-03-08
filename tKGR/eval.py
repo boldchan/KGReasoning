@@ -144,13 +144,13 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
                             measure.update(rank, 'fil')
                         rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
                         measure.update(rank, 'raw')
-            print('[evaluation level: %d]validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
-                  (eval_level, val_loss/(num_neg_events + num_events),
-                   measure.hit1['fil']/num_events, measure.hit1['raw']/num_events,
-                   measure.hit3['fil']/num_events, measure.hit3['raw']/num_events,
-                   measure.hit10['fil']/num_events, measure.hit10['raw']/num_events,
-                   measure.mr['fil']/num_events, measure.mr['raw']/num_events,
-                   measure.mrr['fil']/num_events, measure.mrr['raw']/num_events))
+            # print('[evaluation level: %d]validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
+            #       (eval_level, val_loss/(num_neg_events + num_events),
+            #        measure.hit1['fil']/num_events, measure.hit1['raw']/num_events,
+            #        measure.hit3['fil']/num_events, measure.hit3['raw']/num_events,
+            #        measure.hit10['fil']/num_events, measure.hit10['raw']/num_events,
+            #        measure.mr['fil']/num_events, measure.mr['raw']/num_events,
+            #        measure.mrr['fil']/num_events, measure.mrr['raw']/num_events))
 
         measure.normalize(num_events)
         val_loss /= (num_neg_events + num_events)
@@ -204,32 +204,34 @@ if __name__ == '__main__':
     model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
                  device=device)
     model.to(device)
-
-    # load checkpoint
-    checkpoint=torch.load(os.path.join(PackageDir, 'Checkpoints', args.checkpoint_dir, 'checkpoint_{}.pt'.format(args.checkpoint_ind)),
-                     map_location=torch.device(device))
-    model.load_state_dict(checkpoint['model_state_dict'])
-
-    model.eval()
     val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
     val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
-                                         pin_memory=False, shuffle=True)
-    if args.evaluation_level == 0:
-        val_loss, measure = val_loss_acc(model, val_data_loader,
-                                                            num_neighbors=args.num_neighbors,
-                                                            cal_acc=True, sp2o=sp2o, spt2o=None)
-    elif args.evaluation_level == 1:
-        val_loss, measure = val_loss_acc(model, val_data_loader,
-                                                            num_neighbors=args.num_neighbors,
-                                                            cal_acc=True, sp2o=None, spt2o=val_spt2o)
+                                 pin_memory=False, shuffle=True)
 
-    print('validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
-          (val_loss,
-           measure.hit1['fil'], measure.hit1['raw'],
-           measure.hit3['fil'], measure.hit3['raw'],
-           measure.hit10['fil'], measure.hit10['raw'],
-           measure.mr['fil'], measure.mr['raw'],
-           measure.mrr['fil'], measure.mrr['raw']))
+    for check_idx in range(args.checkpoint_ind):
+        # load checkpoint
+        checkpoint=torch.load(os.path.join(PackageDir, 'Checkpoints', args.checkpoint_dir, 'checkpoint_{}.pt'.format(check_idx)),
+                         map_location=torch.device(device))
+        model.load_state_dict(checkpoint['model_state_dict'])
+
+        model.eval()
+        if args.evaluation_level == 0:
+            val_loss, measure = val_loss_acc(model, val_data_loader,
+                                                                num_neighbors=args.num_neighbors,
+                                                                cal_acc=True, sp2o=sp2o, spt2o=None)
+        elif args.evaluation_level == 1:
+            val_loss, measure = val_loss_acc(model, val_data_loader,
+                                                                num_neighbors=args.num_neighbors,
+                                                                cal_acc=True, sp2o=None, spt2o=val_spt2o)
+
+        print('[checkpoint_%d] validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, '
+              'Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
+              (check_idx, val_loss,
+               measure.hit1['fil'], measure.hit1['raw'],
+               measure.hit3['fil'], measure.hit3['raw'],
+               measure.hit10['fil'], measure.hit10['raw'],
+               measure.mr['fil'], measure.mr['raw'],
+               measure.mrr['fil'], measure.mrr['raw']))
 
 
 
