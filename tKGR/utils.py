@@ -11,17 +11,17 @@ DataDir = os.path.join(os.path.dirname(__file__), 'data')
 
 
 class Data:
-    def __init__(self, dataset=None):
+    def __init__(self, dataset=None, add_reverse_relation=False):
         # load data
         self.id2entity = self._id2entity(dataset=dataset)
         self.id2relation = self._id2relation(dataset=dataset)
         num_relations = len(self.id2relation)  # number of pure relations, i.e. no reversed relation
         reversed_id2relation = {}
         for ind, rel in self.id2relation.items():
-            reversed_id2relation[ind+num_relations] = 'Reversed '+rel
+            reversed_id2relation[ind + num_relations] = 'Reversed ' + rel
         self.id2relation.update(reversed_id2relation)
 
-        self.num_relations = 2*num_relations
+        self.num_relations = 2 * num_relations
         self.num_entities = len(self.id2entity)
 
         self.train_data = self._load_data(os.path.join(DataDir, dataset), "train")
@@ -29,10 +29,11 @@ class Data:
         self.test_data = self._load_data(os.path.join(DataDir, dataset), "test")
 
         # add reverse event into the data set
-        self.train_data = np.concatenate([self.train_data[:, :-1],
-                                          np.vstack(
-                                              [[event[2], event[1]+num_relations, event[0], event[3]]
-                                               for event in self.train_data])], axis=0)
+        if add_reverse_relation:
+            self.train_data = np.concatenate([self.train_data[:, :-1],
+                                              np.vstack(
+                                                  [[event[2], event[1] + num_relations, event[0], event[3]]
+                                                   for event in self.train_data])], axis=0)
         seen_entities = set(self.train_data[:, 0])
         seen_relations = set(self.train_data[:, 1])
 
@@ -40,26 +41,28 @@ class Data:
         val_mask = [evt[0] in seen_entities and evt[2] in seen_entities and evt[1] in seen_relations
                     for evt in self.valid_data]
         self.valid_data_seen_entity = self.valid_data[val_mask]
-        self.valid_data = np.concatenate([self.valid_data[:, :-1],
-                                          np.vstack(
-                                              [[event[2], event[1]+num_relations, event[0], event[3]]
-                                               for event in self.valid_data])], axis=0)
-        self.valid_data_seen_entity = np.concatenate([self.valid_data_seen_entity[:, :-1],
-                                          np.vstack(
-                                              [[event[2], event[1]+num_relations, event[0], event[3]]
-                                               for event in self.valid_data_seen_entity])], axis=0)
+        if add_reverse_relation:
+            self.valid_data = np.concatenate([self.valid_data[:, :-1],
+                                              np.vstack(
+                                                  [[event[2], event[1] + num_relations, event[0], event[3]]
+                                                   for event in self.valid_data])], axis=0)
+            self.valid_data_seen_entity = np.concatenate([self.valid_data_seen_entity[:, :-1],
+                                                          np.vstack(
+                                                              [[event[2], event[1] + num_relations, event[0], event[3]]
+                                                               for event in self.valid_data_seen_entity])], axis=0)
 
         test_mask = [evt[0] in seen_entities and evt[2] in seen_entities and evt[1] in seen_relations
                      for evt in self.test_data]
         self.test_data_seen_entity = self.test_data[test_mask]
-        self.test_data = np.concatenate([self.test_data[:, :-1],
-                                         np.vstack(
-                                              [[event[2], event[1]+num_relations, event[0], event[3]]
-                                               for event in self.test_data])], axis=0)
-        self.test_data_seen_entity = np.concatenate([self.test_data_seen_entity[:, :-1],
-                                          np.vstack(
-                                              [[event[2], event[1]+num_relations, event[0], event[3]]
-                                               for event in self.test_data_seen_entity])], axis=0)
+        if add_reverse_relation:
+            self.test_data = np.concatenate([self.test_data[:, :-1],
+                                             np.vstack(
+                                                 [[event[2], event[1] + num_relations, event[0], event[3]]
+                                                  for event in self.test_data])], axis=0)
+            self.test_data_seen_entity = np.concatenate([self.test_data_seen_entity[:, :-1],
+                                                         np.vstack(
+                                                             [[event[2], event[1] + num_relations, event[0], event[3]]
+                                                              for event in self.test_data_seen_entity])], axis=0)
 
         self.data = np.concatenate([self.train_data, self.valid_data, self.test_data], axis=0)
 
@@ -88,7 +91,7 @@ class Data:
 
     @staticmethod
     def _get_entities(data):
-        entities = sorted(list(set([d[0] for d in data]+[d[2] for d in data])))
+        entities = sorted(list(set([d[0] for d in data] + [d[2] for d in data])))
         return entities
 
     @staticmethod
@@ -127,7 +130,8 @@ class Data:
             while True:
                 candidate = np.random.choice(self.num_entities)
                 if candidate not in spt_o[(event[0], event[1], event[3])]:
-                    neg_object_one_node.append(candidate) # 0-th is a dummy node used to stuff the neighborhood when there is not enough nodes in the neighborhood
+                    neg_object_one_node.append(
+                        candidate)  # 0-th is a dummy node used to stuff the neighborhood when there is not enough nodes in the neighborhood
                 if len(neg_object_one_node) == Q:
                     neg_object.append(neg_object_one_node)
                     break
@@ -138,13 +142,13 @@ class Data:
         entity_idxs = {self.entities[i]: i for i in range(len(self.entities))}
         relation_idxs = {self.relations[i]: i for i in range(len(self.relations))}
         timestamp_idxs = {self.timestamps[i]: i for i in range(len(self.timestamps))}
-        return  entity_idxs, relation_idxs, timestamp_idxs
+        return entity_idxs, relation_idxs, timestamp_idxs
 
     def _id2entity(self, dataset):
         with open(os.path.join(DataDir, dataset, "entity2id.txt"), 'r', encoding='utf-8') as f:
             mapping = f.readlines()
             mapping = [entity.strip().split("\t") for entity in mapping]
-            mapping = {int(ent2idx[1].strip()):ent2idx[0].strip() for ent2idx in mapping}
+            mapping = {int(ent2idx[1].strip()): ent2idx[0].strip() for ent2idx in mapping}
         return mapping
 
     def _id2relation(self, dataset):
@@ -172,7 +176,7 @@ class Data:
 
         return adj_list
 
-    def get_spt2o(self, dataset:str):
+    def get_spt2o(self, dataset: str):
         '''
         mapping between (s, p, t) -> list(o), i.e. values of dict are objects share the same subject, predicate and time.
         calculated for the convenience of evaluation "fil" on object prediction
@@ -207,8 +211,9 @@ class Data:
             sp2o[(event[0], event[1])].append(event[2])
         return sp2o
 
+
 class NeighborFinder:
-    def __init__(self, adj_list, uniform=False, max_time=366*24):
+    def __init__(self, adj_list, uniform=False, max_time=366 * 24):
         """
         Params
         ------
@@ -289,9 +294,9 @@ class NeighborFinder:
                 right = mid
 
         if neighbors_ts[right] < cut_time:
-            return neighbors_idx[:right+1], neighbors_e_idx[:right+1], neighbors_ts[:right+1]
+            return neighbors_idx[:right + 1], neighbors_e_idx[:right + 1], neighbors_ts[:right + 1]
         else:
-            return neighbors_idx[:left+1], neighbors_e_idx[:left+1], neighbors_ts[:left+1]
+            return neighbors_idx[:left + 1], neighbors_e_idx[:left + 1], neighbors_ts[:left + 1]
 
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
         """
@@ -313,7 +318,8 @@ class NeighborFinder:
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-            mid = self.off_set_t_l[src_idx][int(cut_time/24)]  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
+            mid = self.off_set_t_l[src_idx][
+                int(cut_time / 24)]  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
             # mid = np.searchsorted(neighbors_ts, cut_time)
             ngh_idx, ngh_eidx, ngh_ts = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
@@ -355,6 +361,7 @@ class Measure:
     raw: Given (s, o, t), measurement based on the rank of a true (s, r, o, t) in all possible (s, r, o, t)
     fil: Given (s, o, t), measurement based on the rank of a true (s, r, o, t) in all (s, r, o, t) that don't happen.
     '''
+
     def __init__(self):
         '''
         mr: mean rank
@@ -407,10 +414,12 @@ class Measure:
             print("\tMR =", self.mr[raw_or_fil])
             print("\tMRR =", self.mrr[raw_or_fil])
 
+
 def get_git_version_short_hash():
     return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'])[:-1].decode("utf-8")
 
-def save_config(args, dir:str):
+
+def save_config(args, dir: str):
     args_dict = vars(args)
     git_hash = get_git_version_short_hash()
     args_dict['git_hash'] = git_hash
