@@ -149,13 +149,13 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc: bool = False, s
                             measure.update(rank, 'fil')
                         rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
                         measure.update(rank, 'raw')
-            # print('[evaluation level: %d]validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
-            #       (eval_level, val_loss/(num_neg_events + num_events),
-            #        measure.hit1['fil']/num_events, measure.hit1['raw']/num_events,
-            #        measure.hit3['fil']/num_events, measure.hit3['raw']/num_events,
-            #        measure.hit10['fil']/num_events, measure.hit10['raw']/num_events,
-            #        measure.mr['fil']/num_events, measure.mr['raw']/num_events,
-            #        measure.mrr['fil']/num_events, measure.mrr['raw']/num_events))
+            print('[evaluation level: %d]validation loss: %.3f Hit@1: fil %.3f\t raw %.3f, Hit@3: fil %.3f\t raw %.3f, Hit@10: fil %.3f\t raw %.3f, mr: fil %.3f\t raw %.3f, mrr: fil %.3f\t raw %.3f' %
+                  (eval_level, val_loss/(num_neg_events + num_events),
+                   measure.hit1['fil']/num_events, measure.hit1['raw']/num_events,
+                   measure.hit3['fil']/num_events, measure.hit3['raw']/num_events,
+                   measure.hit10['fil']/num_events, measure.hit10['raw']/num_events,
+                   measure.mr['fil']/num_events, measure.mr['raw']/num_events,
+                   measure.mrr['fil']/num_events, measure.mrr['raw']/num_events))
 
         measure.normalize(num_events)
         val_loss /= (num_neg_events + num_events)
@@ -190,6 +190,8 @@ parser.add_argument('--checkpoint_ind', type=int, help='index indicates the epoc
 parser.add_argument('--eval_one_epoch', action='store_true', help="set to only evaluate the epoch specified by "
                                                                   "checkpoint_ind, used for debugging")
 parser.add_argument('--eval_num_batches', type=int, default=128, help='number of batches to perform evaluation')
+parser.add_argument('--add_reverse', action='store_true', default=None)
+
 args = parser.parse_args()
 if __name__ == '__main__':
     start_time = time.time()
@@ -201,7 +203,7 @@ if __name__ == '__main__':
         device = 'cpu'
 
     # load data set
-    contents = Data(dataset=args.dataset)
+    contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
 
     # mapping between (s,p,t) -> o, will be used by evaluating object-prediction
     sp2o = contents.get_sp2o()
