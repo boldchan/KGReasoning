@@ -188,15 +188,15 @@ parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1],
                          "don't exist in the current timestamp. spt2o is "
                          "used")
 parser.add_argument('--add_reverse', action='store_true', default=None)
-args = parser.parse_args()
+hparams = parser.parse_args()
 
 if __name__ == '__main__':
-    default_parser = config.get_default_config(args.dataset)
-    hparams = copy.deepcopy(default_parser.parse_args())
-    for arg in vars(args):
-        attr = getattr(args, arg)
+    default_parser = config.get_default_config(hparams.dataset)
+    args = copy.deepcopy(default_parser.parse_args())
+    for param in vars(hparams):
+        attr = getattr(hparams, param)
         if attr is not None:
-            setattr(hparams, arg, attr)
+            setattr(args, param, attr)
     assert args.node_feat_dim == args.edge_feat_dim
 
     start_time = time.time()

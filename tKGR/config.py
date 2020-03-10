@@ -16,6 +16,8 @@ def get_ICEWS14_config(parser):
                         help='how many neighbors to aggregate information from, '
                              'check paper Inductive Representation Learning '
                              'for Temporal Graph for detail')
+    parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
+    parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
     parser.add_argument('--add_reverse', action='store_true', default=False)
     return parser
 
@@ -35,6 +37,8 @@ def get_ICEWS18_config(parser):
                         help='how many neighbors to aggregate information from, '
                              'check paper Inductive Representation Learning '
                              'for Temporal Graph for detail')
+    parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
+    parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
     parser.add_argument('--add_reverse', action='store_true', default=True)
     return parser
 
