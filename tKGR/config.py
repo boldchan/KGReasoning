@@ -41,9 +41,9 @@ def get_ICEWS18_config(parser):
 
 def get_default_config(name):
     parser = argparse.ArgumentParser()
-    if name == 'ICEWS14':
+    if name == 'ICEWS14_forecasting':
         return get_ICEWS14_config(parser)
-    elif name == 'ICEWS18':
+    elif name == 'ICEWS18_forecasting':
         return get_ICEWS18_config(parser)
     else:
         raise ValueError("Invalid name")
