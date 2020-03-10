@@ -4,6 +4,7 @@ import sys
 from collections import defaultdict
 import argparse
 import time
+import copy
 import pdb
 
 import numpy as np
@@ -19,12 +20,14 @@ sys.path.insert(1, PackageDir)
 
 from utils import Data, NeighborFinder, Measure, save_config
 from module import TGAN
+import config
 
 # Reproducibility
 torch.manual_seed(0)
 np.random.seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+
 
 def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
     '''
@@ -77,7 +80,7 @@ def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o=None, spt2o=None, num_batches=1e8):
+def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc: bool = False, sp2o=None, spt2o=None, num_batches=1e8):
     '''
 
     :param spt2o: if sp2o is None and spt2o is not None, a stricter evaluation on object prediction is performed
@@ -121,10 +124,11 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
 
             with torch.no_grad():
                 pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
-                neg_label = torch.zeros(neg_embed.shape[0]*neg_embed.shape[1], dtype=torch.float, device=device)
+                neg_label = torch.zeros(neg_embed.shape[0] * neg_embed.shape[1], dtype=torch.float, device=device)
 
             pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
-            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed, dim=2).view(-1)  # [batch_size x num_neg_sampling]
+            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed,
+                                  dim=2).view(-1)  # [batch_size x num_neg_sampling]
 
             loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
             loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
@@ -144,7 +148,8 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
                         pred_score = tgan.obj_predict(src_idx, rel_idx, ts).cpu().numpy()
                         if spt2o is not None:
                             mask = np.ones_like(pred_score, dtype=bool)
-                            np.put(mask, spt2o[(src_idx, rel_idx, ts)], False)  # exclude all event with same (s,p,t) even the one with current object
+                            np.put(mask, spt2o[(src_idx, rel_idx, ts)],
+                                   False)  # exclude all event with same (s,p,t) even the one with current object
                             rank = np.sum(pred_score[mask] > pred_score[obj_idx]) + 1
                             measure.update(rank, 'fil')
                     rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
@@ -156,41 +161,52 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc:bool=False, sp2o
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default='ICEWS18_forecasting', help='specify data set')
-parser.add_argument('--num_neg_sampling', type=int, default=5, help="number of negative sampling of objects for each event")
-parser.add_argument('--num_layers', type=int, default=2, help='number of TGAN layers')
-parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
-parser.add_argument('--node_feat_dim', type=int, default=100, help='dimension of embedding for node')
-parser.add_argument('--edge_feat_dim', type=int, default=100, help='dimension of embedding for edge')
-parser.add_argument('--lr', type=float, default=0.001)
-parser.add_argument('--epoch', type=int, default=20)
-parser.add_argument('--batch_size', type=int, default=10)
-parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
-                                                                'check paper Inductive Representation Learning '
-                                                                'for Temporal Graph for detail')
+parser.add_argument('--dataset', type=str, default=None, help='specify data set')
+parser.add_argument('--num_neg_sampling', type=int, default=None,
+                    help="number of negative sampling of objects for each event")
+parser.add_argument('--num_layers', type=int, default=None, help='number of TGAN layers')
+parser.add_argument('--warm_start_time', type=int, default=None, help="training data start from what timestamp")
+parser.add_argument('--node_feat_dim', type=int, default=None, help='dimension of embedding for node')
+parser.add_argument('--edge_feat_dim', type=int, default=None, help='dimension of embedding for edge')
+parser.add_argument('--lr', type=float, default=None)
+parser.add_argument('--epoch', type=int, default=None)
+parser.add_argument('--batch_size', type=int, default=None)
+parser.add_argument('--num_neighbors', type=int, default=None, help='how many neighbors to aggregate information from, '
+                                                                  'check paper Inductive Representation Learning '
+                                                                  'for Temporal Graph for detail')
 parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
-parser.add_argument('--val_num_batch', type=int, default=1e8, help='how many validation batches are used for calculating accuracy '
-                                                                       'specify a really large integer to use all validation set')
-parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1], help="0: a looser 'fil' evaluation on object prediction,"
-                                                                    "prediction score is ranked among objects that "
-                                                                    "don't exist in whole data set. sp2o will be used"
-                                                                    "1: a stricter 'fil' evaluation on object prediction"
-                                                                    "prediction score is ranked among objects that"
-                                                                    "don't exist in the current timestamp. spt2o is used")
+parser.add_argument('--val_num_batch', type=int, default=1e8,
+                    help='how many validation batches are used for calculating accuracy '
+                         'specify a really large integer to use all validation set')
+parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1],
+                    help="0: a looser 'fil' evaluation on object prediction,"
+                         "prediction score is ranked among objects that "
+                         "don't exist in whole data set. sp2o will be used"
+                         "1: a stricter 'fil' evaluation on object prediction"
+                         "prediction score is ranked among objects that"
+                         "don't exist in the current timestamp. spt2o is "
+                         "used")
+parser.add_argument('--add_reverse', action='store_true', default=None)
 args = parser.parse_args()
 
 if __name__ == '__main__':
+    default_parser = config.get_default_config(args.dataset)
+    hparams = copy.deepcopy(default_parser.parse_args())
+    for arg in vars(args):
+        attr = getattr(args, arg)
+        if attr is not None:
+            setattr(hparams, arg, attr)
     assert args.node_feat_dim == args.edge_feat_dim
 
     start_time = time.time()
     struct_time = time.gmtime(start_time)
     if torch.cuda.is_available():
-        device = 'cuda:{}'.format(args.device) if args.device>=0 else 'cpu'
+        device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
     else:
         device = 'cpu'
     # load dataset
-    contents = Data(dataset=args.dataset)
+    contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
 
     # mapping between (s,p,t) -> o, will be used by evaluating object-prediction
     sp2o = contents.get_sp2o()
@@ -202,7 +218,8 @@ if __name__ == '__main__':
     max_time = max(contents.data[:, 3])
     nf = NeighborFinder(adj_list, uniform=args.uniform, max_time=max_time)
 
-    model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers, device=device)
+    model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
+                 device=device)
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
@@ -210,7 +227,7 @@ if __name__ == '__main__':
         running_loss = 0.0
         # prepare training data
         train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
-                                         start_time=args.warm_start_time)
+                                      start_time=args.warm_start_time)
         # test_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
 
         # DataLoader
@@ -230,7 +247,7 @@ if __name__ == '__main__':
 
             with torch.no_grad():
                 pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
-                neg_label = torch.zeros(neg_embed.shape[0]*neg_embed.shape[1], dtype=torch.float, device=device)
+                neg_label = torch.zeros(neg_embed.shape[0] * neg_embed.shape[1], dtype=torch.float, device=device)
 
             pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
             neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed,
@@ -249,7 +266,7 @@ if __name__ == '__main__':
                 # val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader, num_neighbors=args.num_neighbors, cal_acc=False, spt2o=val_spt2o)
                 # print('[%d, %5d] training loss: %.3f, validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f'%
                 #       (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss, hit1, hit3, hit10, mr, mrr))
-                print('[%d, %5d] training loss: %.3f' %(epoch + 1, batch_ndx + 1, running_loss / 50))
+                print('[%d, %5d] training loss: %.3f' % (epoch + 1, batch_ndx + 1, running_loss / 50))
                 running_loss = 0.0
 
         # if epoch%5 == 4:
@@ -294,6 +311,3 @@ if __name__ == '__main__':
         }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
 
     print("Finished Training")
-
-
-
