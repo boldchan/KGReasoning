@@ -17,11 +17,14 @@ class Data:
         self.id2relation = self._id2relation(dataset=dataset)
         num_relations = len(self.id2relation)  # number of pure relations, i.e. no reversed relation
         reversed_id2relation = {}
-        for ind, rel in self.id2relation.items():
-            reversed_id2relation[ind + num_relations] = 'Reversed ' + rel
-        self.id2relation.update(reversed_id2relation)
+        if add_reverse_relation:
+            for ind, rel in self.id2relation.items():
+                reversed_id2relation[ind + num_relations] = 'Reversed ' + rel
+            self.id2relation.update(reversed_id2relation)
 
-        self.num_relations = 2 * num_relations
+            self.num_relations = 2 * num_relations
+        else:
+            self.num_relations = num_relations
         self.num_entities = len(self.id2entity)
 
         self.train_data = self._load_data(os.path.join(DataDir, dataset), "train")
