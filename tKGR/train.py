@@ -13,7 +13,6 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score, average_precision_score, f1_score
-import pdb
 
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
@@ -177,17 +176,17 @@ parser.add_argument('--num_neighbors', type=int, default=None, help='how many ne
                                                                   'for Temporal Graph for detail')
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--sampling', type=int, default=None, help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
-parser.add_argument('--val_num_batch', type=int, default=1e8,
-                    help='how many validation batches are used for calculating accuracy '
-                         'specify a really large integer to use all validation set')
-parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1],
-                    help="0: a looser 'fil' evaluation on object prediction,"
-                         "prediction score is ranked among objects that "
-                         "don't exist in whole data set. sp2o will be used"
-                         "1: a stricter 'fil' evaluation on object prediction"
-                         "prediction score is ranked among objects that"
-                         "don't exist in the current timestamp. spt2o is "
-                         "used")
+# parser.add_argument('--val_num_batch', type=int, default=1e8,
+#                     help='how many validation batches are used for calculating accuracy '
+#                          'specify a really large integer to use all validation set')
+# parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1],
+#                     help="0: a looser 'fil' evaluation on object prediction,"
+#                          "prediction score is ranked among objects that "
+#                          "don't exist in whole data set. sp2o will be used"
+#                          "1: a stricter 'fil' evaluation on object prediction"
+#                          "prediction score is ranked among objects that"
+#                          "don't exist in the current timestamp. spt2o is "
+#                          "used")
 parser.add_argument('--add_reverse', action='store_true', default=None)
 hparams = parser.parse_args()
 
@@ -212,9 +211,6 @@ if __name__ == '__main__':
 
     if not os.path.exists(CHECKPOINT_PATH):
         os.makedirs(CHECKPOINT_PATH)
-
-    if epoch == 0:
-        save_config(args, CHECKPOINT_PATH)
 
     print("Save checkpoints under {}".format(CHECKPOINT_PATH))
 
@@ -303,6 +299,8 @@ if __name__ == '__main__':
         #         raise ValueError("evaluation_level should be 0 or 1")
         #     print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
         #           (epoch + 1, val_loss, measure.hit1[], measure.hit1, measure.hit10, measure.mr, measure.mrr))
+        if epoch == 0:
+            save_config(args, CHECKPOINT_PATH)
         model.eval()
         torch.save({
             'epoch': epoch,
