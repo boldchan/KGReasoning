@@ -19,6 +19,7 @@ def get_ICEWS14_config(parser):
     parser.add_argument('--sampling', type=int, default=1, help="neighborhood sampling strategy, 0: uniform, 1: first num_neighbors, 2: last num_neighbors")
     parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
     parser.add_argument('--add_reverse', action='store_true', default=False)
+    parser.add_argument('--load_checkpoint', type=str, help='train from checkpoint')
     return parser
 
 
@@ -40,6 +41,7 @@ def get_ICEWS18_config(parser):
     parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
     parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
     parser.add_argument('--add_reverse', action='store_true', default=True)
+    parser.add_argument('--load_checkpoint', type=str, help='train from checkpoint')
     return parser
 
 

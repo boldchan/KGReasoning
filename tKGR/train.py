@@ -29,6 +29,19 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
+def load_checkpoint(model, optimizer, checkpoint_dir):
+    if os.path.isfile(checkpoint_dir):
+        print("=> loading checkpoint '{}'".format(checkpoint_dir))
+        checkpoint = torch.load(checkpoint_dir)
+        start_epoch = checkpoint['epoch']
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print("=> loaded checkpoint '{}' (epoch {})".format(checkpoint_dir, checkpoint['epoch']))
+    else:
+        raise IOError("=> no checkpoint found at '{}'".format(checkpoint_dir))
+
+    return model, optimizer, start_epoch
+
 def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
     '''
     :param contents: instance of Data object
@@ -188,6 +201,7 @@ parser.add_argument('--sampling', type=int, default=None, help='strategy to samp
 #                          "don't exist in the current timestamp. spt2o is "
 #                          "used")
 parser.add_argument('--add_reverse', action='store_true', default=None)
+parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 hparams = parser.parse_args()
 
 if __name__ == '__main__':
@@ -201,16 +215,19 @@ if __name__ == '__main__':
 
     start_time = time.time()
     struct_time = time.gmtime(start_time)
-    CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
-                struct_time.tm_year,
-                struct_time.tm_mon,
-                struct_time.tm_mday,
-                struct_time.tm_hour,
-                struct_time.tm_min,
-                struct_time.tm_sec))
 
-    if not os.path.exists(CHECKPOINT_PATH):
-        os.makedirs(CHECKPOINT_PATH)
+    if args.load_checkpoint is None:
+        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+                    struct_time.tm_year,
+                    struct_time.tm_mon,
+                    struct_time.tm_mday,
+                    struct_time.tm_hour,
+                    struct_time.tm_min,
+                    struct_time.tm_sec))
+        if not os.path.exists(CHECKPOINT_PATH):
+            os.makedirs(CHECKPOINT_PATH)
+    else:
+        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
 
     print("Save checkpoints under {}".format(CHECKPOINT_PATH))
 
@@ -236,7 +253,12 @@ if __name__ == '__main__':
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
-    for epoch in range(args.epoch):
+    start_epoch = 0
+
+    if args.load_checkpoint is not None:
+        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
+
+    for epoch in range(start_epoch+1, args.epoch):
         running_loss = 0.0
         # prepare training data
         train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,

@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
+save_dir = '/data/yuwang/tKGR'
 
 from utils import Data, NeighborFinder, Measure, save_config
 from module import TGAN
@@ -226,7 +227,7 @@ if __name__ == '__main__':
         checkpoint_to_eval = [_ for _ in range(args.checkpoint_ind)]
     for check_idx in checkpoint_to_eval:
         # load checkpoint
-        checkpoint = torch.load(os.path.join(PackageDir, 'Checkpoints', args.checkpoint_dir,
+        checkpoint = torch.load(os.path.join(save_dir, 'Checkpoints', args.checkpoint_dir,
                                              'checkpoint_{}.pt'.format(check_idx)), map_location=torch.device(device))
         model.load_state_dict(checkpoint['model_state_dict'])
         val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
