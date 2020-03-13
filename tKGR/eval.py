@@ -173,7 +173,7 @@ parser.add_argument('--batch_size', type=int, default=10)
 parser.add_argument('--num_neighbors', type=int, default=20, help='how many neighbors to aggregate information from, '
                                                                   'check paper Inductive Representation Learning '
                                                                   'for Temporal Graph for detail')
-parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
+parser.add_argument('--sampling', type=int, default=1, help="neighborhood sampling strategy, 0: uniform, 1: first num_neighbors, 2: last num_neighbors")
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--val_num_batch', type=int, default=1e8,
                     help='how many validation batches are used for calculating accuracy '
@@ -213,7 +213,7 @@ if __name__ == '__main__':
     # init NeighborFinder
     adj_list = contents.get_adj_list()
     max_time = max(contents.data[:, 3])
-    nf = NeighborFinder(adj_list, uniform=args.uniform, max_time=max_time)
+    nf = NeighborFinder(adj_list, sampling=args.sampling, max_time=max_time)
 
     model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
                  device=device)

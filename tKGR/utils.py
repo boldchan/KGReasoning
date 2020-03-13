@@ -216,7 +216,7 @@ class Data:
 
 
 class NeighborFinder:
-    def __init__(self, adj_list, uniform=False, max_time=366 * 24):
+    def __init__(self, adj_list, sampling=1, max_time=366 * 24):
         """
         Params
         ------
@@ -235,7 +235,7 @@ class NeighborFinder:
         self.off_set_l = off_set_l
         self.off_set_t_l = off_set_t_l
 
-        self.uniform = uniform
+        self.sampling = sampling
 
     def init_off_set(self, adj_list, max_time):
         """
@@ -328,7 +328,7 @@ class NeighborFinder:
             # ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
 
             if len(ngh_idx) > 0:
-                if self.uniform:
+                if self.sampling == 0:
                     sampled_idx = np.random.randint(0, len(ngh_idx), num_neighbors)
 
                     sampled_idx = np.sort(sampled_idx)
@@ -342,7 +342,7 @@ class NeighborFinder:
                     # out_ngh_node_batch[i, :] = out_ngh_node_batch[i, :][pos]
                     # out_ngh_t_batch[i, :] = out_ngh_t_batch[i, :][pos]
                     # out_ngh_eidx_batch[i, :] = out_ngh_eidx_batch[i, :][pos]
-                else:
+                elif self.sampling == 1:
                     ngh_ts = ngh_ts[:num_neighbors]
                     ngh_idx = ngh_idx[:num_neighbors]
                     ngh_eidx = ngh_eidx[:num_neighbors]
@@ -354,6 +354,20 @@ class NeighborFinder:
                     out_ngh_node_batch[i, num_neighbors - len(ngh_idx):] = ngh_idx
                     out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
                     out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
+                elif self.sampling == 2:
+                    ngh_ts = ngh_ts[-num_neighbors:]
+                    ngh_idx = ngh_idx[-num_neighbors:]
+                    ngh_eidx = ngh_eidx[-num_neighbors:]
+                    #
+                    # assert (len(ngh_idx) <= num_neighbors)
+                    # assert (len(ngh_ts) <= num_neighbors)
+                    # assert (len(ngh_eidx) <= num_neighbors)
+                    #
+                    out_ngh_node_batch[i, num_neighbors - len(ngh_idx):] = ngh_idx
+                    out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
+                    out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
+                else:
+                    raise ValueError("invalid input for sampling")
 
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
 

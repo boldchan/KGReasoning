@@ -17,6 +17,7 @@ import pdb
 
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
+save_dir = '/data/yuwang/tKGR/'
 
 from utils import Data, NeighborFinder, Measure, save_config
 from module import TGAN
@@ -174,8 +175,8 @@ parser.add_argument('--batch_size', type=int, default=None)
 parser.add_argument('--num_neighbors', type=int, default=None, help='how many neighbors to aggregate information from, '
                                                                   'check paper Inductive Representation Learning '
                                                                   'for Temporal Graph for detail')
-parser.add_argument('--uniform', action='store_true', help="uniformly sample num_neighbors neighbors")
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
+parser.add_argument('--sampling', type=int, default=None, help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
 parser.add_argument('--val_num_batch', type=int, default=1e8,
                     help='how many validation batches are used for calculating accuracy '
                          'specify a really large integer to use all validation set')
@@ -201,6 +202,22 @@ if __name__ == '__main__':
 
     start_time = time.time()
     struct_time = time.gmtime(start_time)
+    CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+                struct_time.tm_year,
+                struct_time.tm_mon,
+                struct_time.tm_mday,
+                struct_time.tm_hour,
+                struct_time.tm_min,
+                struct_time.tm_sec))
+
+    if not os.path.exists(CHECKPOINT_PATH):
+        os.makedirs(CHECKPOINT_PATH)
+
+    if epoch == 0:
+        save_config(args, CHECKPOINT_PATH)
+
+    print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
     else:
@@ -216,7 +233,7 @@ if __name__ == '__main__':
     # init NeighborFinder
     adj_list = contents.get_adj_list()
     max_time = max(contents.data[:, 3])
-    nf = NeighborFinder(adj_list, uniform=args.uniform, max_time=max_time)
+    nf = NeighborFinder(adj_list, sampling=args.sampling, max_time=max_time)
 
     model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
                  device=device)
@@ -286,19 +303,6 @@ if __name__ == '__main__':
         #         raise ValueError("evaluation_level should be 0 or 1")
         #     print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
         #           (epoch + 1, val_loss, measure.hit1[], measure.hit1, measure.hit10, measure.mr, measure.mrr))
-        CHECKPOINT_PATH = os.path.join(PackageDir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}'.format(
-            struct_time.tm_year,
-            struct_time.tm_mon,
-            struct_time.tm_mday,
-            struct_time.tm_hour,
-            struct_time.tm_min))
-
-        if not os.path.exists(CHECKPOINT_PATH):
-            os.makedirs(CHECKPOINT_PATH)
-
-        if epoch == 0:
-            save_config(args, CHECKPOINT_PATH)
-
         model.eval()
         torch.save({
             'epoch': epoch,
