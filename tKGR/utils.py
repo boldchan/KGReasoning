@@ -367,6 +367,7 @@ class NeighborFinder:
                     out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
                     out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
                 elif self.sampling == 3:
+                    ngh_ts = ngh_ts + 1e-9
                     weights = ngh_ts / sum(ngh_ts)
                     sampled_idx = np.random.choice(len(ngh_idx), num_neighbors, p=weights)
 
