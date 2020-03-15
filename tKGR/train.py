@@ -257,8 +257,9 @@ if __name__ == '__main__':
 
     if args.load_checkpoint is not None:
         model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
+        start_epoch += 1
 
-    for epoch in range(start_epoch+1, args.epoch):
+    for epoch in range(start_epoch, args.epoch):
         running_loss = 0.0
         # prepare training data
         train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
