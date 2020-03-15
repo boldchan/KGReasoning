@@ -230,6 +230,8 @@ if __name__ == '__main__':
         CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
 
     print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+    save_config(args, CHECKPOINT_PATH)
+    print("Log configuration under {}".format(CHECKPOINT_PATH))
 
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
@@ -322,8 +324,6 @@ if __name__ == '__main__':
         #         raise ValueError("evaluation_level should be 0 or 1")
         #     print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
         #           (epoch + 1, val_loss, measure.hit1[], measure.hit1, measure.hit10, measure.mr, measure.mrr))
-        if epoch == 0:
-            save_config(args, CHECKPOINT_PATH)
         model.eval()
         torch.save({
             'epoch': epoch,
