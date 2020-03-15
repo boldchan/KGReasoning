@@ -366,6 +366,15 @@ class NeighborFinder:
                     out_ngh_node_batch[i, num_neighbors - len(ngh_idx):] = ngh_idx
                     out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
                     out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
+                elif self.sampling == 3:
+                    weights = ngh_ts / sum(ngh_ts)
+                    sampled_idx = np.random.choice(len(ngh_idx), num_neighbors, p=weights)
+
+                    sampled_idx = np.sort(sampled_idx)
+
+                    out_ngh_node_batch[i, :] = ngh_idx[sampled_idx]
+                    out_ngh_t_batch[i, :] = ngh_ts[sampled_idx]
+                    out_ngh_eidx_batch[i, :] = ngh_eidx[sampled_idx]
                 else:
                     raise ValueError("invalid input for sampling")
 
