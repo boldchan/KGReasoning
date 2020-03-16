@@ -172,12 +172,22 @@ class Data:
         '''
         adj_list_dict = defaultdict(list)
         for event in self.data:
-            adj_list_dict[int(event[0])].append((int(event[2]), event[1], int(event[3])))
+            adj_list_dict[int(event[0])].append((int(event[2]), int(event[1]), int(event[3])))
 
         subject_index_sorted = sorted(adj_list_dict.keys())
         adj_list = [sorted(adj_list_dict[_], key=lambda x: x[2]) for _ in subject_index_sorted]
 
         return adj_list
+
+    def get_adj_dict(self):
+        '''
+        same as get_adj_list, but return dictionary, key is the index of subject
+        :return:
+        '''
+        adj_dict = defaultdict(list)
+        for event in self.data:
+            adj_dict[int(event[0])].append((int(event[2]), int(event[1]), int(event[3])))
+        return adj_dict
 
     def get_spt2o(self, dataset: str):
         '''
@@ -216,18 +226,19 @@ class Data:
 
 
 class NeighborFinder:
-    def __init__(self, adj_list, sampling=1, max_time=366 * 24):
+    def __init__(self, adj, sampling=1, max_time=366 * 24, num_entities=None):
         """
         Params
         ------
-        adj_list: adj_list[i] is the list of all (o,p,t) for entity i
+        adj: list or dict, if list: adj[i] is the list of all (o,p,t) for entity i, if dict: adj[i] is the list of all (o,p,t)
         node_idx_l: List[int]
         node_ts_l: List[int]
         off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i][:,0]
         off_set_t_l: node_idx_l[off_set_l[i]:off_set_l[i + 1]][:off_set_t_l[i][cut_time/24]] --> object of entity i that happen before cut time
+        num_entities: number of entities, if adj is dict it cannot be None
         """
 
-        node_idx_l, node_ts_l, edge_idx_l, off_set_l, off_set_t_l = self.init_off_set(adj_list, max_time)
+        node_idx_l, node_ts_l, edge_idx_l, off_set_l, off_set_t_l = self.init_off_set(adj, max_time, num_entities)
         self.node_idx_l = node_idx_l
         self.node_ts_l = node_ts_l
         self.edge_idx_l = edge_idx_l
@@ -237,7 +248,7 @@ class NeighborFinder:
 
         self.sampling = sampling
 
-    def init_off_set(self, adj_list, max_time):
+    def init_off_set(self, adj, max_time, num_entities):
         """
         Params
         ------
@@ -250,16 +261,30 @@ class NeighborFinder:
         off_set_l = [0]
         off_set_t_l = []
 
-        for i in range(len(adj_list)):
-            curr = adj_list[i]
-            curr = sorted(curr, key=lambda x: int(x[2]))
-            n_idx_l.extend([x[0] for x in curr])
-            e_idx_l.extend([x[1] for x in curr])
-            curr_ts = [x[2] for x in curr]
-            n_ts_l.extend(curr_ts)
+        if isinstance(adj, list):
+            for i in range(len(adj)):
+                assert len(adj) == num_entities
+                curr = adj[i]
+                curr = sorted(curr, key=lambda x: int(x[2]))
+                n_idx_l.extend([x[0] for x in curr])
+                e_idx_l.extend([x[1] for x in curr])
+                curr_ts = [x[2] for x in curr]
+                n_ts_l.extend(curr_ts)
 
-            off_set_l.append(len(n_idx_l))
-            off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time, 24)])
+                off_set_l.append(len(n_idx_l))
+                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time, 24)])
+        elif isinstance(adj, dict):
+            for i in range(num_entities):
+                curr = adj.get(i, [])
+                curr = sorted(curr, key=lambda x: int(x[2]))
+                n_idx_l.extend([x[0] for x in curr])
+                e_idx_l.extend([x[1] for x in curr])
+                curr_ts = [x[2] for x in curr]
+                n_ts_l.extend(curr_ts)
+
+                off_set_l.append(len(n_idx_l))
+                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time, 24)])
+
         n_idx_l = np.array(n_idx_l)
         n_ts_l = np.array(n_ts_l)
         e_idx_l = np.array(e_idx_l)
