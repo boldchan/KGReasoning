@@ -247,7 +247,11 @@ if __name__ == '__main__':
     val_spt2o = contents.get_spt2o('valid')
     test_spt2o = contents.get_spt2o('test')
 
-    # init NeighborFinder
+    # init NeighborFinder, contains events in training, val, test data
+    # when we add reversed events, each row, i.e. adj_list[i], is a list of (o, p, t), which, combined with subject i,
+    # are events in data set, row index is the node index.
+    # when we don't add reversed events, since some entities are never subject, we use dict to map subject to the list
+    # of its (o, p, t), i.e. adj_dict[entity_index] = [(o,p,t), ...]
     adj = contents.get_adj_list() if args.add_reverse else contents.get_adj_dict()
     max_time = max(contents.data[:, 3])
     nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))

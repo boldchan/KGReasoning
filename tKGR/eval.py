@@ -212,9 +212,9 @@ if __name__ == '__main__':
     test_spt2o = contents.get_spt2o('test')
 
     # init NeighborFinder
-    adj_list = contents.get_adj_list()
+    adj = contents.get_adj_list() if args.add_reverse else contents.get_adj_dict()
     max_time = max(contents.data[:, 3])
-    nf = NeighborFinder(adj_list, sampling=args.sampling, max_time=max_time)
+    nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
 
     model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
                  device=device)
