@@ -5,6 +5,7 @@ from collections import defaultdict
 import numpy as np
 import pdb
 import subprocess
+import networkx as nx
 
 # import tKGR.data
 DataDir = os.path.join(os.path.dirname(__file__), 'data')
@@ -328,8 +329,7 @@ class NeighborFinder:
 
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
         """
-        each entity has exact num_neighbors neighbors, either by uniform sampling or by picking from the first
-        num_neighbors events
+        each entity has exact num_neighbors neighbors, neighbors are sampled according to sample strategy
         Params
         ------
         src_idx_l: List[int]
@@ -338,9 +338,9 @@ class NeighborFinder:
         """
         assert (len(src_idx_l) == len(cut_time_l))
 
-        out_ngh_node_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
+        out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
-        out_ngh_eidx_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
+        out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
 
         for i, (src_idx, cut_time) in enumerate(zip(src_idx_l, cut_time_l)):
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
@@ -405,6 +405,38 @@ class NeighborFinder:
                     raise ValueError("invalid input for sampling")
 
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
+
+    def get_neighbor_subgraph(self, src_idx_l, cut_time_l, level=2, num_neighbors=20):
+        Gs = [nx.Graph() for _ in range(len(src_idx_l))]
+        for i, G in enumerate(Gs):
+            G.add_node((src_idx_l[i], None, cut_time_l[i]), rel=None, time=cut_time_l[i])
+
+        def get_neighbors_recursive(graph_index_l, src_idx_l, rel_idx_l, cut_time_l, level, num_neighbors):
+            if level == 0:
+                return
+            else:
+                src_ngh_node_batch, src_ngh_eidx_batch, src_ngh_t_batch = self.get_temporal_neighbor(
+                    src_idx_l,
+                    cut_time_l,
+                    num_neighbors=num_neighbors)
+
+                for batch_idx in range(len(src_idx_l)):
+                    ngh_nodes = src_ngh_node_batch[batch_idx]
+                    ngh_edges = src_ngh_eidx_batch[batch_idx]
+                    ngh_ts = src_ngh_t_batch[batch_idx]
+
+                    Gs[graph_index_l[batch_idx]].add_nodes_from(
+                        [((node, rel, t), {'rel': rel, 'time': t}) for node, rel, t in
+                         list(zip(ngh_nodes, ngh_edges, ngh_ts))])
+                    Gs[graph_index_l[batch_idx]].add_edges_from([((src_idx_l[batch_idx], rel_idx_l[batch_idx], cut_time_l[batch_idx]),
+                                                                  (node, edge, t))
+                                                                 for node, edge, t in list(zip(ngh_nodes, ngh_edges, ngh_ts))])
+
+                    get_neighbors_recursive(np.repeat(graph_index_l[batch_idx],
+                                                      len(ngh_nodes)), ngh_nodes, ngh_edges, ngh_ts, level - 1, num_neighbors)
+
+        get_neighbors_recursive(np.arange(len(src_idx_l)), src_idx_l, [None for _ in src_idx_l], cut_time_l, level, num_neighbors)
+        return Gs
 
 
 class Measure:

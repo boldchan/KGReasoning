@@ -1,6 +1,7 @@
 import logging
 
 import numpy as np
+import pdb
 import torch
 
 import torch.nn as nn
@@ -178,10 +179,12 @@ def expand_last_dim(x, num):
     expand_size = list(x.size()) + [num]
     return x.view(view_size).expand(expand_size)
 
+
 class TimeEncode(torch.nn.Module):
     '''
     This class implemented the Bochner's time embedding
     '''
+
     def __init__(self, expand_dim, device='cpu'):
         '''
 
@@ -191,7 +194,7 @@ class TimeEncode(torch.nn.Module):
         super(TimeEncode, self).__init__()
 
         time_dim = expand_dim
-        self.basis_freq = torch.nn.Parameter(torch.from_numpy(1/10 ** np.linspace(0, 9, time_dim)).float())
+        self.basis_freq = torch.nn.Parameter(torch.from_numpy(1 / 10 ** np.linspace(0, 9, time_dim)).float())
         self.phase = torch.nn.Parameter(torch.zeros(time_dim).float())
 
     def forward(self, ts):
@@ -205,8 +208,8 @@ class TimeEncode(torch.nn.Module):
 
         ts = torch.unsqueeze(ts, dim=2)
         # print("Forward in TimeEncode: ts is on ", ts.get_device())
-        map_ts = ts * self.basis_freq.view(1,1,-1) # [batch_size, seq_len, time_dim]
-        map_ts += self.phase.view(1,1,-1)
+        map_ts = ts * self.basis_freq.view(1, 1, -1)  # [batch_size, seq_len, time_dim]
+        map_ts += self.phase.view(1, 1, -1)
 
         harmonic = torch.cos(map_ts)
         return harmonic
@@ -298,6 +301,7 @@ class MeanPool(torch.nn.Module):
 class AttnModel(torch.nn.Module):
     """Attention based temporal layers
     """
+
     def __init__(self, feat_dim, edge_dim, time_dim,
                  attn_mode='prod', n_head=2, drop_out=0.1):
         """
@@ -429,18 +433,19 @@ class TGAN(torch.nn.Module):
         self.logger = logging.getLogger(__name__)
 
         if n_feat is not None:
-            self.n_feat_th = torch.nn.Parameter(torch.from_numpy(n_feat.astype(np.float32)))  # len(n_feat_th) = num_enitiy + 1
+            self.n_feat_th = torch.nn.Parameter(
+                torch.from_numpy(n_feat.astype(np.float32)))  # len(n_feat_th) = num_enitiy + 1
             self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False)
             self.feat_dim = self.n_feat_th.shape[1]
         else:
-            self.node_raw_embed = torch.nn.Embedding(num_nodes+1, embed_dim)
+            self.node_raw_embed = torch.nn.Embedding(num_nodes + 1, embed_dim)
             nn.init.xavier_normal_(self.node_raw_embed.weight)
             self.feat_dim = embed_dim
         if e_feat is not None:
             self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32)))
             self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
         else:
-            self.edge_raw_embed = torch.nn.Embedding(num_edges, embed_dim)
+            self.edge_raw_embed = torch.nn.Embedding(num_edges + 1, embed_dim)
             nn.init.xavier_normal_(self.edge_raw_embed.weight)
 
         self.n_feat_dim = self.feat_dim
@@ -471,7 +476,7 @@ class TGAN(torch.nn.Module):
         if use_time == 'time':
             self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim, device=device)
         elif use_time == 'pos':
-            assert(seq_len is not None)
+            assert (seq_len is not None)
             self.logger.info('Using positional encoding')
             self.time_encoder = PosEncode(expand_dim=self.n_feat_dim, seq_len=seq_len)
         elif use_time == 'empty':
@@ -480,7 +485,8 @@ class TGAN(torch.nn.Module):
         else:
             raise ValueError('invalid time option')
 
-        self.affinity_score = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, 1)  # torch.nn.Bilinear(self.feat_dim, self.feat_dim, 1, bias=True)
+        self.affinity_score = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim,
+                                         1)  # torch.nn.Bilinear(self.feat_dim, self.feat_dim, 1, bias=True)
 
     def link_predict(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
         """
@@ -493,12 +499,15 @@ class TGAN(torch.nn.Module):
         score: tensor [batch, num_relation]
         """
         src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)  # [batch_size, feature_dim]
-        target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers, num_neighbors)  # [batch_size, feature_dim]
-        rel_embed = self.edge_raw_embed(torch.from_numpy(np.arange(self.num_edges))).long().to(self.device)  # [Num_relations, feature_dim]
+        target_embed = self.tem_conv(target_idx_l, cut_time_l, self.num_layers,
+                                     num_neighbors)  # [batch_size, feature_dim]
+        rel_embed = self.edge_raw_embed(torch.from_numpy(np.arange(self.num_edges))).long().to(
+            self.device)  # [Num_relations, feature_dim]
         rel_embed = torch.unsqueeze(rel_embed, 0)  # [1, num_relations, feature_dim]
 
         # TBD: inference using s(t),p(t),o
-        score_temp = torch.unsqueeze(src_embed, 1)*rel_embed*torch.unsqueeze(target_embed, 1)  # [batch_size, num_relation, feature_dim]
+        score_temp = torch.unsqueeze(src_embed, 1) * rel_embed * torch.unsqueeze(target_embed,
+                                                                                 1)  # [batch_size, num_relation, feature_dim]
         score = torch.sum(score_temp, dim=2, keepdim=False)  # [batch_size, num_relation]
         return score
 
@@ -530,7 +539,7 @@ class TGAN(torch.nn.Module):
         # too much entity, split them
         target_embed_list = []
         for target_start_index in np.arange(0, num_entity, eval_batch):
-            target_batch_l = obj_candidate[target_start_index:target_start_index+eval_batch]
+            target_batch_l = obj_candidate[target_start_index:target_start_index + eval_batch]
             target_embed = self.tem_conv(target_batch_l, np.repeat(cut_time_l, len(target_batch_l)),
                                          self.num_layers, num_neighbors)  # tensor [num_entity, feature_dim]
             target_embed_list.append(target_embed)
@@ -553,7 +562,7 @@ class TGAN(torch.nn.Module):
         neg_idx_l: [batch_size, num_neg Q, num_dim]
         """
         batch_size = neg_idx.shape[0]
-        num_neg =neg_idx.shape[1]
+        num_neg = neg_idx.shape[1]
 
         src_embed = self.tem_conv(src_idx, cut_time, self.num_layers, num_neighbors)
         target_embed = self.tem_conv(target_idx, cut_time, self.num_layers, num_neighbors)
@@ -573,9 +582,10 @@ class TGAN(torch.nn.Module):
         :param cut_time_l: a batch of cutting time [batch_size, ]
         :param curr_layers: indicator for recursion
         :param num_neighbors: number of neighbors to draw for a source node
-        :return: a new feature representation for nodes in src_idx_l at corresponding cutting time [batch_size, dim]
+        :return:
+        a new feature representation for nodes in src_idx_l at corresponding cutting time [batch_size, dim]
         """
-        assert(curr_layers>=0)
+        assert (curr_layers >= 0)
 
         batch_size = len(src_idx_l)
         # print(cut_time_l)
@@ -587,7 +597,7 @@ class TGAN(torch.nn.Module):
 
         # query node always has the start time -> time span == 0
         src_node_t_embed = self.time_encoder(torch.zeros_like(cut_time_l_th))
-        src_node_feat = self.node_raw_embed(src_node_batch_th+1)
+        src_node_feat = self.node_raw_embed(src_node_batch_th + 1)
 
         if curr_layers == 0:
             return src_node_feat
@@ -603,7 +613,7 @@ class TGAN(torch.nn.Module):
                 num_neighbors=num_neighbors)
 
             src_ngh_node_batch_th = torch.from_numpy(src_ngh_node_batch).long().to(self.device)
-            src_ngh_eidx_batch = torch.from_numpy(src_ngh_eidx_batch).long().to(self.device)
+            src_ngh_eidx_batch_th = torch.from_numpy(src_ngh_eidx_batch).long().to(self.device)
 
             src_ngh_t_batch_delta = cut_time_l[:, np.newaxis] - src_ngh_t_batch
             src_ngh_t_batch_th = torch.from_numpy(src_ngh_t_batch_delta).float().to(self.device)
@@ -621,7 +631,7 @@ class TGAN(torch.nn.Module):
             # print("src_ngb_t_batch shape: ", src_ngh_t_batch_th.shape)
             # print("src_ngb_t_batch on ", src_ngh_t_batch_th.get_device())
             src_ngh_t_embed = self.time_encoder(src_ngh_t_batch_th)
-            src_ngn_edge_feat = self.edge_raw_embed(src_ngh_eidx_batch)
+            src_ngn_edge_feat = self.edge_raw_embed(src_ngh_eidx_batch_th + 1)
 
             # attention aggregation
             mask = src_ngh_node_batch_th == 0
