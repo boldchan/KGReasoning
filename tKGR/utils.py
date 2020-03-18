@@ -392,15 +392,23 @@ class NeighborFinder:
                     out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
                     out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
                 elif self.sampling == 3:
-                    ngh_ts = ngh_ts + 1e-9
-                    weights = ngh_ts / sum(ngh_ts)
-                    sampled_idx = np.random.choice(len(ngh_idx), num_neighbors, p=weights)
+                    # ngh_ts = ngh_ts + 1e-9
+                    # weights = ngh_ts / sum(ngh_ts)
+
+                    delta_t = (ngh_ts - cut_time)/24
+                    weights = np.exp(delta_t)
+                    weights = weights / sum(weights)
+
+                    if len(ngh_idx) >= num_neighbors:
+                        sampled_idx = np.random.choice(len(ngh_idx), num_neighbors, replace=False, p=weights)
+                    else:
+                        sampled_idx = np.random.choice(len(ngh_idx), len(ngh_idx), replace=False, p=weights)
 
                     sampled_idx = np.sort(sampled_idx)
+                    out_ngh_node_batch[i, num_neighbors - len(sampled_idx):] = ngh_idx[sampled_idx]
+                    out_ngh_t_batch[i, num_neighbors - len(sampled_idx):] = ngh_ts[sampled_idx]
+                    out_ngh_eidx_batch[i, num_neighbors - len(sampled_idx):] = ngh_eidx[sampled_idx]
 
-                    out_ngh_node_batch[i, :] = ngh_idx[sampled_idx]
-                    out_ngh_t_batch[i, :] = ngh_ts[sampled_idx]
-                    out_ngh_eidx_batch[i, :] = ngh_eidx[sampled_idx]
                 else:
                     raise ValueError("invalid input for sampling")
 
