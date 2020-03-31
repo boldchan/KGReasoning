@@ -321,7 +321,7 @@ class NeighborFinder:
         """
         assert (len(src_idx_l) == len(cut_time_l))
         assert (len(src_idx_l) == len(query_time_l))
-        assert all(cut_time_l <= query_time_l)
+        assert all([cut_time <= query_time for cut_time, query_time in list(zip(cut_time_l, query_time_l))])
         assert (num_neighbors % 2 == 0)
 
         out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
@@ -358,7 +358,7 @@ class NeighborFinder:
             out_ngh_eidx_batch[i, half_num_neighbors: len(ngh_eidx_after) + half_num_neighbors] = ngh_eidx_after
         
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
-        
+
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
         """
         each entity has exact num_neighbors neighbors, neighbors are sampled according to sample strategy
