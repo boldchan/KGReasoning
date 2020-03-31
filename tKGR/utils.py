@@ -1,10 +1,9 @@
 import os
 import json
+import subprocess
 
 from collections import defaultdict
 import numpy as np
-import pdb
-import subprocess
 import networkx as nx
 
 # import tKGR.data
@@ -69,17 +68,10 @@ class Data:
                                                               for event in self.test_data_seen_entity])], axis=0)
 
         self.data = np.concatenate([self.train_data, self.valid_data, self.test_data], axis=0)
+        self.refined_data = np.concatenate([self.train_data, self.valid_data_seen_entity, self.valid_data_seen_entity], axis=0)
+        self.refined_data = np.concatenate([self.refined_data, np.arange(len(self.refined_data))[:, np.newaxis]], axis=1)
 
-        # self.entities = _get_entities(self.data)
-        # self.train_relations = _get_relations(self.train_data)
-        # self.valid_relations = _get_relations(self.valid_data)
-        # self.test_relations = _get_relations(self.test_data)
-        # self.relations = self.train_relations + [i for i in self.valid_relations
-        #                                          if i not in self.train_relations] + [i for i in self.test_relations
-        #                                                                               if i not in self.train_relations]
         self.timestamps = self._get_timestamps(self.data)
-
-        # self.entity_idxs, self.relation_idxs, self.timestamp_idxs = self._get_idx()
 
     def _load_data(self, data_dir, data_type="train"):
         with open(os.path.join(data_dir, "{}.txt".format(data_type)), 'r', encoding='utf-8') as f:
@@ -87,16 +79,6 @@ class Data:
             data = np.array([line.split("\t") for line in data])  # only cut by "\t", not by white space.
             data = np.vstack([[int(_.strip()) for _ in line] for line in data])  # remove white space
         return data
-
-    @staticmethod
-    def _get_relations(data):
-        relations = sorted(list(set([d[1] for d in data])))
-        return relations
-
-    @staticmethod
-    def _get_entities(data):
-        entities = sorted(list(set([d[0] for d in data] + [d[2] for d in data])))
-        return entities
 
     @staticmethod
     def _get_timestamps(data):
@@ -141,12 +123,6 @@ class Data:
                     break
 
         return np.stack(neg_object, axis=0)
-
-    def _get_idx(self):
-        entity_idxs = {self.entities[i]: i for i in range(len(self.entities))}
-        relation_idxs = {self.relations[i]: i for i in range(len(self.relations))}
-        timestamp_idxs = {self.timestamps[i]: i for i in range(len(self.timestamps))}
-        return entity_idxs, relation_idxs, timestamp_idxs
 
     def _id2entity(self, dataset):
         with open(os.path.join(DataDir, dataset, "entity2id.txt"), 'r', encoding='utf-8') as f:
@@ -327,6 +303,62 @@ class NeighborFinder:
         else:
             return neighbors_idx[:left + 1], neighbors_e_idx[:left + 1], neighbors_ts[:left + 1]
 
+    def get_temporal_neighbor_v2(self, src_idx_l, cut_time_l, query_time_l, num_neighbors=20):
+        """
+        temporal neighbors are not limited to be drawn from events happen before cut_time, 
+        but are extended to be drawn from all events that happen before query time
+        More specifically, for each query we have (sub_q, rel_q, ?, t_q). By each step, for
+        every node, i.e. entity-timestamp pair (e_i, t_i), we looked for such entity-timestamp 
+        pair (e, t) that (e_i, some_relation, e, t) exists. By first step, (e_i, t_i) == (sub_q, t_q) 
+        where t < t_q is the restriction (rather than t<t_0) 
+        Arguments:
+            src_idx_l {numpy.array, 1d} -- entity index
+            cut_time_l {numpy.array, 1d} -- timestamp of events
+            query_time_l {numpy.array, i2} -- timestamp of query
+        
+        Keyword Arguments:
+            num_neighbors {int} -- [number of neighbors for each node] (default: {20})
+        """
+        assert (len(src_idx_l) == len(cut_time_l))
+        assert (len(src_idx_l) == len(query_time_l))
+        assert all(cut_time_l <= query_time_l)
+        assert (num_neighbors % 2 == 0)
+
+        out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
+        out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
+        out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32) 
+
+        for i, (src_idx, cut_time, query_time) in enumerate(zip(src_idx_l, cut_time_l, query_time_l)):
+            neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+            neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+            neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+            mid = self.off_set_t_l[src_idx][int(cut_time / 24)]
+            end = self.off_set_t_l[src_idx][int(query_time / 24)]
+            # every timestamp in neighbors_ts[:mid] is smaller than cut_time 
+            ngh_idx_before, ngh_eidx_before, ngh_ts_before = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
+            # every timestamp in neighbors_ts[mid:end] is bigger than cut_time and smaller than query_time
+            ngh_idx_after, ngh_eidx_after, ngh_ts_after = neighbors_idx[mid:end], neighbors_e_idx[mid:end], neighbors_ts[mid:end]
+
+            # choose events happen closest in time
+            half_num_neighbors = num_neighbors//2
+            ngh_ts_before = ngh_ts_before[-half_num_neighbors:]
+            ngh_idx_before = ngh_idx_before[-half_num_neighbors:]
+            ngh_eidx_before = ngh_eidx_before[-half_num_neighbors:]
+
+            out_ngh_node_batch[i, half_num_neighbors - len(ngh_idx_before):half_num_neighbors] = ngh_idx_before
+            out_ngh_t_batch[i, half_num_neighbors - len(ngh_ts_before):half_num_neighbors] = ngh_ts_before
+            out_ngh_eidx_batch[i, half_num_neighbors - len(ngh_eidx_before):half_num_neighbors] = ngh_eidx_before
+
+            ngh_ts_after = ngh_ts_after[:half_num_neighbors]
+            ngh_idx_after = ngh_idx_after[:half_num_neighbors]
+            ngh_eidx_after = ngh_eidx_after[:half_num_neighbors]
+
+            out_ngh_node_batch[i, half_num_neighbors:len(ngh_eidx_after) + half_num_neighbors] = ngh_idx_after
+            out_ngh_t_batch[i, half_num_neighbors: len(ngh_ts_after) + half_num_neighbors] = ngh_ts_after
+            out_ngh_eidx_batch[i, half_num_neighbors: len(ngh_eidx_after) + half_num_neighbors] = ngh_eidx_after
+        
+        return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
+        
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
         """
         each entity has exact num_neighbors neighbors, neighbors are sampled according to sample strategy
