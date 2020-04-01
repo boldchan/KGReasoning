@@ -314,7 +314,7 @@ class NeighborFinder:
         Arguments:
             src_idx_l {numpy.array, 1d} -- entity index
             cut_time_l {numpy.array, 1d} -- timestamp of events
-            query_time_l {numpy.array, i2} -- timestamp of query
+            query_time_l {numpy.array, 1d} -- timestamp of query
         
         Keyword Arguments:
             num_neighbors {int} -- [number of neighbors for each node] (default: {20})
@@ -356,8 +356,10 @@ class NeighborFinder:
             out_ngh_node_batch[i, half_num_neighbors:len(ngh_eidx_after) + half_num_neighbors] = ngh_idx_after
             out_ngh_t_batch[i, half_num_neighbors: len(ngh_ts_after) + half_num_neighbors] = ngh_ts_after
             out_ngh_eidx_batch[i, half_num_neighbors: len(ngh_eidx_after) + half_num_neighbors] = ngh_eidx_after
+
+        out_ngh_query_t_batch = np.repeat(np.repeat(query_time_l[:, np.newaxis], num_neighbors, axis=1))
         
-        return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
+        return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch, out_ngh_query_t_batch
 
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
         """
