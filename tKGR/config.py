@@ -16,10 +16,13 @@ def get_ICEWS14_config(parser):
                         help='how many neighbors to aggregate information from, '
                              'check paper Inductive Representation Learning '
                              'for Temporal Graph for detail')
+    parser.add_argument('--looking_afterwards', action='store_true', default=False,
+                        help='if NeighborFinder can find neighbors from events happened later, but still before query time')
     parser.add_argument('--sampling', type=int, default=1, help="neighborhood sampling strategy, 0: uniform, 1: first num_neighbors, 2: last num_neighbors")
     parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
     parser.add_argument('--add_reverse', action='store_true', default=False)
     parser.add_argument('--load_checkpoint', type=str, help='train from checkpoint')
+    parser.add_argument('--decoder', type=str, default='DistMult', choices=['DistMult', 'DPMP'])
     return parser
 
 
@@ -42,6 +45,7 @@ def get_ICEWS18_config(parser):
     parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
     parser.add_argument('--add_reverse', action='store_true', default=True)
     parser.add_argument('--load_checkpoint', type=str, help='train from checkpoint')
+    parser.add_argument('--decoder', type=str, default='DistMult', choices=['DistMult', 'DPMP'])
     return parser
 
 
