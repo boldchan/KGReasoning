@@ -369,11 +369,13 @@ class NeighborFinder:
         src_idx_l: List[int]
         cut_time_l: List[float],
         num_neighbors: int
+        return:
+        out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch: sorted by out_ngh_t_batch 
         """
         assert (len(src_idx_l) == len(cut_time_l))
 
         out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
-        out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
+        out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
 
         for i, (src_idx, cut_time) in enumerate(zip(src_idx_l, cut_time_l)):
@@ -551,3 +553,14 @@ def save_config(args, dir: str):
     args_dict['git_hash'] = git_hash
     with open(os.path.join(dir, 'config.json'), 'w') as fp:
         json.dump(args_dict, fp)
+
+
+def get_segment_ids(x):
+    """ x: (np.array) d0 x 2, sorted
+    """
+    if len(x) == 0:
+        return np.array([0], dtype='int32')
+
+    y = (x[1:] == x[:-1]).astype('uint8')
+    return np.concatenate([np.array([0], dtype='int32'),
+                           np.cumsum(1 - y[:, 0] * y[:, 1], dtype='int32')])
