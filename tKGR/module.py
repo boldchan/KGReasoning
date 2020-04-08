@@ -456,39 +456,15 @@ class TGAN(torch.nn.Module):
 
         self.use_time = use_time
         self.device = device
-        self.merge_layer = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim, self.feat_dim)
 
-        if agg_method == 'attn':
-            self.attn_model_list = torch.nn.ModuleList([AttnModel(self.feat_dim,
-                                                                  self.feat_dim,
-                                                                  self.feat_dim,
-                                                                  attn_mode=attn_mode,
-                                                                  n_head=n_head,
-                                                                  drop_out=drop_out) for _ in range(num_layers)])
-        elif agg_method == 'lstm':
-            self.logger.info('Aggregation uses LSTM model')
-            self.attn_model_list = torch.nn.ModuleList([LSTMPool(self.feat_dim,
-                                                                 self.feat_dim) for _ in range(num_layers)])
-        elif agg_method == 'mean':
-            self.logger.info('Aggregation uses constant mean model')
-            self.attn_model_list = torch.nn.ModuleList([MeanPool(self.feat_dim) for _ in range(num_layers)])
-        else:
-            raise ValueError('invalid agg_method value')
+        self.attn_model_list = torch.nn.ModuleList([AttnModel(self.feat_dim,
+                                                                self.feat_dim,
+                                                                self.feat_dim,
+                                                                attn_mode=attn_mode,
+                                                                n_head=n_head,
+                                                                drop_out=drop_out) for _ in range(num_layers)])
 
-        if use_time == 'time':
-            self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim, device=device)
-        elif use_time == 'pos':
-            assert (seq_len is not None)
-            self.logger.info('Using positional encoding')
-            self.time_encoder = PosEncode(expand_dim=self.n_feat_dim, seq_len=seq_len)
-        elif use_time == 'empty':
-            self.logger.info('Using empty encoding')
-            self.time_encoder = EmptyEncode(expand_dim=self.n_feat_dim)
-        else:
-            raise ValueError('invalid time option')
-
-        self.affinity_score = MergeLayer(self.feat_dim, self.feat_dim, self.feat_dim,
-                                         1)  # torch.nn.Bilinear(self.feat_dim, self.feat_dim, 1, bias=True)
+        self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim, device=device)
 
     # def link_predict(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
     #     """
@@ -513,6 +489,25 @@ class TGAN(torch.nn.Module):
     #     score = torch.sum(score_temp, dim=2, keepdim=False)  # [batch_size, num_relation]
     #     return score
 
+    def get_node_emb(self, node_idx_l):
+        """
+        help function to get node embedding
+        self.node_raw_embed[0] is the embedding for dummy node, i.e. node non-existing
+        
+        Arguments:
+            node_idx_l {np.array} -- indices of nodes
+        """
+        return self.node_raw_embed(torch.from_numpy(node_idx_l + 1).long())
+
+    def get_rel_emb(self, rel_idx_l):
+        """
+        help function to get relation embedding
+        self.edge_raw_embed[0] is the embedding for dummy relation, i.e. relation non-existing
+        Arguments:
+            rel_idx_l {[type]} -- [description]
+        """
+        return self.edge_raw_embed(torch.from_numpy(rel_idx_l + 1).long())
+
     def obj_predict(self, src_idx, rel_idx, cut_time, obj_candidate=None, num_neighbors=20, eval_batch=128):
         """
         predict the probability distribution of all objects given (s, p, t)
@@ -530,7 +525,7 @@ class TGAN(torch.nn.Module):
         cut_time_l = np.array([cut_time])
 
         src_embed = self.tem_conv(src_idx_l, cut_time_l, self.num_layers, num_neighbors)  # tensor [1, feature_dim]
-        rel_embed = self.edge_raw_embed(torch.from_numpy(rel_idx_l).long().to(self.device))  # tensor [1, feature_dim]
+        rel_embed = self.edge_raw_embed(torch.from_numpy(rel_idx_l+1).long().to(self.device))  # tensor [1, feature_dim]
 
         if obj_candidate is None:
             obj_candidate = np.arange(self.num_nodes)
@@ -775,8 +770,8 @@ def segment_softmax_op(logits, segment_ids):
         logits_segment_softmax[segment_idx] = logits_norm
     return logits_segment_softmax
 
-def aggregate_op(logits, target_ids):
-    """aggregate attention score of same (eg_idx, v, t)
+def aggregate_op_node(logits, target_ids):
+    """aggregate attention score of same node, i.e. same (eg_idx, v, t)
     aggregation method: sum
     
     Arguments:
@@ -808,17 +803,35 @@ def aggregate_op(logits, target_ids):
     
     return logits_seg_sum
 
+def _aggregate_op_entity(logits, nodes):
+    """aggregate attention score of same entity, i.e. same (eg_idx, v)
+    
+    Arguments:
+        logits {Tensor} -- attention score
+        nodes {numpy.array} -- shape len(logits) x 3, (eg_idx, v, t), sorted by eg_idx, v, t
+    return:
+        entity_att_score {Tensor}: shape num_entity
+        entities: numpy.array -- shape num_entity x 2, (eg_idx, v)
+        att_score[i] if the attention score of entities[i]
+    """
+    entities, entities_idx = np.unique(nodes[:, :2], axis=0, return_inverse=True)
+    entity_att_score = torch.zeros(len(entities), dtype=torch.float32)
+
+    for i in range(len(entities)):
+        entity_att_score[i] = torch.sum(logits[entities_idx == i])
+    
+    return entity_att_score, entities
+
+
 class AttentionFlow(nn.Module):
-    def __init__(self, num_entity, n_dims, n_dims_sm, device='cpu'):
+    def __init__(self, n_dims, n_dims_sm, device='cpu'):
         """[summary]
         
         Arguments:
-            num_entity -- int, number of entities in the data set
             n_dims -- int, dimension of entity and relation embedding
             n_dims_sm -- int, smaller than n_dims to reduce the compuation consumption of calculating attention score
         """
         super(AttentionFlow, self).__init__()
-        self.num_entity = num_entity
         self.n_dims = n_dims_sm
 
         self.proj = nn.Linear(n_dims, n_dims_sm)
@@ -843,26 +856,24 @@ class AttentionFlow(nn.Module):
 
         return np.stack([eg_idx_l, src_idx_l, cut_time_l], axis=1), torch.from_numpy(att_score)
 
-    def forward(self, aug_node_attention, aug_selected_edges=None, memorized_embedding=None, rel_emb=None,
+    def forward(self, node_attention, selected_edges=None, memorized_embedding=None, rel_emb=None,
                 query_src_emb=None, query_rel_emb=None, query_time_emb=None, training=None):
         """calculate attention score
         
         Arguments:
-            node_attention {tensor, num_edges} -- repeated node_attention of last step, node_attention[i] is the attention score
-            of (selected_edge[i, 1], selected_edge[i, 2])
+            node_attention {tensor, num_edges} -- src_attention of selected_edges, node_attention[i] is the attention score
+            of (selected_edge[i, 1], selected_edge[i, 2]) in eg_idx==selected_edge[i, 0]
         
         Keyword Arguments:
-            aug_selected_edges {numpy.array, num_edges x 8} -- (eg_idx, vi, ti, vj, tj, rel, idx_vi_ti, idx_vj_tj) (default: {None})
+            selected_edges {numpy.array, num_edges x 8} -- (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj) (default: {None})
             contain selfloop
             memorized_embedding {dict}: (e, t): emb
-            # shared_entity_embedding {[type]} -- [description] (default: {None})
-            # shared_relation_embedding {[type]} -- [description] (default: {None})
-            # new_idx_for_memorized {[type]} -- [description] (default: {None})
-            # n_memorized_and_scanned_nodes {[type]} -- [description] (default: {None})
             query_src_emb {[type]} -- [description] (default: {None})
             query_rel_emb {[type]} -- [description] (default: {None})
             query_time_emb {[type]} -- [description] (default: {None})
             training {[type]} -- [description] (default: {None})
+        return:
+            new_node_attention: Tensor, shape: n_new_node
         """
 
         query_src_vec = self.proj(query_src_emb) # batch_size x n_dims_sm
@@ -871,8 +882,8 @@ class AttentionFlow(nn.Module):
 
         rel_emb = self.proj(rel_emb)
 
-        hidden_vi = torch.stack([memorized_embedding[(e, t)] for e, t in aug_selected_edges[:, [1, 2]]], dim=0)
-        hidden_vj = torch.stack([memorized_embedding[(e, t)] for e, t in aug_selected_edges[:, [3, 4]]], dim=0)
+        hidden_vi = torch.stack([memorized_embedding[(e, t)] for e, t in selected_edges[:, [1, 2]]], dim=0)
+        hidden_vj = torch.stack([memorized_embedding[(e, t)] for e, t in selected_edges[:, [3, 4]]], dim=0)
         
         hidden_vi = self.proj(hidden_vi)
         hidden_vj = self.proj(hidden_vj)
@@ -881,25 +892,49 @@ class AttentionFlow(nn.Module):
         # i.e. hidden_vi[i] and hidden_vj[i] is representation of node vi, vj that lie in subgraph corresponding to the query, 
         # whose src, rel, time embedding is [embedding]_repeat[i]
         # [embedding] is one of query_src, query_rel, query_time
-        query_src_vec_repeat = torch.index_select(query_src_vec, dim=0, index=torch.from_numpy(aug_selected_edges[:, 0]).long())
-        query_rel_vec_repeat = torch.index_select(query_rel_vec, dim=0, index=torch.from_numpy(aug_selected_edges[:, 0]).long())
-        query_time_vec_repeat = torch.index_select(query_time_vec, dim=0, index=torch.from_numpy(aug_selected_edges[:, 0]).long())
+        query_src_vec_repeat = torch.index_select(query_src_vec, dim=0, index=torch.from_numpy(selected_edges[:, 0]).long())
+        query_rel_vec_repeat = torch.index_select(query_rel_vec, dim=0, index=torch.from_numpy(selected_edges[:, 0]).long())
+        query_time_vec_repeat = torch.index_select(query_time_vec, dim=0, index=torch.from_numpy(selected_edges[:, 0]).long())
 
         transition_logits = self.transition_fn(((hidden_vi, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat),
                                                 (hidden_vj, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat)))
 
-        attending_node_attention = transition_logits * aug_node_attention
-        softmax_node_attention = segment_softmax_op(attending_node_attention, aug_selected_edges[:, 6])
+        attending_node_attention = transition_logits * node_attention
+        softmax_node_attention = segment_softmax_op(attending_node_attention, selected_edges[:, 6])
 
-        new_node_attention = aggregate_op(softmax_node_attention, aug_selected_edges[:, [0, 7]])
+        new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]])
 
         return new_node_attention
 
 
 class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
-                 attn_mode='prod', use_time='time', agg_method='attn',
-                 tgan_num_layers=2, tgan_n_head=4, null_idx=0, drop_out=0.1, seq_len=None, device='cpu'):
+                 attn_mode='prod', use_time='time', agg_method='attn', tgan_num_neighbors=20,
+                 tgan_num_layers=2, tgan_n_head=4, null_idx=0, drop_out=0.1, seq_len=None, 
+                 max_attended_nodes=20, max_attending_nodes=200, device='cpu'):
+        """[summary]
+        
+        Arguments:
+            ngh_finder {[type]} -- an instance of NeighborFinder, find neighbors of a node from temporal KG
+            according to TGAN scheme
+        
+        Keyword Arguments:
+            num_entity {[type]} -- [description] (default: {None})
+            num_rel {[type]} -- [description] (default: {None})
+            embed_dim {[type]} -- [dimension of DPMPN embedding] (default: {None})
+            embed_dim_sm {[type]} -- [smaller dimension of DPMPN embedding] (default: {None})
+            attn_mode {str} -- [currently only prod is supported] (default: {'prod'})
+            use_time {str} -- [use time embedding] (default: {'time'})
+            tgan_num_neighbors {int} -- find number of neighbors for a node
+            agg_method {str} -- [description] (default: {'attn'})
+            tgan_num_layers {int} -- [description] (default: {2})
+            tgan_n_head {int} -- [description] (default: {4})
+            null_idx {int} -- [description] (default: {0})
+            drop_out {float} -- [description] (default: {0.1})
+            seq_len {[type]} -- [description] (default: {None})
+            max_attended_nodes {int} -- [max number of nodes in attending-from horizon] (default: {20})
+            device {str} -- [description] (default: {'cpu'})
+        """
         super(tDPMPN, self).__init__()
         self.ngh_finder = ngh_finder
         self.selfloop = num_rel # index of relation "selfloop", therefore num_edges in TGAN need to be increased by 1
@@ -907,7 +942,9 @@ class tDPMPN(torch.nn.Module):
                          attn_mode=attn_mode, use_time=use_time, agg_method=agg_method,
                          num_layers=tgan_num_layers, n_head=tgan_n_head, null_idx=null_idx, drop_out=drop_out,
                          seq_len=seq_len, device=device)
-        self.att_flow = AttentionFlow(num_entity, embed_dim, embed_dim_sm)
+        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm)
+        self.max_attended_nodes = max_attended_nodes
+        self.tgan_num_neighbors = tgan_num_neighbors
         self.memorized_embedding = dict()
         self.device = device
 
@@ -933,104 +970,99 @@ class tDPMPN(torch.nn.Module):
             attending_node_attention, np,array -- n_attending_nodes, (1,)
             memorized_embedding, dict ((entity_id, ts): TGAN_embedding)
         """
-        query_src_emb = self.TGAN.node_raw_embed(torch.from_numpy(self.src_idx_l + 1).long())
-        query_rel_emb = self.TGAN.edge_raw_embed(torch.from_numpy(self.rel_idx_l + 1).long())
+        query_src_emb = self.TGAN.get_node_emb(self.src_idx_l)
+        query_rel_emb = self.TGAN.get_rel_emb(self.rel_idx_l)
         query_ts_emb = self.TGAN.time_encoder(torch.from_numpy(self.cut_time_l[:, np.newaxis]).to(torch.float32))
         query_ts_emb = torch.squeeze(query_ts_emb, 1)
 
         attending_nodes, attending_node_attention = self.att_flow.get_init_node_attention(self.src_idx_l, self.cut_time_l)
         # refer to https://discuss.pytorch.org/t/feeding-dictionary-of-tensors-to-model-on-gpu/68289
-        attending_node_emb = self.TGAN.tem_conv(self.src_idx_l, self.cut_time_l, curr_layers=2, num_neighbors=20).cpu()
-        memorized_embedding = {(src_idx, cut_time) : emb for src_idx, cut_time, emb in list(zip(self.src_idx_l, self.cut_time_l, attending_node_emb))}
+        attending_node_emb = self.TGAN.tem_conv(self.src_idx_l, self.cut_time_l, curr_layers=2, num_neighbors=self.tgan_num_neighbors)
+        memorized_embedding = {(src_idx, cut_time) : emb for src_idx, cut_time, emb in list(zip(self.src_idx_l, self.cut_time_l, attending_node_emb.to('cpu')))}
         return query_src_emb, query_rel_emb, query_ts_emb, attending_nodes, attending_node_attention, memorized_embedding
 
     def flow(self, attending_nodes, attending_node_attention, memorized_embedding: dict, query_src_emb, query_rel_emb, query_time_emb):
         """[summary]
         
         Arguments:
-            attending_nodes {numpy.array} -- num_nodes x3 (eg_idx, entity_id, ts)
-            attending_node_attention {Tensor} -- num_nodes
+            attending_nodes {numpy.array} -- num_nodes x3 (eg_idx, entity_id, ts), dtype: numpy.int32
+            attending_node_attention {Tensor} -- num_nodes, dtype: torch.float32
             attending_node_emb {Tensor} -- num_nodes x n_dim
-            query_src_emb {Tensor} -- batch_size x n_dim
-            query_rel_emb {Tensor} -- batch_size x n_dim
+            query_src_emb {Tensor} -- batch_size x n_dim, dtype: torch.float32
+            query_rel_emb {Tensor} -- batch_size x n_dim, dtype: torch.float32
+        return:
+            selected_node {numpy.array} -- num_selected x 3 (eg_idx, entity_id, ts) sorted by (eg_idx, entity_id, ts)
+            new_node_attention {Tensor} -- num_selected
+            so that new_node_attention[i] is the attention of selected_node[i]
+            memorized_embedding: dict {(e, t): TGAN_embedding} 
         """
         assert (len(attending_nodes) == attending_node_attention.shape[0])
-        max_attended_nodes = 20
 
+        # Attending-from Horizon of last step
         # attended_nodes: (np.array) n_attended_nodes x 3, (eg_idx, vi, cut_time) sorted
         # attended_nodes_attention: Tensor, n_attended_nodes
-        attended_nodes, attended_node_attention = self._topk_att_score(attending_nodes, attending_node_attention, max_attended_nodes)
+        attended_nodes, attended_node_attention = self._topk_att_score(attending_nodes, attending_node_attention, self.max_attended_nodes)
         
-        # sampled_edges: (np.array) n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel), sorted by eg_idx
-        # repeated_node_attention: (Tensor) n_sampled_edges, sampeled edges with the same src node share the same att score
-        sampled_edges, repeated_node_attention = self._get_sampled_edges(attended_nodes, attended_node_attention)
-        print('sampled {} edges'.format(len(sampled_edges)))
+        # Sampling Horizon
+        # sampled_edges: (np.array) n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel), sorted by eg_idx, vi, ti, tj
+        # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
+        # selfloop is added
+        sampled_edges, src_attention = self._get_sampled_edges(attended_nodes, attended_node_attention)
+        # print(sampled_edges)
         
-        # selected_edges: (np.array) n_sampled_edges x 8, (eg_idx, vi, ti, vj, tj, rel, idx_vi_ti, idx_vj_tj]
-        selected_edges = self._get_selected_edges(sampled_edges)
-        print(selected_edges)
-        for i in range(query_rel_emb.shape[0]):
-            print("graph of {}-th query ({}, {}, ?, {}) contains {} edges, attention_sum: {}".format(
-                i, 
-                self.src_idx_l[i],
-                self.rel_idx_l[i],
-                self.cut_time_l[i],
-                sum(selected_edges[:, 0] == i),
-                sum(repeated_node_attention[selected_edges[:, 0] == i])))
+        # selected_edges: (np.array) n_sampled_edges x 8, (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj]
+        # sorted by eg_idx, ti, tj
+        # selected_nodes: (eg_idx, v, t) sorted by (eg_idx, v, t)
+        selected_edges, selected_node = self._get_selected_edges(sampled_edges)
+        # print(selected_edges)
+        # print(selected_node)
+
+        # get hidden representation from TGAN
+        unvisited = [(e, t) not in memorized_embedding.keys() for e, t in sampled_edges[:, [3, 4]]]
+        unvisited_nodes = sampled_edges[unvisited][:, [3, 4]]
+        hidden_target = self.TGAN.tem_conv(unvisited_nodes[:, 0], unvisited_nodes[:, 1], curr_layers=2, num_neighbors=self.tgan_num_neighbors)
         
-        # add selfloop edges
-        selfloop_edges = self._get_selfloop_edges(attended_nodes)
-        
-        # aug_selected_edges: n_aug_selected_edges x 8, (eg_idx, vi, ti, vj, tj, rel, idx_vi_ti, idx_vj_tj) sorted by (eg_idx, vi, vj)
-        # aug_repeated_node_attention: Tensor, shape: n_aug_selected_edges, 
-        #   aug_repeated_node_attention[i]: attention score of src node (e, t) in aug_selected_edges[i]
-        # new_attending_nodes: num_attending_nodes x 3 (eg_idx, vi, ti)
-        aug_selected_edges, aug_repeated_node_attention, new_attending_nodes = self._get_union_edges(selected_edges, \
-                                repeated_node_attention, selfloop_edges, attending_node_attention)
+        memorized_embedding.update({(unvisited_nodes[i][0], unvisited_nodes[i][1]): hidden_target[i].to('cpu') for i in range(len(unvisited_nodes))})
+
+        rel_emb = self.TGAN.get_rel_emb(selected_edges[:, 5])
+
+        new_node_attention = self.att_flow(src_attention,
+                                           selected_edges=selected_edges,
+                                           memorized_embedding=memorized_embedding,
+                                           rel_emb=rel_emb,
+                                           query_src_emb=query_src_emb,
+                                           query_rel_emb=query_rel_emb,
+                                           query_time_emb=query_time_emb)
         # there are events with same (s, o, t) but with different relation, therefore length of new_attending_nodes may be
         # smaller than length of selected_edges
+        print("Sampled {} edges, {} nodes".format(len(sampled_edges), len(selected_node)))
         for i in range(query_rel_emb.shape[0]):
             print("graph of {}-th query ({}, {}, ?, {}) contains {} attending nodes, attention_sum: {}".format(
                 i,
                 self.src_idx_l[i],
                 self.rel_idx_l[i],
                 self.cut_time_l[i],
-                sum(new_attending_nodes[:, 0] == i),
-                sum(aug_repeated_node_attention[aug_selected_edges[:, 0] == i])))
+                sum(selected_node[:, 0] == i),
+                sum(new_node_attention[selected_node[:, 0] == i])))
 
-        # get hidden representation from TGAN
-        unvisited = [(e, t) not in memorized_embedding.keys() for e, t in sampled_edges[:, [3, 4]]]
-        unvisited_nodes = sampled_edges[unvisited][:, [3, 4]]
-        hidden_target = self.TGAN.tem_conv(unvisited_nodes[:, 0], unvisited_nodes[:, 1], curr_layers=2, num_neighbors=20)
-        
-        memorized_embedding.update({(unvisited_nodes[i][0], unvisited_nodes[i][1]): hidden_target[i] for i in range(len(unvisited_nodes))})
+        return selected_node, new_node_attention, memorized_embedding
 
-        rel_emb = self.TGAN.edge_raw_embed(torch.from_numpy(aug_selected_edges[:, 5]).long())
-
-        # save nodes embedding
-        # self._add_nodes_to_memorized(aug_selected_edges, hidden_src, hidden_target)
-
-        new_node_attention = self.att_flow(aug_repeated_node_attention,
-                                           aug_selected_edges=aug_selected_edges,
-                                           memorized_embedding=memorized_embedding,
-                                           rel_emb=rel_emb,
-                                           query_src_emb=query_src_emb,
-                                           query_rel_emb=query_rel_emb,
-                                           query_time_emb=query_time_emb)
-        return new_attending_nodes, new_node_attention, memorized_embedding
+    def get_entity_attn_score(self, logits, nodes):
+        return _aggregate_op_entity(logits, nodes)
 
     def _get_sampled_edges(self, attended_nodes, node_attention, num_neighbors: int = 20):
         """[summary]
         sample neighbors for attended_nodes from all events happen before attended_nodes
-        with strategy specified by ngh_finder
+        with strategy specified by ngh_finder, selfloop is added
         Arguments:
             attended_nodes {numpy.array} shape: num_attended_nodes x 3 (eg_idx, vi, ti), dtype int32
             -- [nodes (with time) in attended from horizon, for detail refer to DPMPN paper]
             node_attention {Tensor} shape: num_attended_nodes
         
         Returns:
-            [np.array] -- [shape: n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel)], sorted by (eg_idx), sorted by tj for same eg_idx, vi, ti
-            dtype int32
+            sampled_edges: [np.array] -- [shape: n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel)], sorted by eg_idx, ti, tj (ascending) dtype int32
+            src_attention: {Tensor} shape: n_sampled_edges, repeated_attention[i] is the attention score of node (sampeled_edges[i, 1], sampled_edges[i, 2])
+            for eg_idx=sampled_edges[i, 0]
         """
         assert (len(attended_nodes) == node_attention.shape[0])
         src_idx_l = attended_nodes[:, 1]
@@ -1039,37 +1071,43 @@ class tDPMPN(torch.nn.Module):
                 src_idx_l,
                 cut_time_l,
                 num_neighbors=num_neighbors)
+        # add selfloop
+        src_ngh_node_batch = np.concatenate([src_ngh_node_batch, src_idx_l[:, np.newaxis]], axis=1)
+        src_ngh_eidx_batch = np.concatenate([src_ngh_eidx_batch, np.array([[self.selfloop] for _ in range(len(attended_nodes))], dtype=np.int32)], axis=1)
+        src_ngh_t_batch = np.concatenate([src_ngh_t_batch, cut_time_l[:, np.newaxis]], axis=1)
         # removed padded neighbors, with node idx == rel idx == -1 t == 0
         src_ngh_node_batch_flatten = src_ngh_node_batch.flatten()
         src_ngh_eidx_batch_flatten = src_ngh_eidx_batch.flatten()
         src_ngh_t_batch_faltten = src_ngh_t_batch.flatten()
-        eg_idx = np.repeat(attended_nodes[:, 0], num_neighbors)
+        eg_idx = np.repeat(attended_nodes[:, 0], num_neighbors+1)
         mask = src_ngh_node_batch_flatten != -1
+
         return np.stack([eg_idx,
-            np.repeat(src_idx_l, num_neighbors), np.repeat(cut_time_l, num_neighbors),
-            src_ngh_node_batch_flatten, src_ngh_t_batch_faltten,
-            src_ngh_eidx_batch_flatten], axis=1)[mask], node_attention.view(-1, 1).repeat(1, num_neighbors).view(-1)[mask]
+            np.repeat(src_idx_l, num_neighbors+1), np.repeat(cut_time_l, num_neighbors+1),\
+            src_ngh_node_batch_flatten, src_ngh_t_batch_faltten,\
+            src_ngh_eidx_batch_flatten], axis=1)[mask], node_attention.view(-1, 1).repeat(1, num_neighbors+1).view(-1)[mask]
 
     def _get_selected_edges(self, sampled_edges):
         '''
-        idx_vi_ti, idx_vj_tj facilitate message aggregation,
+        idx_eg_vi_ti, idx_eg_vj_tj facilitate message aggregation,
         avoiding aggregating message from the same node of another batch
-        :param sampled_edges: n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel) sorted by (eg_idx)
+        :param sampled_edges: n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel) sorted by (eg_idx, ti, tj) ascending
         :return:
-        selected_edges: (np.array) n_selected_edges (=n_sampled_edges) x 8, (eg_idx, vi, ti, vj, tj, rel, idx_vi, idx_vj]
-                        sorted by (eg_idx) sorted by tj for same eg_idx, vi, ti
+        selected_edges: (np.array) n_selected_edges (=n_sampled_edges) x 8, (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj]
+                        sorted by eg_idx, vi, tj
+        selected_nodes: (np.array) n_attending_nodes x 3 (eg_idx, v, t), sorted by (eg_idx, v, t) ascending
         '''
         if len(sampled_edges) == 0:
             return np.zeros((0, 6), dtype='int32')
         
-        _, idx_vi_ti = np.unique(sampled_edges[:, :3], axis=0, return_inverse=True)
-        _, idx_vj_tj = np.unique(sampled_edges[:, [0, 3, 4]], axis=0, return_inverse=True)
+        _, idx_eg_vi_ti = np.unique(sampled_edges[:, :3], axis=0, return_inverse=True)
+        selected_nodes, idx_eg_vj_tj = np.unique(sampled_edges[:, [0, 3, 4]], axis=0, return_inverse=True)
 
-        idx_vi_ti = np.expand_dims(np.array(idx_vi_ti, dtype='int32'), 1)
-        idx_vj_tj = np.expand_dims(np.array(idx_vj_tj, dtype='int32'), 1)
+        idx_eg_vi_ti = np.expand_dims(np.array(idx_eg_vi_ti, dtype='int32'), 1)
+        idx_eg_vj_tj = np.expand_dims(np.array(idx_eg_vj_tj, dtype='int32'), 1)
 
-        selected_edges = np.concatenate([sampled_edges[:, :6], idx_vi_ti, idx_vj_tj], axis=1)
-        return selected_edges
+        selected_edges = np.concatenate([sampled_edges[:, :6], idx_eg_vi_ti, idx_eg_vj_tj], axis=1)
+        return selected_edges, selected_nodes
 
     def _get_selfloop_edges(self, attended_nodes):
         eg_idx, vi, ti = attended_nodes[:, 0], attended_nodes[:, 1], attended_nodes[:, 2]

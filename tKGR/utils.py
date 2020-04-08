@@ -305,10 +305,10 @@ class NeighborFinder:
 
     def get_temporal_neighbor_v2(self, src_idx_l, cut_time_l, query_time_l, num_neighbors=20):
         """
-        temporal neighbors are not limited to be drawn from events happen before cut_time, 
+        temporal neighbors are not limited to be drawn from events happen before cut_time,
         but are extended to be drawn from all events that happen before query time
         More specifically, for each query we have (sub_q, rel_q, ?, t_q). By each step, for
-        every node, i.e. entity-timestamp pair (e_i, t_i), we looked for such entity-timestamp 
+        every node, i.e. entity-timestamp pair (e_i, t_i), we looked for such entity-timestamp
         pair (e, t) that (e_i, some_relation, e, t) exists. By first step, (e_i, t_i) == (sub_q, t_q) 
         where t < t_q is the restriction (rather than t<t_0) 
         Arguments:
@@ -334,7 +334,7 @@ class NeighborFinder:
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             mid = self.off_set_t_l[src_idx][int(cut_time / 24)]
             end = self.off_set_t_l[src_idx][int(query_time / 24)]
-            # every timestamp in neighbors_ts[:mid] is smaller than cut_time 
+            # every timestamp in neighbors_ts[:mid] is smaller than cut_time
             ngh_idx_before, ngh_eidx_before, ngh_ts_before = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # every timestamp in neighbors_ts[mid:end] is bigger than cut_time and smaller than query_time
             ngh_idx_after, ngh_eidx_after, ngh_ts_after = neighbors_idx[mid:end], neighbors_e_idx[mid:end], neighbors_ts[mid:end]
