@@ -305,10 +305,10 @@ class NeighborFinder:
 
     def get_temporal_neighbor_v2(self, src_idx_l, cut_time_l, query_time_l, num_neighbors=20):
         """
-        temporal neighbors are not limited to be drawn from events happen before cut_time, 
+        temporal neighbors are not limited to be drawn from events happen before cut_time,
         but are extended to be drawn from all events that happen before query time
         More specifically, for each query we have (sub_q, rel_q, ?, t_q). By each step, for
-        every node, i.e. entity-timestamp pair (e_i, t_i), we looked for such entity-timestamp 
+        every node, i.e. entity-timestamp pair (e_i, t_i), we looked for such entity-timestamp
         pair (e, t) that (e_i, some_relation, e, t) exists. By first step, (e_i, t_i) == (sub_q, t_q) 
         where t < t_q is the restriction (rather than t<t_0) 
         Arguments:
@@ -334,7 +334,7 @@ class NeighborFinder:
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             mid = self.off_set_t_l[src_idx][int(cut_time / 24)]
             end = self.off_set_t_l[src_idx][int(query_time / 24)]
-            # every timestamp in neighbors_ts[:mid] is smaller than cut_time 
+            # every timestamp in neighbors_ts[:mid] is smaller than cut_time
             ngh_idx_before, ngh_eidx_before, ngh_ts_before = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # every timestamp in neighbors_ts[mid:end] is bigger than cut_time and smaller than query_time
             ngh_idx_after, ngh_eidx_after, ngh_ts_after = neighbors_idx[mid:end], neighbors_e_idx[mid:end], neighbors_ts[mid:end]
@@ -369,11 +369,13 @@ class NeighborFinder:
         src_idx_l: List[int]
         cut_time_l: List[float],
         num_neighbors: int
+        return:
+        out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch: sorted by out_ngh_t_batch 
         """
         assert (len(src_idx_l) == len(cut_time_l))
 
         out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
-        out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
+        out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
 
         for i, (src_idx, cut_time) in enumerate(zip(src_idx_l, cut_time_l)):
@@ -551,3 +553,14 @@ def save_config(args, dir: str):
     args_dict['git_hash'] = git_hash
     with open(os.path.join(dir, 'config.json'), 'w') as fp:
         json.dump(args_dict, fp)
+
+
+def get_segment_ids(x):
+    """ x: (np.array) d0 x 2, sorted
+    """
+    if len(x) == 0:
+        return np.array([0], dtype='int32')
+
+    y = (x[1:] == x[:-1]).astype('uint8')
+    return np.concatenate([np.array([0], dtype='int32'),
+                           np.cumsum(1 - y[:, 0] * y[:, 1], dtype='int32')])
