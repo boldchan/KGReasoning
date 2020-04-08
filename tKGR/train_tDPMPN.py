@@ -1,5 +1,6 @@
 import os
 import sys
+import gc
 
 from collections import defaultdict
 import argparse
@@ -218,6 +219,14 @@ if __name__ == "__main__":
             if batch_ndx % 50 == 49:
                 print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 50))
                 running_loss = 0.0
+
+            for obj in gc.get_objects():
+                try:
+                    if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                        print(type(obj), obj.size())
+                except:
+                    pass
+            pdb.set_trace()
 
         model.eval()
         torch.save({
