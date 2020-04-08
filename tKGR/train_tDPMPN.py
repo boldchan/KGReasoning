@@ -21,6 +21,7 @@ from utils import Data, NeighborFinder, Measure, save_config
 from module import tDPMPN
 import config
 import local_config
+from gpu_profile import gpu_profile
 
 save_dir = local_config.save_dir
 
@@ -140,6 +141,7 @@ parser.add_argument('--load_checkpoint', type=str, default=None, help='train fro
 args = parser.parse_args()
 
 if __name__ == "__main__":
+    sys.settrace(gpu_profile)
     # check cuda
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
