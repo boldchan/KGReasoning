@@ -1037,7 +1037,16 @@ class tDPMPN(torch.nn.Module):
         # get hidden representation from TGAN
         unvisited = [(e, t) not in memorized_embedding.keys() for e, t in sampled_edges[:, [3, 4]]]
         unvisited_nodes = sampled_edges[unvisited][:, [0, 3, 4]]
-        hidden_target = self.TGAN.tem_conv(unvisited_nodes[:, 1], unvisited_nodes[:, 2], curr_layers=2, num_neighbors=self.tgan_num_neighbors, query_time_l=self.cut_time_l[unvisited_nodes[:, 0]])
+        hidden_target = []
+        # segment unvisited_nodes, decrease memory demand
+        for seg in np.split(unvisited_nodes, len(unvisited_nodes)//128+1, axis=0):
+            hidden_target.append(
+                self.TGAN.tem_conv(unvisited_nodes[:, 1], 
+                                   unvisited_nodes[:, 2], 
+                                   curr_layers=2, 
+                                   num_neighbors=self.tgan_num_neighbors, 
+                                   query_time_l=self.cut_time_l[unvisited_nodes[:, 0]]))
+        hidden_target = torch.cat(hidden_target, dim=0)
 
         memorized_embedding.update({(unvisited_nodes[i][1], unvisited_nodes[i][2]): hidden_target[i].to(torch.float32).to('cpu') for i in range(len(unvisited_nodes))})
 
