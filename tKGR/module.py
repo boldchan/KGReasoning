@@ -399,7 +399,7 @@ class MergeLayer(torch.nn.Module):
 class TGAN(torch.nn.Module):
     def __init__(self, ngh_finder, num_nodes=None, num_edges=None, embed_dim=None, n_feat=None, e_feat=None,
                  attn_mode='prod', use_time='time', agg_method='attn',
-                 num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None, device='cpu'):
+                 num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None, device='cpu', looking_afterwards=False):
         """
         initialize TGAN, either (num_nodes, num_edge, embed_dim) are given or (n_feat, e_feat) are given.
         If (n_feat, e_feat) are given, this pre-trained embedding is being used.
@@ -417,6 +417,8 @@ class TGAN(torch.nn.Module):
         :param null_idx: use null_idx to represent dummy node when there is fewer neighbors than required
         :param drop_out:
         :param seq_len:
+        :param looking_afterwards: if (object, timestamp) from events happening later can also be neighbors,
+        more specifically, use get_temporal_neighbor or get_temporal_neighrbor_v2
         """
         super(TGAN, self).__init__()
         assert num_nodes is not None or n_feat is not None
@@ -429,6 +431,8 @@ class TGAN(torch.nn.Module):
 
         self.num_nodes = num_nodes
         self.num_edges = num_edges
+
+        self.looking_afterwards = looking_afterwards
 
         self.logger = logging.getLogger(__name__)
 
@@ -563,17 +567,18 @@ class TGAN(torch.nn.Module):
         """
         batch_size = neg_idx.shape[0]
         num_neg = neg_idx.shape[1]
-
-        src_embed = self.tem_conv(src_idx, cut_time, self.num_layers, num_neighbors)
-        target_embed = self.tem_conv(target_idx, cut_time, self.num_layers, num_neighbors)
+        query_time = cut_time if self.looking_afterwards else None
+        src_embed = self.tem_conv(src_idx, cut_time, self.num_layers, num_neighbors, query_time)
+        target_embed = self.tem_conv(target_idx, cut_time, self.num_layers, num_neighbors, query_time)
         neg_idx_flatten = neg_idx.flatten()  # [batch_size x num_neg,]
         # repeat cut_time num_neg times along axis = 0, so that each negative sampling have a cutting time
         cut_time_repeat = np.repeat(cut_time, num_neg, axis=0)  # [batch_size x num_neg, ]
-        neg_embed = self.tem_conv(neg_idx_flatten, cut_time_repeat, self.num_layers, num_neighbors)
+        query_time_repeat = cut_time_repeat if self.looking_afterwards else None
+        neg_embed = self.tem_conv(neg_idx_flatten, cut_time_repeat, self.num_layers, num_neighbors, query_time_repeat)
 
         return src_embed, target_embed, neg_embed.view(batch_size, num_neg, -1)
 
-    def tem_conv(self, src_idx_l, cut_time_l, curr_layers, num_neighbors):
+    def tem_conv(self, src_idx_l, cut_time_l, curr_layers, num_neighbors, query_time_l):
         """
         For target node at time t, aggregate features of its neighborhood $\mathcal{N}(v_0; t)={v_1, ..., v_N}$,
         i.e. entities that have interaction with target node prior to t,
@@ -605,12 +610,22 @@ class TGAN(torch.nn.Module):
             src_node_conv_feat = self.tem_conv(src_idx_l,
                                                cut_time_l,
                                                curr_layers=curr_layers - 1,
-                                               num_neighbors=num_neighbors)
+                                               num_neighbors=num_neighbors,
+                                               query_time_l=query_time_l)
 
-            src_ngh_node_batch, src_ngh_eidx_batch, src_ngh_t_batch = self.ngh_finder.get_temporal_neighbor(
-                src_idx_l,
-                cut_time_l,
-                num_neighbors=num_neighbors)
+            if self.looking_afterwards:
+                assert (query_time_l is not None)
+                src_ngh_node_batch, src_ngh_eidx_batch, src_ngh_t_batch, src_ngh_query_t_batch = self.ngh_finder.get_temporal_neighbor_v2(
+                    src_idx_l,
+                    cut_time_l,
+                    query_time_l,
+                    num_neighbors=num_neighbors)
+            else:
+                src_ngh_node_batch, src_ngh_eidx_batch, src_ngh_t_batch = self.ngh_finder.get_temporal_neighbor(
+                    src_idx_l,
+                    cut_time_l,
+                    num_neighbors=num_neighbors)
+                src_ngh_query_t_batch = None
 
             src_ngh_node_batch_th = torch.from_numpy(src_ngh_node_batch).long().to(self.device)
             src_ngh_eidx_batch_th = torch.from_numpy(src_ngh_eidx_batch).long().to(self.device)
@@ -624,7 +639,8 @@ class TGAN(torch.nn.Module):
             src_ngh_node_conv_feat = self.tem_conv(src_ngh_node_batch_flat,
                                                    src_ngh_t_batch_flat,
                                                    curr_layers=curr_layers - 1,
-                                                   num_neighbors=num_neighbors)
+                                                   num_neighbors=num_neighbors,
+                                                   query_time_l=src_ngh_query_t_batch)
             src_ngh_feat = src_ngh_node_conv_feat.view(batch_size, num_neighbors, -1)
 
             # get edge time features and node features
