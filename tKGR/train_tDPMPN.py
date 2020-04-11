@@ -214,7 +214,7 @@ if __name__ == "__main__":
     for epoch in range(args.epoch):
         # load data
         train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
-                                      start_time=args.warm_start_timei, tc=time_cost)
+                                      start_time=args.warm_start_time, tc=time_cost)
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                        pin_memory=False, shuffle=True)
 
@@ -256,7 +256,9 @@ if __name__ == "__main__":
             optimizer.step()
             if args.timer:
                 time_cost['grad']['apply'] += time.time() - t_start
+
             running_loss += loss.item()
+
             print(str_time_cost)
             if batch_ndx % 50 == 49:
                 print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 50))
