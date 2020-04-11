@@ -170,6 +170,7 @@ if __name__ == "__main__":
     else:
         device = 'cpu'
 
+    time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
 
