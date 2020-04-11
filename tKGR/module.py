@@ -939,7 +939,7 @@ class tDPMPN(torch.nn.Module):
         attending_nodes, attending_node_attention = self.att_flow.get_init_node_attention(self.src_idx_l,
                                                                                           self.cut_time_l)
         # refer to https://discuss.pytorch.org/t/feeding-dictionary-of-tensors-to-model-on-gpu/68289
-        attending_node_emb = self.TGAN.tem_conv_debug(self.src_idx_l, self.cut_time_l, curr_layers=2,
+        attending_node_emb = self.TGAN.temp_conv_debug(self.src_idx_l, self.cut_time_l, curr_layers=2,
                                                 num_neighbors=self.tgan_num_neighbors, query_time_l=self.cut_time_l)
         memorized_embedding = {(src_idx, cut_time): emb for src_idx, cut_time, emb in
                                list(zip(self.src_idx_l, self.cut_time_l, attending_node_emb.to('cpu')))}
