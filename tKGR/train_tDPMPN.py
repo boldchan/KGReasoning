@@ -21,7 +21,7 @@ from utils import Data, NeighborFinder, Measure, save_config
 from module import tDPMPN
 import config
 import local_config
-from gpu_profile import gpu_profile
+# from gpu_profile import gpu_profile
 
 save_dir = local_config.save_dir
 
@@ -141,7 +141,7 @@ parser.add_argument('--load_checkpoint', type=str, default=None, help='train fro
 args = parser.parse_args()
 
 if __name__ == "__main__":
-    sys.settrace(gpu_profile)
+    # sys.settrace(gpu_profile)
     # check cuda
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
@@ -180,15 +180,13 @@ if __name__ == "__main__":
     model.to(device)
     model.TGAN.node_raw_embed.cpu()
     model.TGAN.edge_raw_embed.cpu()
+    pdb.set_trace()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     for epoch in range(args.epoch):
         # load data
         train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
-
-        val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
-        val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
 
         running_loss = 0.
 
@@ -241,6 +239,10 @@ if __name__ == "__main__":
         if epoch % 5 == 4:
             hit_1 = hit_3 = hit_10 = 0
             num_query = 0
+
+            val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
+            val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                         pin_memory=False, shuffle=True)
 
             for batch_ndx, sample in enumerate(val_data_loader):
                 model.eval()
