@@ -7,6 +7,7 @@ import argparse
 import time
 import copy
 import pdb
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -21,6 +22,7 @@ from utils import Data, NeighborFinder, Measure, save_config
 from module import tDPMPN
 import config
 import local_config
+
 # from gpu_profile import gpu_profile
 
 save_dir = local_config.save_dir
@@ -32,8 +34,24 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
+def reset_time_cost():
+    return {'model': defaultdict(float), 'graph': defaultdict(float), 'grad': defaultdict(float),
+            'data': defaultdict(float)}
+
+
+def str_time_cost(tc):
+    if tc is not None:
+        model_tc = ', '.join('m.{} {:3f}'.format(k, v) for k, v in tc['model'].items())
+        graph_tc = ', '.join('g.{} {:3f}'.format(k, v) for k, v in tc['graph'].items())
+        grad_tc = ', '.join('d.{} {:3f}'.format(k, v) for k, v in tc['grad'].items())
+        return model_tc + ', ' + graph_tc + ', ' + grad_tc
+    else:
+        return ''
+
+
+def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, tc=None):
     '''
+    :param tc: time recorder
     :param contents: instance of Data object
     :param num_neg_sampling: how many negtive sampling of objects for each event
     :param start_time: neg sampling for events since start_time (inclusive)
@@ -41,6 +59,7 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
     :return:
     events concatenated with negative sampling
     '''
+    t_start = time.time()
     if dataset == 'train':
         contents_dataset = contents.train_data
         assert start_time < max(contents_dataset[:, 3])
@@ -54,6 +73,7 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
     neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
+    tc['data']['load_data'] += time.time() - t_start
     return np.concatenate([events, neg_obj_idx], axis=1)
 
 
@@ -97,8 +117,8 @@ def segment_topk(t, segment_idx, k, sorted=False):
     """
     mask = segment_idx[1:] != segment_idx[:-1]
     key_idx = np.concatenate([np.array([0], dtype=np.int32),
-                             np.arange(1, len(segment_idx))[mask],
-                             np.array([len(segment_idx)])])
+                              np.arange(1, len(segment_idx))[mask],
+                              np.array([len(segment_idx)])])
     values = []
     indices = []
     for s, e in zip(key_idx[:-1], key_idx[1:]):
@@ -133,11 +153,13 @@ parser.add_argument('--num_neighbors', type=int, default=40, help='how many neig
                                                                   'check paper Inductive Representation Learning '
                                                                   'for Temporal Graph for detail')
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
-parser.add_argument('--sampling', type=int, default=2, help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
+parser.add_argument('--sampling', type=int, default=2,
+                    help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
 parser.add_argument('--DP_steps', type=int, default=2, help='number of DP steps')
 parser.add_argument('--max_attended_nodes', type=int, default=20, help='max number of nodes in attending from horizon')
 parser.add_argument('--add_reverse', action='store_true', default=None, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
+parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -147,6 +169,9 @@ if __name__ == "__main__":
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
     else:
         device = 'cpu'
+
+    if args.timer:
+        time_cost = reset_time_cost()
 
     # save configuration
     start_time = time.time()
@@ -169,10 +194,14 @@ if __name__ == "__main__":
     print("Log configuration under {}".format(CHECKPOINT_PATH))
 
     # construct NeighborFinder
+    if args.timer:
+        t_start = time.time()
     contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
     adj = contents.get_adj_dict()
     max_time = max(contents.data[:, 3])
     nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
+    if args.timer:
+        time_cost['data']['ngh'] = time.time() - t_start
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm, device=device)
@@ -180,13 +209,14 @@ if __name__ == "__main__":
     model.to(device)
     model.TGAN.node_raw_embed.cpu()
     model.TGAN.edge_raw_embed.cpu()
-    pdb.set_trace()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     for epoch in range(args.epoch):
         # load data
-        train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, start_time=args.warm_start_time)
-        train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper, pin_memory=False, shuffle=True)
+        train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
+                                      start_time=args.warm_start_timei, tc=time_cost)
+        train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                       pin_memory=False, shuffle=True)
 
         running_loss = 0.
 
@@ -196,7 +226,7 @@ if __name__ == "__main__":
             model.train()
 
             src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx+1, epoch)
+            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
             query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
                 model.initialize()
 
@@ -208,14 +238,26 @@ if __name__ == "__main__":
             for step in range(args.DP_steps):
                 print("{}-th DP step".format(step))
                 attending_nodes, attending_node_attention, memorized_embedding = \
-                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb, query_rel_emb, query_time_emb)
-            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
-            one_hot_label = torch.from_numpy(np.array([int(v==target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
+                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                               query_rel_emb, query_time_emb, tc=time_cost)
+            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes, tc=time_cost)
+            one_hot_label = torch.from_numpy(
+                np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+            if args.timer:
+                t_start = time.time()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+            if args.timer:
+                time_cost['grad']['comp'] += time.time() - t_start
+
+            if args.timer:
+                t_start = time.time()
             optimizer.step()
+            if args.timer:
+                time_cost['grad']['apply'] += time.time() - t_start
             running_loss += loss.item()
+            print(str_time_cost)
             if batch_ndx % 50 == 49:
                 print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 50))
                 running_loss = 0.0
@@ -226,7 +268,6 @@ if __name__ == "__main__":
                         print(type(obj), obj.size())
                 except:
                     pass
-            pdb.set_trace()
 
         model.eval()
         torch.save({
@@ -234,7 +275,7 @@ if __name__ == "__main__":
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss,
-            }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
+        }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
 
         if epoch % 5 == 4:
             hit_1 = hit_3 = hit_10 = 0
@@ -250,18 +291,19 @@ if __name__ == "__main__":
                 src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
                 num_query += len(src_idx_l)
 
-                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx+1, 0)
+                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
                 query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
                     attending_nodes, attending_node_attention, memorized_embedding = \
-                        model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb, query_rel_emb, query_time_emb)
+                        model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                                   query_rel_emb, query_time_emb)
                 entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
 
                 _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
                 for i, target in enumerate(target_idx_l):
                     top10 = entities[indices[i]]
-                    hit_1 += target == top10[0,1]
+                    hit_1 += target == top10[0, 1]
                     hit_3 += target in top10[:3, 1]
                     hit_10 += target in top10[:, 1]
-            print("hit@1: {}, hit@3: {}, hit@10: {}".format(hit_1/num_query, hit_3/num_query, hit_10/num_query))
+            print("hit@1: {}, hit@3: {}, hit@10: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
     print("finished Training")

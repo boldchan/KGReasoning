@@ -1,4 +1,5 @@
 import logging
+import time
 
 import numpy as np
 import pdb
@@ -388,6 +389,8 @@ class TGAN(torch.nn.Module):
 
         self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim, device=device)
 
+        self.hidden_target_proj = torch.nn.Linear(2 * embed_dim, embed_dim)
+
     # def link_predict(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
     #     """
     #     predict the probability of link exists between entity src_idx_l and entity target_idx_l at time cut_time_l
@@ -590,7 +593,7 @@ class TGAN(torch.nn.Module):
             attn_m = self.attn_model_list[curr_layers - 1]
 
             # query node always has the start time -> time span == 0
-            src_node_t_embed = self.time_encoder(torch.zeros(batch_size, 1))
+            src_node_t_embed = self.time_encoder(torch.zeros(batch_size, 1).to(self.device))
 
             local, weight = attn_m(src_node_conv_feat,
                                    src_node_t_embed,
@@ -599,6 +602,11 @@ class TGAN(torch.nn.Module):
                                    src_ngn_edge_feat,
                                    mask)
             return local
+
+    def temp_conv_debug(self, src_idx_l, cut_time_l):
+        hidden_target_node = self.TGAN.get_node_emb(src_idx_l)
+        hidden_target_time = self.TGAN.time_encoder(torch.from_numpy(cut_time_l).to(self.device))
+        return self.hidden_target_proj(torch.cat([hidden_target_node, hidden_target_time], axis=1))
 
 
 class F(torch.nn.Module):
@@ -801,7 +809,7 @@ class AttentionFlow(nn.Module):
         return np.stack([eg_idx_l, src_idx_l, cut_time_l], axis=1), torch.from_numpy(att_score).to(self.device)
 
     def forward(self, node_attention, selected_edges=None, memorized_embedding=None, rel_emb=None,
-                query_src_emb=None, query_rel_emb=None, query_time_emb=None, training=None):
+                query_src_emb=None, query_rel_emb=None, query_time_emb=None, training=None, tc=None):
         """calculate attention score
 
         Arguments:
@@ -819,7 +827,7 @@ class AttentionFlow(nn.Module):
         return:
             new_node_attention: Tensor, shape: n_new_node
         """
-
+        t_start = time.time()
         query_src_vec = self.proj(query_src_emb)  # batch_size x n_dims_sm
         query_rel_vec = self.proj(query_rel_emb)  # batch_size x n_dims_sm
         query_time_vec = self.proj(query_time_emb)  # batch_size x n_dims_sm
@@ -853,6 +861,8 @@ class AttentionFlow(nn.Module):
         softmax_node_attention = segment_softmax_op(attending_node_attention, selected_edges[:, 6])
 
         new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]])
+
+        tc['model']['DP_attn'] += time.time() - t_start
 
         return new_node_attention
 
@@ -898,7 +908,6 @@ class tDPMPN(torch.nn.Module):
         self.tgan_num_neighbors = tgan_num_neighbors
         self.memorized_embedding = dict()
         self.device = device
-        self.hidden_target_proj = torch.nn.Linear(2 * embed_dim, embed_dim)
 
         self.src_idx_l, self.rel_idx_l = None, None
 
@@ -930,14 +939,14 @@ class tDPMPN(torch.nn.Module):
         attending_nodes, attending_node_attention = self.att_flow.get_init_node_attention(self.src_idx_l,
                                                                                           self.cut_time_l)
         # refer to https://discuss.pytorch.org/t/feeding-dictionary-of-tensors-to-model-on-gpu/68289
-        attending_node_emb = self.TGAN.tem_conv(self.src_idx_l, self.cut_time_l, curr_layers=2,
+        attending_node_emb = self.TGAN.tem_conv_debug(self.src_idx_l, self.cut_time_l, curr_layers=2,
                                                 num_neighbors=self.tgan_num_neighbors, query_time_l=self.cut_time_l)
         memorized_embedding = {(src_idx, cut_time): emb for src_idx, cut_time, emb in
                                list(zip(self.src_idx_l, self.cut_time_l, attending_node_emb.to('cpu')))}
         return query_src_emb, query_rel_emb, query_ts_emb, attending_nodes, attending_node_attention, memorized_embedding
 
     def flow(self, attending_nodes, attending_node_attention, memorized_embedding: dict, query_src_emb, query_rel_emb,
-             query_time_emb):
+             query_time_emb, tc=None):
         """[summary]
 
         Arguments:
@@ -958,20 +967,20 @@ class tDPMPN(torch.nn.Module):
         # attended_nodes: (np.array) n_attended_nodes x 3, (eg_idx, vi, cut_time) sorted
         # attended_nodes_attention: Tensor, n_attended_nodes
         attended_nodes, attended_node_attention = self._topk_att_score(attending_nodes, attending_node_attention,
-                                                                       self.max_attended_nodes)
+                                                                       self.max_attended_nodes, tc=tc)
 
         # Sampling Horizon
         # sampled_edges: (np.array) n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel), sorted by eg_idx, vi, ti, tj
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
         sampled_edges, src_attention = self._get_sampled_edges(attended_nodes, attended_node_attention,
-                                                               num_neighbors= self.DP_num_neighbors)
+                                                               num_neighbors= self.DP_num_neighbors, tc=tc)
         # print(sampled_edges)
 
         # selected_edges: (np.array) n_sampled_edges x 8, (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj]
         # sorted by eg_idx, ti, tj
         # selected_nodes: (eg_idx, v, t) sorted by (eg_idx, v, t)
-        selected_edges, selected_node = self._get_selected_edges(sampled_edges)
+        selected_edges, selected_node = self._get_selected_edges(sampled_edges, tc=tc)
         # print(selected_edges)
         # print(selected_node)
 
@@ -979,14 +988,16 @@ class tDPMPN(torch.nn.Module):
         unvisited = [(e, t) not in memorized_embedding.keys() for e, t in sampled_edges[:, [3, 4]]]
         unvisited_nodes = sampled_edges[unvisited][:, [0, 3, 4]]
 
+        if tc:
+            t_start = time.time()
         # hidden_target = self.TGAN.tem_conv(unvisited_nodes[:, 1],
         #                                unvisited_nodes[:, 2],
         #                                curr_layers=2,
         #                                num_neighbors=self.tgan_num_neighbors,
         #                                query_time_l=self.cut_time_l[unvisited_nodes[:, 0]])
-        hidden_target_node = self.TGAN.get_node_emb(unvisited_nodes[:, 1])
-        hidden_target_time = self.TGAN.time_encoder(torch.from_numpy(unvisited_nodes[:,2]).to(self.device))
-        hidden_target = self.hidden_target_proj(torch.cat([hidden_target_node, hidden_target_time], axis=1))
+        hidden_target = self.TGAN.temp_conv_debug(unvisited_nodes[:, 1], unvisited_nodes[:, 2])
+        if tc:
+            tc['model']['temp_conv'] += time.time() - t_start
 
         memorized_embedding.update(
             {(unvisited_nodes[i][1], unvisited_nodes[i][2]): hidden_target[i].to(torch.float32).to('cpu') for i in
@@ -1000,10 +1011,10 @@ class tDPMPN(torch.nn.Module):
                                            rel_emb=rel_emb,
                                            query_src_emb=query_src_emb,
                                            query_rel_emb=query_rel_emb,
-                                           query_time_emb=query_time_emb)
+                                           query_time_emb=query_time_emb, tc=tc)
         # there are events with same (s, o, t) but with different relation, therefore length of new_attending_nodes may be
         # smaller than length of selected_edges
-        print("Sampled {} edges, {} nodes".format(len(sampled_edges), len(selected_node)))
+        # print("Sampled {} edges, {} nodes".format(len(sampled_edges), len(selected_node)))
         # for i in range(query_rel_emb.shape[0]):
         #     print("graph of {}-th query ({}, {}, ?, {}) contains {} attending nodes, attention_sum: {}".format(
         #         i,
@@ -1015,10 +1026,15 @@ class tDPMPN(torch.nn.Module):
 
         return selected_node, new_node_attention, memorized_embedding
 
-    def get_entity_attn_score(self, logits, nodes):
-        return _aggregate_op_entity(logits, nodes)
+    def get_entity_attn_score(self, logits, nodes, tc=None):
+        if tc:
+            t_start = time.time()
+        entity_attn_score = _aggregate_op_entity(logits, nodes)
+        if tc:
+            tc['model']['entity_attn'] = time.time() - t_start
+        return entity_attn_score
 
-    def _get_sampled_edges(self, attended_nodes, node_attention, num_neighbors: int = 20):
+    def _get_sampled_edges(self, attended_nodes, node_attention, num_neighbors: int = 20, tc=None):
         """[summary]
         sample neighbors for attended_nodes from all events happen before attended_nodes
         with strategy specified by ngh_finder, selfloop is added
@@ -1033,6 +1049,8 @@ class tDPMPN(torch.nn.Module):
             for eg_idx=sampled_edges[i, 0]
         """
         assert (len(attended_nodes) == node_attention.shape[0])
+        if tc:
+            t_start = time.time()
         src_idx_l = attended_nodes[:, 1]
         cut_time_l = attended_nodes[:, 2]
         src_ngh_node_batch, src_ngh_eidx_batch, src_ngh_t_batch = self.ngh_finder.get_temporal_neighbor(
@@ -1052,13 +1070,18 @@ class tDPMPN(torch.nn.Module):
         eg_idx = np.repeat(attended_nodes[:, 0], num_neighbors + 1)
         mask = src_ngh_node_batch_flatten != -1
 
-        return np.stack([eg_idx,
+        sampled_edges = np.stack([eg_idx,
                          np.repeat(src_idx_l, num_neighbors + 1), np.repeat(cut_time_l, num_neighbors + 1), \
                          src_ngh_node_batch_flatten, src_ngh_t_batch_faltten, \
-                         src_ngh_eidx_batch_flatten], axis=1)[mask], \
-               node_attention.view(-1, 1).repeat(1, num_neighbors + 1).view(-1)[mask]
+                         src_ngh_eidx_batch_flatten], axis=1)[mask]
 
-    def _get_selected_edges(self, sampled_edges):
+        src_attention = node_attention.view(-1, 1).repeat(1, num_neighbors + 1).view(-1)[mask]
+
+        if tc:
+            tc['graph']['sample'] += time.time() - t_start
+        return sampled_edges, src_attention
+
+    def _get_selected_edges(self, sampled_edges, tc=None):
         '''
         idx_eg_vi_ti, idx_eg_vj_tj facilitate message aggregation,
         avoiding aggregating message from the same node of another batch
@@ -1068,6 +1091,8 @@ class tDPMPN(torch.nn.Module):
                         sorted by eg_idx, vi, tj
         selected_nodes: (np.array) n_attending_nodes x 3 (eg_idx, v, t), sorted by (eg_idx, v, t) ascending
         '''
+        if tc:
+            t_start = time.time()
         if len(sampled_edges) == 0:
             return np.zeros((0, 6), dtype='int32')
 
@@ -1078,6 +1103,8 @@ class tDPMPN(torch.nn.Module):
         idx_eg_vj_tj = np.expand_dims(np.array(idx_eg_vj_tj, dtype='int32'), 1)
 
         selected_edges = np.concatenate([sampled_edges[:, :6], idx_eg_vi_ti, idx_eg_vj_tj], axis=1)
+        if tc:
+            tc['graph']['select'] += time.time() - t_start
         return selected_edges, selected_nodes
 
     def _get_selfloop_edges(self, attended_nodes):
@@ -1117,7 +1144,7 @@ class tDPMPN(torch.nn.Module):
             self.memorized_embedding[(edge[1], edge[2])] = hidden_src_emb[i]
             self.memorized_embedding[(edge[3], edge[4])] = hidden_target_emb[i]
 
-    def _topk_att_score(self, attending_nodes, attending_node_attention, k: int):
+    def _topk_att_score(self, attending_nodes, attending_node_attention, k: int, tc=None):
         """
 
         :param attending_nodes: numpy array, N_visited_nodes x 3 (eg_idx, vi, ts), dtype np.int32
@@ -1129,6 +1156,8 @@ class tDPMPN(torch.nn.Module):
         attended_node_attention, tensor, attention_score, same length as attended_nodes
         attended_node_emb, tensor, same length as attended_nodes
         """
+        if tc:
+            t_start = time.time()
         res_nodes = []
         res_att = []
         for eg_idx in sorted(set(attending_nodes[:, 0])):
@@ -1143,5 +1172,7 @@ class tDPMPN(torch.nn.Module):
                 # pdb.set_trace()
                 res_nodes.append(masked_nodes[indices.cpu().numpy()])
                 res_att.append(topk_node_attention)
+        if tc:
+            tc['graph']['topk'] += time.time() - t_start
 
         return np.concatenate(res_nodes, axis=0), torch.cat(res_att, dim=0)
