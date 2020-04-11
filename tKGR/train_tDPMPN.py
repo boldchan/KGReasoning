@@ -149,13 +149,14 @@ parser.add_argument('--emb_dim_sm', type=int, default=32, help='smaller dimensio
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--num_neighbors', type=int, default=40, help='how many neighbors to aggregate information from, '
+parser.add_argument('--tgan_num_neighbors', type=int, default=40, help='how many neighbors to aggregate information from, '
                                                                   'check paper Inductive Representation Learning '
                                                                   'for Temporal Graph for detail')
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--sampling', type=int, default=2,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
 parser.add_argument('--DP_steps', type=int, default=2, help='number of DP steps')
+parser.add_argument('--DP_num_neighbors', type=int, default=20, help='number of neighbors sampled for sampling horizon')
 parser.add_argument('--max_attended_nodes', type=int, default=20, help='max number of nodes in attending from horizon')
 parser.add_argument('--add_reverse', action='store_true', default=None, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
@@ -205,7 +206,7 @@ if __name__ == "__main__":
         time_cost['data']['ngh'] = time.time() - t_start
 
     # construct model
-    model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm, device=device)
+    model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm, DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
     model.TGAN.node_raw_embed.cpu()
@@ -213,6 +214,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     for epoch in range(args.epoch):
+        print("epoch: ", epoch)
         # load data
         train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
                                       start_time=args.warm_start_time, tc=time_cost)
@@ -221,7 +223,7 @@ if __name__ == "__main__":
 
         running_loss = 0.
 
-        for batch_ndx, sample in enumerate(train_data_loader):
+        for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             optimizer.zero_grad()
             model.zero_grad()
             model.train()
@@ -237,7 +239,7 @@ if __name__ == "__main__":
             # attending_node_attention.to(device)
 
             for step in range(args.DP_steps):
-                print("{}-th DP step".format(step))
+                # print("{}-th DP step".format(step))
                 attending_nodes, attending_node_attention, memorized_embedding = \
                     model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
                                query_rel_emb, query_time_emb, tc=time_cost)
@@ -260,17 +262,17 @@ if __name__ == "__main__":
 
             running_loss += loss.item()
 
-            print(str_time_cost)
             if batch_ndx % 50 == 49:
                 print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 50))
                 running_loss = 0.0
+                print(str_time_cost(time_cost))
 
-            for obj in gc.get_objects():
-                try:
-                    if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-                        print(type(obj), obj.size())
-                except:
-                    pass
+            # for obj in gc.get_objects():
+            #     try:
+            #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+            #             print(type(obj), obj.size())
+            #     except:
+            #         pass
 
         model.eval()
         torch.save({

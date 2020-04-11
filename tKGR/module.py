@@ -604,9 +604,9 @@ class TGAN(torch.nn.Module):
             return local
 
     def temp_conv_debug(self, src_idx_l, cut_time_l):
-        hidden_target_node = self.TGAN.get_node_emb(src_idx_l)
-        hidden_target_time = self.TGAN.time_encoder(torch.from_numpy(cut_time_l).to(self.device))
-        return self.hidden_target_proj(torch.cat([hidden_target_node, hidden_target_time], axis=1))
+        hidden_target_node = self.get_node_emb(src_idx_l, self.device)
+        hidden_target_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device))
+        return self.hidden_target_proj(torch.cat([hidden_target_node, torch.squeeze(hidden_target_time, 1)], axis=1))
 
 
 class F(torch.nn.Module):
