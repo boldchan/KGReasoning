@@ -1,7 +1,11 @@
 import os
 # the mode argument of the os.makedirs function may be ignored on some systems
-# set it to 0x700 to enable makedirs
-oldmask = os.umask(0o700)
+# umask (user file-creation mode mask) specify the default denial value of variable mode, 
+# which means if this value is passed to makedirs function,  
+# it will be ignored and a folder/file with d_________ will be created 
+# we can either set the umask or specify mode in makedirs
+
+# oldmask = os.umask(0o770)
 
 import sys
 import gc
@@ -193,7 +197,7 @@ if __name__ == "__main__":
             struct_time.tm_min,
             struct_time.tm_sec))
         if not os.path.exists(CHECKPOINT_PATH):
-            os.makedirs(CHECKPOINT_PATH)
+            os.makedirs(CHECKPOINT_PATH, mode=0o770)
     else:
         CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
     print("Save checkpoints under {}".format(CHECKPOINT_PATH))
@@ -317,4 +321,4 @@ if __name__ == "__main__":
                     hit_10 += target in top10[:, 1]
             print("hit@1: {}, hit@3: {}, hit@10: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
     print("finished Training")
-    os.umask(oldmask)
+#     os.umask(oldmask)
