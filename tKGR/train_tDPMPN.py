@@ -73,7 +73,8 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, 
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
     neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
-    tc['data']['load_data'] += time.time() - t_start
+    if args.timer:
+    	tc['data']['load_data'] += time.time() - t_start
     return np.concatenate([events, neg_obj_idx], axis=1)
 
 
@@ -286,7 +287,7 @@ if __name__ == "__main__":
             hit_1 = hit_3 = hit_10 = 0
             num_query = 0
 
-            val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
+            val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid', tc=time_cost)
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                          pin_memory=False, shuffle=True)
 
