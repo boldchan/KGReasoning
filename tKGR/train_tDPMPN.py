@@ -1,4 +1,8 @@
 import os
+# the mode argument of the os.makedirs function may be ignored on some systems
+# set it to 0x700 to enable makedirs
+oldmask = os.umask(0o700)
+
 import sys
 import gc
 
@@ -313,3 +317,4 @@ if __name__ == "__main__":
                     hit_10 += target in top10[:, 1]
             print("hit@1: {}, hit@3: {}, hit@10: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
     print("finished Training")
+    os.umask(oldmask)
