@@ -842,6 +842,8 @@ class AttentionFlow(nn.Module):
         hidden_vi = self.proj(hidden_vi)
         hidden_vj = self.proj(hidden_vj)
 
+        t_proj = time.time()
+
         # [embedding]_repeat is a new tensor which index [embedding] so that it mathes hidden_vi and hidden_vj along dim 0
         # i.e. hidden_vi[i] and hidden_vj[i] is representation of node vi, vj that lie in subgraph corresponding to the query,
         # whose src, rel, time embedding is [embedding]_repeat[i]
@@ -853,16 +855,24 @@ class AttentionFlow(nn.Module):
         query_time_vec_repeat = torch.index_select(query_time_vec, dim=0,
                                                    index=torch.from_numpy(selected_edges[:, 0]).long().to(self.device))
 
+        t_query = time.time()
+
         transition_logits = self.transition_fn(
             ((hidden_vi, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat),
              (hidden_vj, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat)))
+        t_transition = time.time()
 
         attending_node_attention = transition_logits * node_attention
         softmax_node_attention = segment_softmax_op(attending_node_attention, selected_edges[:, 6])
+        t_softmax = time.time()
 
         new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]])
 
-        tc['model']['DP_attn'] += time.time() - t_start
+        tc['model']['DP_attn_aggr'] += time.time() - t_softmax
+        tc['model']['DP_attn_transition'] += t_transition - t_query
+        tc['model']['DP_attn_transition'] += t_softmax - t_transition
+        tc['model']['DP_attn_proj'] += t_proj - t_start
+        tc['model']['DP_attn_query'] += t_query - t_proj
 
         return new_node_attention
 
