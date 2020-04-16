@@ -45,6 +45,7 @@ def reset_time_cost():
 
 def str_time_cost(tc):
     if tc is not None:
+        data_tc = ', '.join('data.{} {:3f}'.format(k, v) for k, v in tc['data'].items())
         model_tc = ', '.join('m.{} {:3f}'.format(k, v) for k, v in tc['model'].items())
         graph_tc = ', '.join('g.{} {:3f}'.format(k, v) for k, v in tc['graph'].items())
         grad_tc = ', '.join('d.{} {:3f}'.format(k, v) for k, v in tc['grad'].items())

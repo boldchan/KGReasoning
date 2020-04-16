@@ -975,7 +975,7 @@ class tDPMPN(torch.nn.Module):
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
         sampled_edges, src_attention = self._get_sampled_edges(attended_nodes, attended_node_attention,
-                                                               num_neighbors= self.DP_num_neighbors, tc=tc)
+                                                               num_neighbors=self.DP_num_neighbors, tc=tc)
         # print(sampled_edges)
 
         # selected_edges: (np.array) n_sampled_edges x 8, (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj]
@@ -1072,9 +1072,9 @@ class tDPMPN(torch.nn.Module):
         mask = src_ngh_node_batch_flatten != -1
 
         sampled_edges = np.stack([eg_idx,
-                         np.repeat(src_idx_l, num_neighbors + 1), np.repeat(cut_time_l, num_neighbors + 1), \
-                         src_ngh_node_batch_flatten, src_ngh_t_batch_faltten, \
-                         src_ngh_eidx_batch_flatten], axis=1)[mask]
+                                  np.repeat(src_idx_l, num_neighbors + 1), np.repeat(cut_time_l, num_neighbors + 1), \
+                                  src_ngh_node_batch_flatten, src_ngh_t_batch_faltten, \
+                                  src_ngh_eidx_batch_flatten], axis=1)[mask]
 
         src_attention = node_attention.view(-1, 1).repeat(1, num_neighbors + 1).view(-1)[mask]
 
@@ -1177,3 +1177,84 @@ class tDPMPN(torch.nn.Module):
             tc['graph']['topk'] += time.time() - t_start
 
         return np.concatenate(res_nodes, axis=0), torch.cat(res_att, dim=0)
+
+
+class tE2GN(torch.nn.Module):
+    """
+    tE2N stands for temporal Entity and Event Graph Network
+    """
+
+    def __init__(self, num_entity: int, num_rel: int, num_steps: int = 2, embed_dim: int = None,
+                 num_samples: int = None, max_num_entities: int = None, max_num_events: int = None,
+                 null_embedding: bool = True, device: str = 'cpu'):
+        """
+
+        :param num_entity: number of entities
+        :param num_rel: number of relations
+        :param num_steps: how many steps we run dynamic pruned message passing
+        :param embed_dim: we use same length of embedding for entity, relation and time
+        :param num_samples: how many events we sample for each entity
+        :param max_num_entities: max number of entities kept after pruning on entity graph
+        :param max_num_events: max number of events kept after pruning on event graph
+        :param null_embedding: indicating existence of embedding of null in node and relation embedding
+        :param device:
+        """
+        super(tE2GN, self).__init__()
+        self.num_entity = num_entity
+        self.num_rel = num_rel
+        self.embed_dim = embed_dim
+
+        self.node_raw_embed = torch.nn.Embedding(num_entity + 1, embed_dim).cpu()
+        self.rel_raw_embed = torch.nn.Embedding(num_rel + 1, embed_dim).cpu()
+
+        self.num_steps = num_steps
+        self.num_samples = num_samples
+        self.max_num_entities = max_num_entities
+        self.max_num_events = max_num_events
+
+        self.null_embedding = null_embedding
+        self.device = device
+
+        # self.att_flow = AttentionFlow(embed_dim, device=device)
+
+    def set_init(self, events):
+        """
+
+        :param events: list of quadruplet (sub, pre, obj, timestamp), shape: [batch_size, ]
+        :return:
+        """
+        self.sub_idx_l = np.array([event[0] for event in events])
+        self.rel_idx_l = np.array([event[1] for event in events])
+        self.obj_idx_l = np.array([event[2] for event in events])
+        self.cut_time_l = np.array([event[3] for event in events])
+
+    def _get_ent_emb(self, ent_idx_l, device=None):
+        """
+        get entity embedding
+        :param ent_idx_l: list of entity index
+        :param device: use model device if not specified
+        :return:
+        """
+        if device is None:
+            device = self.device
+        if self.null_embedding:
+            return self.node_raw_embed(torch.from_numpy(ent_idx_l + 1).long()).to(device)
+        else:
+            return self.node_raw_embed(torch.from_numpy(ent_idx_l).long()).to(device)
+
+    def _get_rel_emb(self, rel_idx_l, device=None):
+        """
+        get relation embedding
+        :param rel_idx_l: list of relation index
+        :param device: use model device if not specified
+        :return:
+        """
+        if device is None:
+            device = self.device
+        if self.null_embedding:
+            return self.rel_raw_embed(torch.from_numpy(rel_idx_l + 1).long()).to(device)
+        else:
+            return self.rel_raw_embed(torch.from_numpy(rel_idx_l).long()).to(device)
+
+    def forward(self):
+        pass
