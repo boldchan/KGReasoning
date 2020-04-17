@@ -782,11 +782,16 @@ def _aggregate_op_entity(logits, nodes):
     else:
         device = torch.device('cuda:{}'.format(device))
 
+    num_nodes = len(nodes)
     entities, entities_idx = np.unique(nodes[:, :2], axis=0, return_inverse=True)
-    entity_att_score = torch.zeros(len(entities), dtype=torch.float32).to(device)
+    sparse_index = torch.LongTensor(np.stack([entities_idx, np.arange(num_nodes)]))
+    sparse_value = torch.ones(num_nodes, dtype=torch.float)
+    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value, torch.Size([len(entities), num_nodes])).to(device)
+    entity_att_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1)))
+    # entity_att_score = torch.zeros(len(entities), dtype=torch.float32).to(device)
 
-    for i in range(len(entities)):
-        entity_att_score[i] = torch.sum(logits[entities_idx == i])
+    # for i in range(len(entities)):
+    #     entity_att_score[i] = torch.sum(logits[entities_idx == i])
 
     return entity_att_score, entities
 
