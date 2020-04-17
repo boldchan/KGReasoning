@@ -709,14 +709,14 @@ def segment_softmax_op(logits, segment_ids):
     return logits_segment_softmax
 
 
-def aggregate_op_node(logits, target_ids):
+def aggregate_op_node(logits, target_ids, tc):
     """aggregate attention score of same node, i.e. same (eg_idx, v, t)
     aggregation method: sum
 
     Arguments:
         logits {Tensor} -- attention score
         target_ids {[type]} -- shape len(logits) x 2, (eg_idx, idx_vj_tj)
-
+        tc: time_cost, record time consumption
     Returns:
         logits_seg_sum, Tensor -- logits_seg_sum[i] is the normalized attention score of target_idx i
     """
@@ -739,12 +739,20 @@ def aggregate_op_node(logits, target_ids):
     logits_eg_sum = torch.zeros(num_eg, dtype=torch.float32).to(device)
 
     # divide each att score with the sum of att score of the same query graph
+    t_start = time.time()
     for eg in range(num_eg):
         logits_eg_sum[eg] = torch.sum(logits[target_ids[:, 0] == eg])
+    t_eg_sum = time.time()
     logits = logits / torch.gather(logits_eg_sum, 0, torch.from_numpy(target_ids[:, 0]).long().to(device))
+    t_norm = time.time()
 
     for target_id in range(num_targets):
         logits_seg_sum[target_id] = torch.sum(logits[target_ids[:, 1] == target_id])
+    t_seg_sum = time.time()
+
+    tc['model']['DP_attn_aggr_eg_sum'] = t_eg_sum - t_start
+    tc['model']['DP_attn_aggr_norm'] = t_norm - t_eg_sum
+    tc['model']['DP_attn_aggr_seg_sum'] = t_seg_sum - t_norm
 
     return logits_seg_sum
 
@@ -870,7 +878,7 @@ class AttentionFlow(nn.Module):
 
         tc['model']['DP_attn_aggr'] += time.time() - t_softmax
         tc['model']['DP_attn_transition'] += t_transition - t_query
-        tc['model']['DP_attn_transition'] += t_softmax - t_transition
+        tc['model']['DP_attn_softmax'] += t_softmax - t_transition
         tc['model']['DP_attn_proj'] += t_proj - t_start
         tc['model']['DP_attn_query'] += t_query - t_proj
 
