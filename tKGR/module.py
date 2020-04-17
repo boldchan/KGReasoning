@@ -715,7 +715,7 @@ def aggregate_op_node(logits, target_ids, tc):
 
     Arguments:
         logits {Tensor} -- attention score
-        target_ids {[type]} -- shape len(logits) x 2, (eg_idx, idx_vj_tj)
+        target_ids {[numpy.array]} -- shape len(logits) x 2, (eg_idx, idx_eg_vj_tj)
         tc: time_cost, record time consumption
     Returns:
         logits_seg_sum, Tensor -- logits_seg_sum[i] is the normalized attention score of target_idx i
