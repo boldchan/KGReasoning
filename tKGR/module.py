@@ -746,13 +746,21 @@ def aggregate_op_node(logits, target_ids, tc):
     logits = logits / torch.gather(logits_eg_sum, 0, torch.from_numpy(target_ids[:, 0]).long().to(device))
     t_norm = time.time()
 
-    for target_id in range(num_targets):
-        logits_seg_sum[target_id] = torch.sum(logits[target_ids[:, 1] == target_id])
+    logits_len = len(target_ids)
+    sparse_index = torch.LongTensor(np.stack([target_ids[:, 1], np.arange(logits_len)]))
+    sparse_value = torch.ones(logits_len, dtype=torch.float)
+    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value, torch.Size([num_targets, logits_len])).to(device)
+    logits_seg_sum = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1)))
+    # trans_matrix = np.zeros([num_targets, len(target_ids)], dtype=np.float32)
+    # for i, target_id in enumerate(target_ids[:, 1]):
+    #     trans_matrix[target_id][i] = 1
+
+    # logits_seg_sum = torch.matmul(torch.from_numpy(trans_matrix).to(device), logits)
     t_seg_sum = time.time()
 
-    tc['model']['DP_attn_aggr_eg_sum'] = t_eg_sum - t_start
-    tc['model']['DP_attn_aggr_norm'] = t_norm - t_eg_sum
-    tc['model']['DP_attn_aggr_seg_sum'] = t_seg_sum - t_norm
+    tc['model']['DP_attn_aggr_eg_sum'] += t_eg_sum - t_start
+    tc['model']['DP_attn_aggr_norm'] += t_norm - t_eg_sum
+    tc['model']['DP_attn_aggr_seg_sum'] += t_seg_sum - t_norm
 
     return logits_seg_sum
 
@@ -874,7 +882,7 @@ class AttentionFlow(nn.Module):
         softmax_node_attention = segment_softmax_op(attending_node_attention, selected_edges[:, 6])
         t_softmax = time.time()
 
-        new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]])
+        new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]], tc)
 
         tc['model']['DP_attn_aggr'] += time.time() - t_softmax
         tc['model']['DP_attn_transition'] += t_transition - t_query
