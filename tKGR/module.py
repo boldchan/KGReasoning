@@ -695,25 +695,50 @@ def node2edge_v2_op(inputs, selected_edges, return_vi=True, return_vj=True):
         result.append(hidden_vj)
     return result
 
+def _segment_id2sparse_block_diag_matrix_coordinate(segment_ids):
+    """
+    """
+    mask = segment_ids[:-1]==segment_ids[1:]
+    segment_start = np.concatenate([np.array([0]), 
+				       np.arange(1, len(segment_ids))[mask],
+				       np.array([len(segment_ids)])])
+    segment_len = np.diff(segment_start)
 
+    row_idx = []
+    col_idx = []
+    shift = 0
+    for i, slen in enumerate(segment_len):
+        shift += i and segment_len[i-1]
+        col_idx.append(np.tile(np.arange(slen), slen) + shift)
+        row_idx.append(np.repeat(np.arange(slen), slen) + shift)
+    col_idx = np.concatenate(col_idx)
+    row_idx = np.concatenate(row_idx)
+    return np.stack([row_idx, col_idx], axis=0)
+    
 def segment_softmax_op(logits, segment_ids):
     """
+    logits is a 1d tensor of attention score (refer to DPMPN paper), 
+    i-th  node has attention score logits[i] which is in the subgraph developed for the query segment_ids[i]
+    This function try to calculate the softmax of the nodes in the same subgraph
 
     :param logits: 1d Tensor
-    :param segment_ids: id numpy.array eg_idx
+    :param segment_ids: id numpy.array eg_idx, sorted
     :return:
     softmax for logtis with same segment_id
     """
+    device = logits.get_device()
+    if device == -1:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda:{}'.format(device))
+
     len_logits = len(segment_ids)
-    col_repeat = np.repeat(segment_ids[:, np.newaxis], len_logits, axis=1)
-    raw_repeat = np.repeat(segment_ids[np.newaxis, :], len_logits, axis=0)
-    trans_matrix_dense = (col_repeat==raw_repeat).astype(int)
-    trans_matrix_sparse = coo_matrix(trans_matrix_dense)
-    sparse_index = np.stack([trans_matrix_sparse.row, trans_matrix_sparse.col])
-    sparse_value = torch.ones(trans_matrix_sparse.nnz, dtype=torch.float)
-    trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value, torch.Size(len_logits, len_logits))
-    softmax_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, torch.exp(logits).unsqueeze(1)))
-    logits_segment_softmax = logits / softmax_den
+    sparse_index_np = _segment_id2sparse_block_diag_matrix_coordinate(segment_ids)
+    sparse_index = torch.LongTensor(sparse_index_np)
+    sparse_value = torch.ones(sparse_index_np.shape[1], dtype=torch.float)
+    trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value, torch.Size([len_logits, len_logits])).to(device)
+    softmax_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, torch.exp(-logits).unsqueeze(1)))
+    logits_segment_softmax = torch.exp(-logits) / softmax_den
     # logits_segment_softmax = logits.clone()
     # for segment_id in sorted(set(segment_ids)):
     #     # segment_mask = segment_ids==segment_id # somehow no grad is generated
