@@ -983,7 +983,7 @@ class AttentionFlow(nn.Module):
         t_transition = time.time()
 
         attending_node_attention = transition_logits * node_attention
-        softmax_node_attention = segment_softmax_op(attending_node_attention, selected_edges[:, 6], tc=tc)
+        softmax_node_attention = segment_softmax_op_v2(attending_node_attention, selected_edges[:, 6], tc=tc)
         t_softmax = time.time()
 
         new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]], tc)
