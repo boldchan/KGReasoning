@@ -715,7 +715,7 @@ def _segment_id2sparse_block_diag_matrix_coordinate(segment_ids):
     row_idx = np.concatenate(row_idx)
     return np.stack([row_idx, col_idx], axis=0)
     
-def segment_softmax_op(logits, segment_ids):
+def segment_softmax_op(logits, segment_ids, tc=None):
     """
     logits is a 1d tensor of attention score (refer to DPMPN paper), 
     i-th  node has attention score logits[i] which is in the subgraph developed for the query segment_ids[i]
@@ -733,7 +733,11 @@ def segment_softmax_op(logits, segment_ids):
         device = torch.device('cuda:{}'.format(device))
 
     len_logits = len(segment_ids)
+    if tc:
+        t_start = time.time()
     sparse_index_np = _segment_id2sparse_block_diag_matrix_coordinate(segment_ids)
+    if tc:
+        tc['model']['DP_attn_softmax_trans_matrix'] = time.time() - t_start
     sparse_index = torch.LongTensor(sparse_index_np)
     sparse_value = torch.ones(sparse_index_np.shape[1], dtype=torch.float)
     trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value, torch.Size([len_logits, len_logits])).to(device)
@@ -927,7 +931,7 @@ class AttentionFlow(nn.Module):
         t_transition = time.time()
 
         attending_node_attention = transition_logits * node_attention
-        softmax_node_attention = segment_softmax_op(attending_node_attention, selected_edges[:, 6])
+        softmax_node_attention = segment_softmax_op(attending_node_attention, selected_edges[:, 6], tc=tc)
         t_softmax = time.time()
 
         new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]], tc)
