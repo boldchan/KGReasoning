@@ -772,6 +772,41 @@ def segment_softmax_op(logits, segment_ids, tc=None):
     return logits_segment_softmax
 
 
+def segment_sum(logits, segment_ids, keep_length = True):
+    """
+
+    :param logits:
+    :param segment_ids:
+    :param keep_length: if True, return a Tensor with the same length as logits
+    out[i] is the sum of segments of segment_ids[i]
+    :return:
+    """
+    device = logits.get_device()
+    if device == -1:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda:{}'.format(device))
+
+    logits_len = len(segment_ids)
+    num_segments = max(segment_ids) + 1
+
+    # calculate summation of exponential of logits value for each group
+    sparse_index = torch.LongTensor(np.stack([segment_ids, np.arange(logits_len)]))
+    sparse_value = torch.ones(logits_len, dtype=torch.float)
+    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                   torch.Size([num_segments, logits_len])).to(device)
+    seg_sum = torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1))
+    if not keep_length:
+        return seg_sum
+
+    # repeat softmax denominator to have the same length as logits
+    sparse_index2 = torch.LongTensor(np.stack([np.arange(logits_len), segment_ids]))
+    sparse_value2 = torch.ones(logits_len, dtype=torch.float)
+    trans_matrix_sparse2 = torch.sparse.FloatTensor(sparse_index2, sparse_value2,
+                                                   torch.Size([logits_len, num_segments])).to(device)
+    seg_sum_repeat = torch.sparse.mm(trans_matrix_sparse2, seg_sum)
+    return torch.squeeze(seg_sum_repeat)
+
 def segment_softmax_op_v2(logits, segment_ids, tc=None):
     device = logits.get_device()
     if device == -1:
@@ -831,16 +866,16 @@ def aggregate_op_node(logits, target_ids, tc):
     else:
         device = torch.device('cuda:{}'.format(device))
 
-    logits_seg_sum = torch.zeros(num_targets, dtype=torch.float32).to(device)
-    logits_eg_sum = torch.zeros(num_eg, dtype=torch.float32).to(device)
+    # logits_eg_sum = torch.zeros(num_eg, dtype=torch.float32).to(device)
 
     # divide each att score with the sum of att score of the same query graph
     t_start = time.time()
-    sparse_index_segment = torch.LongTensor(np.stack([target_ids[:, 0]]))
-    for eg in range(num_eg):
-        logits_eg_sum[eg] = torch.sum(logits[target_ids[:, 0] == eg])
+    # for eg in range(num_eg):
+    #     logits_eg_sum[eg] = torch.sum(logits[target_ids[:, 0] == eg])
+    logits_eg_sum = segment_sum(logits, target_ids[:, 0], keep_length=True)
     t_eg_sum = time.time()
-    logits = logits / torch.gather(logits_eg_sum, 0, torch.from_numpy(target_ids[:, 0]).long().to(device))
+    # logits = logits / torch.gather(logits_eg_sum, 0, torch.from_numpy(target_ids[:, 0]).long().to(device))
+    logits = logits / logits_eg_sum
     t_norm = time.time()
 
     logits_len = len(target_ids)
