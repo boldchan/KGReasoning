@@ -695,26 +695,41 @@ def node2edge_v2_op(inputs, selected_edges, return_vi=True, return_vj=True):
         result.append(hidden_vj)
     return result
 
+
 def _segment_id2sparse_block_diag_matrix_coordinate(segment_ids):
     """
+    segment_ids is a ascending 1d numpy array, dtype int, e.g. [0,0,0,1,2,2,3, ...]
+    we want to create a sparse block digonal matrix from segment_ids,
+    i-th block (square) has a shape (number_of_i_in_segment_ids, number_of_i_in_segment_ids)
+    and each block is filled with 1
+    e.g. [0,0,0,1,2,2] -->
+    [[1,1,1,0,0,0],
+     [1,1,1,0,0,0],
+     [1,1,1,0,0,0],
+     [0,0,0,1,0,0],
+     [0,0,0,0,1,1],
+     [0,0,0,0,1,1]]
+    Attention!: But we don't return the matrix, we return the index of nonzero in this matrix
+    in the form of a numpy array of shape 2 x N, first row is row index, second row is col index
     """
-    mask = segment_ids[:-1]==segment_ids[1:]
-    segment_start = np.concatenate([np.array([0]), 
-				       np.arange(1, len(segment_ids))[mask],
-				       np.array([len(segment_ids)])])
+    mask = segment_ids[:-1] == segment_ids[1:]
+    segment_start = np.concatenate([np.array([0]),
+                                    np.arange(1, len(segment_ids))[mask],
+                                    np.array([len(segment_ids)])])
     segment_len = np.diff(segment_start)
 
     row_idx = []
     col_idx = []
     shift = 0
     for i, slen in enumerate(segment_len):
-        shift += i and segment_len[i-1]
+        shift += i and segment_len[i - 1]
         col_idx.append(np.tile(np.arange(slen), slen) + shift)
         row_idx.append(np.repeat(np.arange(slen), slen) + shift)
     col_idx = np.concatenate(col_idx)
     row_idx = np.concatenate(row_idx)
     return np.stack([row_idx, col_idx], axis=0)
-    
+
+
 def segment_softmax_op(logits, segment_ids):
     """
     logits is a 1d tensor of attention score (refer to DPMPN paper), 
@@ -736,7 +751,8 @@ def segment_softmax_op(logits, segment_ids):
     sparse_index_np = _segment_id2sparse_block_diag_matrix_coordinate(segment_ids)
     sparse_index = torch.LongTensor(sparse_index_np)
     sparse_value = torch.ones(sparse_index_np.shape[1], dtype=torch.float)
-    trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value, torch.Size([len_logits, len_logits])).to(device)
+    trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                      torch.Size([len_logits, len_logits])).to(device)
     softmax_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, torch.exp(-logits).unsqueeze(1)))
     logits_segment_softmax = torch.exp(-logits) / softmax_den
     # logits_segment_softmax = logits.clone()
@@ -751,6 +767,34 @@ def segment_softmax_op(logits, segment_ids):
     #     logits_segment_softmax[segment_idx] = logits_norm
     return logits_segment_softmax
 
+
+def segment_softmax_op_v2(logits, segment_ids):
+    device = logits.get_device()
+    if device == -1:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda:{}'.format(device))
+
+    logits_len = len(segment_ids)
+    num_segments = max(segment_ids) + 1
+    logits_exp = torch.exp(-logits).unsqueeze(1) # e^{-logit} N x 1
+
+    # calculate summation of exponential of logits value for each group
+    sparse_index = torch.LongTensor(np.stack([segment_ids, np.arange(logits_len)]))
+    sparse_value = torch.ones(logits_len, dtype=torch.float)
+    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                   torch.Size([num_segments, logits_len])).to(device)
+    softmax_den = torch.sparse.mm(trans_matrix_sparse, logits_exp)
+
+    # repeat softmax denominator to have the same length as logits
+    sparse_index2 = torch.LongTensor(np.stack([np.arange(logits_len), segment_ids]))
+    sparse_value2 = torch.ones(logits_len, dtype=torch.float)
+    trans_matrix_sparse2 = torch.sparse.FloatTensor(sparse_index2, sparse_value2,
+                                                   torch.Size([logits_len, num_segments])).to(device)
+    softmax_den_repeat = torch.sparse.mm(trans_matrix_sparse2, softmax_den)
+
+    out = torch.squeeze(logits_exp/softmax_den_repeat)
+    return out
 
 def aggregate_op_node(logits, target_ids, tc):
     """aggregate attention score of same node, i.e. same (eg_idx, v, t)
@@ -792,7 +836,8 @@ def aggregate_op_node(logits, target_ids, tc):
     logits_len = len(target_ids)
     sparse_index = torch.LongTensor(np.stack([target_ids[:, 1], np.arange(logits_len)]))
     sparse_value = torch.ones(logits_len, dtype=torch.float)
-    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value, torch.Size([num_targets, logits_len])).to(device)
+    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                   torch.Size([num_targets, logits_len])).to(device)
     logits_seg_sum = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1)))
     # trans_matrix = np.zeros([num_targets, len(target_ids)], dtype=np.float32)
     # for i, target_id in enumerate(target_ids[:, 1]):
@@ -829,7 +874,8 @@ def _aggregate_op_entity(logits, nodes):
     entities, entities_idx = np.unique(nodes[:, :2], axis=0, return_inverse=True)
     sparse_index = torch.LongTensor(np.stack([entities_idx, np.arange(num_nodes)]))
     sparse_value = torch.ones(num_nodes, dtype=torch.float)
-    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value, torch.Size([len(entities), num_nodes])).to(device)
+    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                   torch.Size([len(entities), num_nodes])).to(device)
     entity_att_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1)))
     # entity_att_score = torch.zeros(len(entities), dtype=torch.float32).to(device)
 
