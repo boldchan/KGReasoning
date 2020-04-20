@@ -772,12 +772,15 @@ def segment_softmax_op(logits, segment_ids, tc=None):
     return logits_segment_softmax
 
 
-def segment_softmax_op_v2(logits, segment_ids):
+def segment_softmax_op_v2(logits, segment_ids, tc=None):
     device = logits.get_device()
     if device == -1:
         device = torch.device('cpu')
     else:
         device = torch.device('cuda:{}'.format(device))
+
+    if tc:
+        t_start = time.time()
 
     logits_len = len(segment_ids)
     num_segments = max(segment_ids) + 1
@@ -798,6 +801,8 @@ def segment_softmax_op_v2(logits, segment_ids):
     softmax_den_repeat = torch.sparse.mm(trans_matrix_sparse2, softmax_den)
 
     out = torch.squeeze(logits_exp/softmax_den_repeat)
+    if tc:
+        tc['model']['DP_attn_softmax_v2'] = time.time() - t_start
     return out
 
 def aggregate_op_node(logits, target_ids, tc):
@@ -831,6 +836,7 @@ def aggregate_op_node(logits, target_ids, tc):
 
     # divide each att score with the sum of att score of the same query graph
     t_start = time.time()
+    sparse_index_segment = torch.LongTensor(np.stack([target_ids[:, 0]]))
     for eg in range(num_eg):
         logits_eg_sum[eg] = torch.sum(logits[target_ids[:, 0] == eg])
     t_eg_sum = time.time()
