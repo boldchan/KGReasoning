@@ -821,6 +821,16 @@ def segment_max(logits, segment_ids, keep_length=True):
     :return:
     1d Tensor
     """
+    n_logits = len(segment_ids)
+    mask = segment_ids[1:] != segment_ids[:-1]
+    seg_head_ids = np.concatenate([np.array([0]),
+                                   np.arange(1, n_logits)[mask],
+                                   np.array([n_logits])]).astype(np.int64)
+    if keep_length:
+        seg_max_ind = torch.cat([torch.repeat(torch.argmax(logits[torch.arange(head, tail).to(torch.int64)]) + torch.tensor([head]).to(torch.int64), tail - head) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
+    else:
+        seg_max_ind = torch.cat([torch.argmax(logits[torch.arange(head, tail).to(torch.int64)]) + torch.tensor([head]).to(torch.int64) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
+    return logits[seg_max_ind]
 
 
 def segment_softmax_op_v2(logits, segment_ids, tc=None):
@@ -835,6 +845,8 @@ def segment_softmax_op_v2(logits, segment_ids, tc=None):
 
     logits_len = len(segment_ids)
     num_segments = max(segment_ids) + 1
+    # numerical stable softmax
+    logits = logits - segment_max(logits, segment_ids, keep_length=True)
     logits_exp = torch.exp(logits).unsqueeze(1)  # e^{logit} N x 1
 
     # calculate summation of exponential of logits value for each group
