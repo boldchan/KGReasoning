@@ -869,14 +869,17 @@ def aggregate_op_node(logits, target_ids, tc):
     # logits_eg_sum = torch.zeros(num_eg, dtype=torch.float32).to(device)
 
     # divide each att score with the sum of att score of the same query graph
-    t_start = time.time()
+    if tc:
+    	t_start = time.time()
     # for eg in range(num_eg):
     #     logits_eg_sum[eg] = torch.sum(logits[target_ids[:, 0] == eg])
     logits_eg_sum = segment_sum(logits, target_ids[:, 0], keep_length=True)
-    t_eg_sum = time.time()
+    if tc:
+        t_eg_sum = time.time()
     # logits = logits / torch.gather(logits_eg_sum, 0, torch.from_numpy(target_ids[:, 0]).long().to(device))
     logits = logits / logits_eg_sum
-    t_norm = time.time()
+    if tc:
+        t_norm = time.time()
 
     logits_len = len(target_ids)
     sparse_index = torch.LongTensor(np.stack([target_ids[:, 1], np.arange(logits_len)]))
@@ -889,11 +892,12 @@ def aggregate_op_node(logits, target_ids, tc):
     #     trans_matrix[target_id][i] = 1
 
     # logits_seg_sum = torch.matmul(torch.from_numpy(trans_matrix).to(device), logits)
-    t_seg_sum = time.time()
+    if tc:
+        t_seg_sum = time.time()
 
-    tc['model']['DP_attn_aggr_eg_sum'] += t_eg_sum - t_start
-    tc['model']['DP_attn_aggr_norm'] += t_norm - t_eg_sum
-    tc['model']['DP_attn_aggr_seg_sum'] += t_seg_sum - t_norm
+        tc['model']['DP_attn_aggr_eg_sum'] += t_eg_sum - t_start
+        tc['model']['DP_attn_aggr_norm'] += t_norm - t_eg_sum
+        tc['model']['DP_attn_aggr_seg_sum'] += t_seg_sum - t_norm
 
     return logits_seg_sum
 
@@ -982,7 +986,8 @@ class AttentionFlow(nn.Module):
         return:
             new_node_attention: Tensor, shape: n_new_node
         """
-        t_start = time.time()
+        if tc:
+            t_start = time.time()
         query_src_vec = self.proj(query_src_emb)  # batch_size x n_dims_sm
         query_rel_vec = self.proj(query_rel_emb)  # batch_size x n_dims_sm
         query_time_vec = self.proj(query_time_emb)  # batch_size x n_dims_sm
@@ -997,7 +1002,8 @@ class AttentionFlow(nn.Module):
         hidden_vi = self.proj(hidden_vi)
         hidden_vj = self.proj(hidden_vj)
 
-        t_proj = time.time()
+        if tc:
+            t_proj = time.time()
 
         # [embedding]_repeat is a new tensor which index [embedding] so that it mathes hidden_vi and hidden_vj along dim 0
         # i.e. hidden_vi[i] and hidden_vj[i] is representation of node vi, vj that lie in subgraph corresponding to the query,
@@ -1009,8 +1015,9 @@ class AttentionFlow(nn.Module):
                                                   index=torch.from_numpy(selected_edges[:, 0]).long().to(self.device))
         query_time_vec_repeat = torch.index_select(query_time_vec, dim=0,
                                                    index=torch.from_numpy(selected_edges[:, 0]).long().to(self.device))
-
-        t_query = time.time()
+        
+        if tc:
+            t_query = time.time()
 
         transition_logits = self.transition_fn(
             ((hidden_vi, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat),
@@ -1019,15 +1026,17 @@ class AttentionFlow(nn.Module):
 
         attending_node_attention = transition_logits * node_attention
         softmax_node_attention = segment_softmax_op_v2(attending_node_attention, selected_edges[:, 6], tc=tc)
-        t_softmax = time.time()
+        if tc:
+            t_softmax = time.time()
 
         new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]], tc)
 
-        tc['model']['DP_attn_aggr'] += time.time() - t_softmax
-        tc['model']['DP_attn_transition'] += t_transition - t_query
-        tc['model']['DP_attn_softmax'] += t_softmax - t_transition
-        tc['model']['DP_attn_proj'] += t_proj - t_start
-        tc['model']['DP_attn_query'] += t_query - t_proj
+        if tc:
+            tc['model']['DP_attn_aggr'] += time.time() - t_softmax
+            tc['model']['DP_attn_transition'] += t_transition - t_query
+            tc['model']['DP_attn_softmax'] += t_softmax - t_transition
+            tc['model']['DP_attn_proj'] += t_proj - t_start
+            tc['model']['DP_attn_query'] += t_query - t_proj
 
         return new_node_attention
 
