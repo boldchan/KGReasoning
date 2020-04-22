@@ -757,8 +757,8 @@ def segment_softmax_op(logits, segment_ids, tc=None):
     sparse_value = torch.ones(sparse_index_np.shape[1], dtype=torch.float)
     trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value,
                                                       torch.Size([len_logits, len_logits])).to(device)
-    softmax_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, torch.exp(-logits).unsqueeze(1)))
-    logits_segment_softmax = torch.exp(-logits) / softmax_den
+    softmax_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, torch.exp(logits).unsqueeze(1)))
+    logits_segment_softmax = torch.exp(logits) / softmax_den
     # logits_segment_softmax = logits.clone()
     # for segment_id in sorted(set(segment_ids)):
     #     # segment_mask = segment_ids==segment_id # somehow no grad is generated
@@ -772,13 +772,14 @@ def segment_softmax_op(logits, segment_ids, tc=None):
     return logits_segment_softmax
 
 
-def segment_sum(logits, segment_ids, keep_length = True):
+def segment_sum(logits, segment_ids, keep_length=True):
     """
 
     :param logits:
     :param segment_ids:
     :param keep_length: if True, return a Tensor with the same length as logits
     out[i] is the sum of segments of segment_ids[i]
+    else, return a Tensor with the length of segment_ids
     :return:
     """
     device = logits.get_device()
@@ -803,9 +804,24 @@ def segment_sum(logits, segment_ids, keep_length = True):
     sparse_index2 = torch.LongTensor(np.stack([np.arange(logits_len), segment_ids]))
     sparse_value2 = torch.ones(logits_len, dtype=torch.float)
     trans_matrix_sparse2 = torch.sparse.FloatTensor(sparse_index2, sparse_value2,
-                                                   torch.Size([logits_len, num_segments])).to(device)
+                                                    torch.Size([logits_len, num_segments])).to(device)
     seg_sum_repeat = torch.sparse.mm(trans_matrix_sparse2, seg_sum)
     return torch.squeeze(seg_sum_repeat)
+
+
+def segment_max(logits, segment_ids, keep_length=True):
+    """
+
+    :param logits:
+    :param segment_ids:
+    :param keep_length:
+    if True, return a Tensor with the same length as logits
+    out[i] is the sum of segments of segment_ids[i]
+    else, return a Tensor with the length of segment_ids
+    :return:
+    1d Tensor
+    """
+
 
 def segment_softmax_op_v2(logits, segment_ids, tc=None):
     device = logits.get_device()
@@ -819,7 +835,7 @@ def segment_softmax_op_v2(logits, segment_ids, tc=None):
 
     logits_len = len(segment_ids)
     num_segments = max(segment_ids) + 1
-    logits_exp = torch.exp(-logits).unsqueeze(1) # e^{-logit} N x 1
+    logits_exp = torch.exp(logits).unsqueeze(1)  # e^{logit} N x 1
 
     # calculate summation of exponential of logits value for each group
     sparse_index = torch.LongTensor(np.stack([segment_ids, np.arange(logits_len)]))
@@ -832,13 +848,14 @@ def segment_softmax_op_v2(logits, segment_ids, tc=None):
     sparse_index2 = torch.LongTensor(np.stack([np.arange(logits_len), segment_ids]))
     sparse_value2 = torch.ones(logits_len, dtype=torch.float)
     trans_matrix_sparse2 = torch.sparse.FloatTensor(sparse_index2, sparse_value2,
-                                                   torch.Size([logits_len, num_segments])).to(device)
+                                                    torch.Size([logits_len, num_segments])).to(device)
     softmax_den_repeat = torch.sparse.mm(trans_matrix_sparse2, softmax_den)
 
-    out = torch.squeeze(logits_exp/softmax_den_repeat)
+    out = torch.squeeze(logits_exp / softmax_den_repeat)
     if tc:
         tc['model']['DP_attn_softmax_v2'] = time.time() - t_start
     return out
+
 
 def aggregate_op_node(logits, target_ids, tc):
     """aggregate attention score of same node, i.e. same (eg_idx, v, t)
