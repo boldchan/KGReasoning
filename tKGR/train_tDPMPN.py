@@ -250,10 +250,9 @@ if __name__ == "__main__":
 
             for step in range(args.DP_steps):
                 # print("{}-th DP step".format(step))
-                with torch.autograd.profiler.record_function('flow'):
-                    attending_nodes, attending_node_attention, memorized_embedding = \
-                        model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
-                                   query_rel_emb, query_time_emb, tc=time_cost)
+                attending_nodes, attending_node_attention, memorized_embedding = \
+                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                               query_rel_emb, query_time_emb, tc=time_cost)
             entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes, tc=time_cost)
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
