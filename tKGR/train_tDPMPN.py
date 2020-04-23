@@ -272,10 +272,12 @@ if __name__ == "__main__":
 
             running_loss += loss.item()
 
-            if batch_ndx % 50 == 49:
-                print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 50))
+            if batch_ndx % 1 == 0:
+                print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
                 running_loss = 0.0
-                print(str_time_cost(time_cost))
+            print(str_time_cost(time_cost))
+            if args.timer:
+                time_cost = reset_time_cost()
 
             # for obj in gc.get_objects():
             #     try:

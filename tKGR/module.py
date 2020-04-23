@@ -827,7 +827,7 @@ def segment_max(logits, segment_ids, keep_length=True):
                                    np.arange(1, n_logits)[mask],
                                    np.array([n_logits])]).astype(np.int64)
     if keep_length:
-        seg_max_ind = torch.cat([torch.repeat(torch.argmax(logits[torch.arange(head, tail).to(torch.int64)]) + torch.tensor([head]).to(torch.int64), tail - head) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
+        seg_max_ind = torch.cat([(torch.argmax(logits[torch.arange(head, tail).to(torch.int64)]) + torch.tensor([head]).to(torch.int64)).repeat(tail - head) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
     else:
         seg_max_ind = torch.cat([torch.argmax(logits[torch.arange(head, tail).to(torch.int64)]) + torch.tensor([head]).to(torch.int64) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
     return logits[seg_max_ind]
@@ -865,7 +865,7 @@ def segment_softmax_op_v2(logits, segment_ids, tc=None):
 
     out = torch.squeeze(logits_exp / softmax_den_repeat)
     if tc:
-        tc['model']['DP_attn_softmax_v2'] = time.time() - t_start
+        tc['model']['DP_attn_softmax_v2'] += time.time() - t_start
     return out
 
 
