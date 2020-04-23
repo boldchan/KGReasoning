@@ -223,106 +223,104 @@ if __name__ == "__main__":
     model.TGAN.edge_raw_embed.cpu()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    with torch.autograd.profiler.profile(use_cuda=True) as prof:
-        for epoch in range(args.epoch):
-            print("epoch: ", epoch)
-            # load data
-            train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
-                                          start_time=args.warm_start_time, tc=time_cost)
-            train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
-                                           pin_memory=False, shuffle=True)
+    for epoch in range(args.epoch):
+        print("epoch: ", epoch)
+        # load data
+        train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
+                                      start_time=args.warm_start_time, tc=time_cost)
+        train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                       pin_memory=False, shuffle=True)
 
-            running_loss = 0.
+        running_loss = 0.
 
-            for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
-                optimizer.zero_grad()
-                model.zero_grad()
-                model.train()
+        for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
+            optimizer.zero_grad()
+            model.zero_grad()
+            model.train()
+
+            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
+            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
+            query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
+                model.initialize()
+
+            # query_time_emb.to(device)
+            # query_src_emb.to(device)
+            # query_rel_emb.to(device)
+            # attending_node_attention.to(device)
+
+            for step in range(args.DP_steps):
+                # print("{}-th DP step".format(step))
+                with torch.autograd.profiler.record_function('flow'):
+                    attending_nodes, attending_node_attention, memorized_embedding = \
+                        model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                                   query_rel_emb, query_time_emb, tc=time_cost)
+            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes, tc=time_cost)
+            one_hot_label = torch.from_numpy(
+                np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
+            loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+            if args.timer:
+                t_start = time.time()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+            if args.timer:
+                time_cost['grad']['comp'] += time.time() - t_start
+
+            if args.timer:
+                t_start = time.time()
+            optimizer.step()
+            if args.timer:
+                time_cost['grad']['apply'] += time.time() - t_start
+
+            running_loss += loss.item()
+
+            if batch_ndx % 50 == 49:
+                print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 50))
+                running_loss = 0.0
+                print(str_time_cost(time_cost))
+
+            # for obj in gc.get_objects():
+            #     try:
+            #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+            #             print(type(obj), obj.size())
+            #     except:
+            #         pass
+
+        model.eval()
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+        }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
+
+        if epoch % 5 == 4:
+            hit_1 = hit_3 = hit_10 = 0
+            num_query = 0
+
+            val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid', tc=time_cost)
+            val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                         pin_memory=False, shuffle=True)
+
+            for batch_ndx, sample in enumerate(val_data_loader):
+                model.eval()
 
                 src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
-                query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
-                    model.initialize()
+                num_query += len(src_idx_l)
 
-                # query_time_emb.to(device)
-                # query_src_emb.to(device)
-                # query_rel_emb.to(device)
-                # attending_node_attention.to(device)
-
+                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
+                query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
-                    # print("{}-th DP step".format(step))
-                    with torch.autograd.profiler.record_function('flow'):
-                        attending_nodes, attending_node_attention, memorized_embedding = \
-                            model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
-                                       query_rel_emb, query_time_emb, tc=time_cost)
-                with torch.autograd.profiler.record_function('entity_attn'):
-                    entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes, tc=time_cost)
-                one_hot_label = torch.from_numpy(
-                    np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-                loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
-                if args.timer:
-                    t_start = time.time()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
-                if args.timer:
-                    time_cost['grad']['comp'] += time.time() - t_start
+                    attending_nodes, attending_node_attention, memorized_embedding = \
+                        model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                                   query_rel_emb, query_time_emb)
+                entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
 
-                if args.timer:
-                    t_start = time.time()
-                optimizer.step()
-                if args.timer:
-                    time_cost['grad']['apply'] += time.time() - t_start
-
-                running_loss += loss.item()
-
-                if batch_ndx % 50 == 49:
-                    print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 50))
-                    running_loss = 0.0
-                    print(str_time_cost(time_cost))
-
-                # for obj in gc.get_objects():
-                #     try:
-                #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-                #             print(type(obj), obj.size())
-                #     except:
-                #         pass
-
-            model.eval()
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss,
-            }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
-
-            if epoch % 5 == 4:
-                hit_1 = hit_3 = hit_10 = 0
-                num_query = 0
-
-                val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid', tc=time_cost)
-                val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
-                                             pin_memory=False, shuffle=True)
-
-                for batch_ndx, sample in enumerate(val_data_loader):
-                    model.eval()
-
-                    src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-                    num_query += len(src_idx_l)
-
-                    model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
-                    query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
-                    for step in range(args.DP_steps):
-                        attending_nodes, attending_node_attention, memorized_embedding = \
-                            model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
-                                       query_rel_emb, query_time_emb)
-                    entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
-
-                    _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
-                    for i, target in enumerate(target_idx_l):
-                        top10 = entities[indices[i]]
-                        hit_1 += target == top10[0, 1]
-                        hit_3 += target in top10[:3, 1]
-                        hit_10 += target in top10[:, 1]
-                print("hit@1: {}, hit@3: {}, hit@10: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
-    print("finished Training")
+                _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
+                for i, target in enumerate(target_idx_l):
+                    top10 = entities[indices[i]]
+                    hit_1 += target == top10[0, 1]
+                    hit_3 += target in top10[:3, 1]
+                    hit_10 += target in top10[:, 1]
+            print("hit@1: {}, hit@3: {}, hit@10: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
+print("finished Training")
 #     os.umask(oldmask)
