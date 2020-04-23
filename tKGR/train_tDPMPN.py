@@ -219,8 +219,8 @@ if __name__ == "__main__":
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm, DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
-    model.TGAN.node_raw_embed.cpu()
-    model.TGAN.edge_raw_embed.cpu()
+    # model.TGAN.node_raw_embed.cpu()
+    # model.TGAN.edge_raw_embed.cpu()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     for epoch in range(args.epoch):

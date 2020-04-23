@@ -423,7 +423,8 @@ class TGAN(torch.nn.Module):
         Arguments:
             node_idx_l {np.array} -- indices of nodes
         """
-        return self.node_raw_embed(torch.from_numpy(node_idx_l + 1).long()).to(device)
+        # return self.node_raw_embed(torch.from_numpy(node_idx_l + 1).long()).to(device)
+        return self.node_raw_embed(torch.from_numpy(node_idx_l + 1).long().to(self.device))
 
     def get_rel_emb(self, rel_idx_l, device):
         """
@@ -432,7 +433,8 @@ class TGAN(torch.nn.Module):
         Arguments:
             rel_idx_l {[type]} -- [description]
         """
-        return self.edge_raw_embed(torch.from_numpy(rel_idx_l + 1).long()).to(device)
+        # return self.edge_raw_embed(torch.from_numpy(rel_idx_l + 1).long()).to(device)
+        return self.edge_raw_embed(torch.from_numpy(rel_idx_l + 1).long().to(device))
 
     def obj_predict(self, src_idx, rel_idx, cut_time, obj_candidate=None, num_neighbors=20, eval_batch=128):
         """
