@@ -27,7 +27,7 @@ PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
 from utils import Data, NeighborFinder, Measure, save_config
-from module import tDPMPN
+from module import tDPMPN, segment_softmax_op_v2
 import config
 import local_config
 
@@ -254,6 +254,10 @@ if __name__ == "__main__":
                     model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
                                query_rel_emb, query_time_emb, tc=time_cost)
             entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes, tc=time_cost)
+
+            # softmax on entity attention
+            entity_att_score = segment_softmax_op_v2(entity_att_score, entities[:, 0])
+
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
