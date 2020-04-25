@@ -327,5 +327,5 @@ if __name__ == "__main__":
                     hit_3 += target in top10[:3, 1]
                     hit_10 += target in top10[:, 1]
             print("hit@1: {}, hit@3: {}, hit@10: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
-print("finished Training")
+    print("finished Training")
 #     os.umask(oldmask)

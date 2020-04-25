@@ -320,7 +320,8 @@ class MergeLayer(torch.nn.Module):
 class TGAN(torch.nn.Module):
     def __init__(self, ngh_finder, num_nodes=None, num_edges=None, embed_dim=None, n_feat=None, e_feat=None,
                  attn_mode='prod', use_time='time', agg_method='attn',
-                 num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None, device='cpu',
+                 num_layers=3, n_head=4, null_idx=0, drop_out=0.1,
+                 decoder='DistMult', seq_len=None, device='cpu',
                  looking_afterwards=False):
         """
         initialize TGAN, either (num_nodes, num_edge, embed_dim) are given or (n_feat, e_feat) are given.
@@ -390,7 +391,15 @@ class TGAN(torch.nn.Module):
 
         self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim, device=device)
 
-        self.hidden_target_proj = torch.nn.Linear(2 * embed_dim, embed_dim)
+        self.hidden_target_proj = nn.Sequential(nn.Linear(2 * embed_dim, embed_dim), nn.Tanh())
+
+        if decoder == 'MLP':
+            self.mlp_decoder = nn.Sequential(nn.Linear(3 * embed_dim, embed_dim), nn.Tanh(), nn.Linear(embed_dim, 1), nn.Sigmoid())
+            self.decoder = self.MLP_decoder
+        elif decoder == 'DistMult':
+            self.decoder = self.DistMult_decoder
+        else:
+            raise ValueError('supported decoder: mlp and distmult')
 
     # def link_predict(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
     #     """
@@ -528,6 +537,19 @@ class TGAN(torch.nn.Module):
 
         loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
         loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
+        loss /= len(pos_score) + len(neg_score)
+        return loss
+
+    def MLP_decoder(self, src_embed_t, target_embed_t, rel_embed_t, neg_embed_t):
+        with torch.no_grad():
+            pos_label = torch.ones(len(src_embed_t), dtype=torch.float, device=self.device)
+            neg_label = torch.zeros(neg_embed_t.shape[0] * neg_embed_t.shape[1], dtype=torch.float, device=self.device)
+
+        pos_score = self.mlp_decoder(src_embed_t, rel_embed_t, target_embed_t)
+        neg_score = self.mlp_decoder(src_embed_t, rel_embed_t, neg_embed_t)
+
+        loss = torch.nn.BCELoss(reduction='sum')(pos_score, pos_label)
+        loss += torch.nn.BCELoss(reduction='sum')(neg_score, neg_label)
         loss /= len(pos_score) + len(neg_score)
         return loss
 

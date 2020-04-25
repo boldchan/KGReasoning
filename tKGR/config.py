@@ -22,7 +22,7 @@ def get_ICEWS14_config(parser):
     parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
     parser.add_argument('--add_reverse', action='store_true', default=False)
     parser.add_argument('--load_checkpoint', type=str, help='train from checkpoint')
-    parser.add_argument('--decoder', type=str, default='DistMult', choices=['DistMult', 'DPMP'])
+    parser.add_argument('--decoder', type=str, default='DistMult', choices=['DistMult', 'MLP'])
     return parser
 
 

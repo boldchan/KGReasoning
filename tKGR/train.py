@@ -189,6 +189,7 @@ parser.add_argument('--batch_size', type=int, default=None)
 parser.add_argument('--num_neighbors', type=int, default=None, help='how many neighbors to aggregate information from, '
                                                                   'check paper Inductive Representation Learning '
                                                                   'for Temporal Graph for detail')
+parser.add_argument('--decoder', type=str, default=None, help='choose between "MLP" and "DistMult"')
 parser.add_argument('--looking_afterwards', action='store_true', default=None,
         help='if NeighborFinder can find neighbors from events happened later, but still before query time')
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
@@ -259,7 +260,7 @@ if __name__ == '__main__':
     nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
 
     model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
-                 device=device)
+                 decoder=args.decoder, device=device)
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
 
@@ -295,14 +296,8 @@ if __name__ == '__main__':
                 pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
                 neg_label = torch.zeros(neg_embed.shape[0] * neg_embed.shape[1], dtype=torch.float, device=device)
 
-            pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
-            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed,
-                                  dim=2).view(-1)  # [batch_size x num_neg_sampling, ]
-
-            loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
-            loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
-            loss /= len(pos_score) + len(neg_score)
-
+            # DistMult
+            loss = model.decoder(src_embed, target_embed, rel_embed, neg_embed)
             loss.backward()
             optimizer.step()
 
