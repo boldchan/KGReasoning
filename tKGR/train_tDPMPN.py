@@ -294,7 +294,7 @@ if __name__ == "__main__":
             'loss': loss,
         }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
 
-        if epoch % 5 == 4:
+        if epoch % 1 == 0:
             hit_1 = hit_3 = hit_10 = 0
             num_query = 0
 
