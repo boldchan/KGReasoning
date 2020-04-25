@@ -171,6 +171,7 @@ parser.add_argument('--max_attended_nodes', type=int, default=20, help='max numb
 parser.add_argument('--add_reverse', action='store_true', default=None, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
+parser.add_argument('--use_TGAN', action='store_true', default=None, help='use hidden representation of TGAN')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -216,11 +217,11 @@ if __name__ == "__main__":
         time_cost['data']['ngh'] = time.time() - t_start
 
     # construct model
-    model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm, DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device)
+    model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm, DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device, use_TGAN=args.use_TGAN)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
-    # model.TGAN.node_raw_embed.cpu()
-    # model.TGAN.edge_raw_embed.cpu()
+    model.TGAN.node_raw_embed.cpu()
+    model.TGAN.edge_raw_embed.cpu()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     for epoch in range(args.epoch):

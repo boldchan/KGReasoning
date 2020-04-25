@@ -5,8 +5,8 @@ import numpy as np
 import pdb
 from scipy.sparse import coo_matrix
 import torch
-
 import torch.nn as nn
+# from pytorch_memlab import profile
 
 from utils import get_segment_ids
 
@@ -423,8 +423,12 @@ class TGAN(torch.nn.Module):
         Arguments:
             node_idx_l {np.array} -- indices of nodes
         """
-        # return self.node_raw_embed(torch.from_numpy(node_idx_l + 1).long()).to(device)
-        return self.node_raw_embed(torch.from_numpy(node_idx_l + 1).long().to(self.device))
+        embed_device = next(self.node_raw_embed.parameters()).get_device()
+        if embed_device == -1:
+            embed_device = torch.device('cpu')
+        else:
+            embed_device = torch.device('cuda:{}'.format(embed_devicel))
+        return self.node_raw_embed(torch.from_numpy(node_idx_l + 1).long().to(embed_device)).to(device)
 
     def get_rel_emb(self, rel_idx_l, device):
         """
@@ -433,8 +437,12 @@ class TGAN(torch.nn.Module):
         Arguments:
             rel_idx_l {[type]} -- [description]
         """
-        # return self.edge_raw_embed(torch.from_numpy(rel_idx_l + 1).long()).to(device)
-        return self.edge_raw_embed(torch.from_numpy(rel_idx_l + 1).long().to(device))
+        embed_device = next(self.edge_raw_embed.parameters()).get_device()
+        if embed_device == -1:
+            embed_device = torch.device('cpu')
+        else:
+            embed_device = torch.device('cuda:{}'.format(embed_device))
+        return self.edge_raw_embed(torch.from_numpy(rel_idx_l + 1).long().to(embed_device)).to(device)
 
     def obj_predict(self, src_idx, rel_idx, cut_time, obj_candidate=None, num_neighbors=20, eval_batch=128):
         """
@@ -1075,7 +1083,7 @@ class AttentionFlow(nn.Module):
 class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
                  attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
-                 tgan_num_neighbors=20, tgan_num_layers=2, tgan_n_head=4, null_idx=0, drop_out=0.1, seq_len=None,
+                 use_TGAN=False, tgan_num_neighbors=20, tgan_num_layers=2, tgan_n_head=4, null_idx=0, drop_out=0.1, seq_len=None,
                  max_attended_nodes=20, max_attending_nodes=200, device='cpu'):
         """[summary]
 
@@ -1113,6 +1121,7 @@ class tDPMPN(torch.nn.Module):
         self.tgan_num_neighbors = tgan_num_neighbors
         self.memorized_embedding = dict()
         self.device = device
+        self.use_TGAN = use_TGAN
 
         self.src_idx_l, self.rel_idx_l = None, None
 
@@ -1196,12 +1205,14 @@ class tDPMPN(torch.nn.Module):
 
         if tc:
             t_start = time.time()
-        # hidden_target = self.TGAN.tem_conv(unvisited_nodes[:, 1],
-        #                                unvisited_nodes[:, 2],
-        #                                curr_layers=2,
-        #                                num_neighbors=self.tgan_num_neighbors,
-        #                                query_time_l=self.cut_time_l[unvisited_nodes[:, 0]])
-        hidden_target = self.TGAN.temp_conv_debug(unvisited_nodes[:, 1], unvisited_nodes[:, 2])
+        if self.use_TGAN:
+            hidden_target = self.TGAN.tem_conv(unvisited_nodes[:, 1],
+                                           unvisited_nodes[:, 2],
+                                           curr_layers=2,
+                                           num_neighbors=self.tgan_num_neighbors,
+                                           query_time_l=self.cut_time_l[unvisited_nodes[:, 0]])
+        else:
+            hidden_target = self.TGAN.temp_conv_debug(unvisited_nodes[:, 1], unvisited_nodes[:, 2])
         if tc:
             tc['model']['temp_conv'] += time.time() - t_start
 
