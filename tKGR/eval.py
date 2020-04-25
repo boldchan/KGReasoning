@@ -136,7 +136,9 @@ def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc: bool = False, s
             if cal_acc:
                 for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
                     if sp2o is not None:
-                        obj_candidate = sp2o[(src_idx, rel_idx)]
+                        obj_candidate = [_ for _ in range(tgan.num_nodes) if _ not in sp2o[(src_idx, rel_idx)]]
+                        obj_candidate.append(obj_idx)
+                        np.append(obj_candidate, obj_idx)
                         pred_score = tgan.obj_predict(src_idx, rel_idx, ts, obj_candidate).cpu().numpy()
                         rank = np.sum(pred_score > pred_score[obj_candidate.index(obj_idx)]) + 1
                         measure.update(rank, 'fil')
