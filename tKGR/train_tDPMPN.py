@@ -349,7 +349,7 @@ if __name__ == "__main__":
                 src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
                 num_query += len(src_idx_l)
                 degree_batch = model.ngh_finder(src_idx_l, cut_time_l)
-                mean_degree = sum(degree_batch)
+                mean_degree += sum(degree_batch)
 
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
                 query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
@@ -367,7 +367,7 @@ if __name__ == "__main__":
                 #     hit_10 += target in top10[:, 1]
                 target_rank_l, found_mask = segment_rank(entity_att_score, entities, target_idx_l)
                 # print(target_rank_l)
-                mean_degree_found = sum(degree_batch[found_mask])
+                mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
                 hit_3 += np.sum(target_idx_l <= 3)
                 hit_10 += np.sum(target_idx_l <= 10)
@@ -384,7 +384,7 @@ if __name__ == "__main__":
                                                                                                      hit_10 / num_query,
                                                                                                      MR_total / num_query,
                                                                                                      MRR_total / num_query,
-                                                                                                     mean_degree))
+                                                                                                     mean_degree / num_query))
             if found_cnt:
                 print("Filtered: Hits@1: {}, Hits@3: {}, Hits@10: {}, MR: {}, MRR: {}, degree: {}".format(
                     hit_1 / found_cnt,
@@ -392,7 +392,7 @@ if __name__ == "__main__":
                     hit_10 / found_cnt,
                     MR_found / found_cnt,
                     MRR_found / found_cnt,
-                    mean_degree_found))
+                    mean_degree_found / found_cnt))
             else:
                 print('No subgraph found the ground truth!!')
 print("finished Training")
