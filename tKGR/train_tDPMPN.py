@@ -369,8 +369,8 @@ if __name__ == "__main__":
                 # print(target_rank_l)
                 mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
-                hit_3 += np.sum(target_idx_l <= 3)
-                hit_10 += np.sum(target_idx_l <= 10)
+                hit_3 += np.sum(target_rank_l <= 3)
+                hit_10 += np.sum(target_rank_l <= 10)
                 found_cnt += np.sum(found_mask)
                 MR_total += np.sum(target_rank_l)
                 MR_found += len(found_mask) and np.sum(
