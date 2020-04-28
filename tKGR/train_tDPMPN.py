@@ -336,6 +336,8 @@ if __name__ == "__main__":
             MRR_total = 0
             MRR_found = 0
             num_query = 0
+            mean_degree = 0
+            mean_degree_found = 0
 
             val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid', tc=time_cost)
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
@@ -346,6 +348,8 @@ if __name__ == "__main__":
 
                 src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
                 num_query += len(src_idx_l)
+                degree_batch = model.ngh_finder(src_idx_l, cut_time_l)
+                mean_degree = sum(degree_batch)
 
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
                 query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
@@ -363,25 +367,32 @@ if __name__ == "__main__":
                 #     hit_10 += target in top10[:, 1]
                 target_rank_l, found_mask = segment_rank(entity_att_score, entities, target_idx_l)
                 # print(target_rank_l)
+                mean_degree_found = sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
                 hit_3 += np.sum(target_idx_l <= 3)
                 hit_10 += np.sum(target_idx_l <= 10)
                 found_cnt += np.sum(found_mask)
                 MR_total += np.sum(target_rank_l)
-                MR_found += len(found_mask) and np.sum(target_rank_l[found_mask]) # if no subgraph contains ground truch, MR_found = 0 for this batch
-                MRR_total = np.sum(1/target_rank_l)
-                MRR_found = len(found_mask) and np.sum(1/target_rank_l[found_mask]) # if no subgraph contains ground truth, MRR_found = 0 for this batch
-            print("Not filtered: hit@1: {}, hit@3: {}, hit@10: {}, MR: {}, MRR: {}".format(hit_1 / num_query,
-                                                                                           hit_3 / num_query,
-                                                                                           hit_10 / num_query,
-                                                                                           MR_total / num_query,
-                                                                                           MRR_total / num_query))
+                MR_found += len(found_mask) and np.sum(
+                    target_rank_l[found_mask])  # if no subgraph contains ground truch, MR_found = 0 for this batch
+                MRR_total = np.sum(1 / target_rank_l)
+                MRR_found = len(found_mask) and np.sum(
+                    1 / target_rank_l[found_mask])  # if no subgraph contains ground truth, MRR_found = 0 for this batch
+            print(
+                "Not filtered: hit@1: {}, hit@3: {}, hit@10: {}, MR: {}, MRR: {}, degree: {}".format(hit_1 / num_query,
+                                                                                                     hit_3 / num_query,
+                                                                                                     hit_10 / num_query,
+                                                                                                     MR_total / num_query,
+                                                                                                     MRR_total / num_query,
+                                                                                                     mean_degree))
             if found_cnt:
-                print("Filtered: Hits@1: {}, Hits@3: {}, Hits@10: {}, MR: {}, MRR: {}".format(hit_1 / found_cnt,
-                                                                                          hit_3/found_cnt,
-                                                                                          hit_10/found_cnt,
-                                                                                          MR_found/found_cnt,
-                                                                                          MRR_found/found_cnt))
+                print("Filtered: Hits@1: {}, Hits@3: {}, Hits@10: {}, MR: {}, MRR: {}, degree: {}".format(
+                    hit_1 / found_cnt,
+                    hit_3 / found_cnt,
+                    hit_10 / found_cnt,
+                    MR_found / found_cnt,
+                    MRR_found / found_cnt,
+                    mean_degree_found))
             else:
                 print('No subgraph found the ground truth!!')
 print("finished Training")

@@ -272,6 +272,20 @@ class NeighborFinder:
 
         return n_idx_l, n_ts_l, e_idx_l, off_set_l, off_set_t_l
 
+    def get_temporal_degree(self, src_idx_l, cut_time_l):
+        """
+        return how many neighbros exist for each (src, ts)
+        :param src_idx_l:
+        :param cut_time_l:
+        :return:
+        """
+        assert (len(src_idx_l) == len(cut_time_l))
+
+        temp_degree = []
+        for i, (src_idx, cut_time) in enumerate(zip(src_idx_l, cut_time_l)):
+            temp_degree.append(self.off_set_t_l[src_idx][int(cut_time / 24)])  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
+        return np.array(temp_degree)
+
     def find_before(self, src_idx, cut_time):
         """
         build neighborhood sequence of entity sec_idx before cut_time
