@@ -348,7 +348,7 @@ if __name__ == "__main__":
 
                 src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
                 num_query += len(src_idx_l)
-                degree_batch = model.ngh_finder(src_idx_l, cut_time_l)
+                degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
                 mean_degree += sum(degree_batch)
 
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
