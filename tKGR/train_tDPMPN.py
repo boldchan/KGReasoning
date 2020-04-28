@@ -262,71 +262,71 @@ if __name__ == "__main__":
 
         running_loss = 0.
 
-        # for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
-        #     optimizer.zero_grad()
-        #     model.zero_grad()
-        #     model.train()
-        #
-        #     src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-        #     model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
-        #     query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
-        #         model.initialize()
-        #
-        #     # query_time_emb.to(device)
-        #     # query_src_emb.to(device)
-        #     # query_rel_emb.to(device)
-        #     # attending_node_attention.to(device)
-        #
-        #     for step in range(args.DP_steps):
-        #         # print("{}-th DP step".format(step))
-        #         attending_nodes, attending_node_attention, memorized_embedding = \
-        #             model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
-        #                        query_rel_emb, query_time_emb, tc=time_cost)
-        #     entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes,
-        #                                                              tc=time_cost)
-        #
-        #     # softmax on entity attention
-        #     entity_att_score = segment_softmax_op_v2(entity_att_score, entities[:, 0])
-        #
-        #     one_hot_label = torch.from_numpy(
-        #         np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-        #     loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
-        #     if args.timer:
-        #         t_start = time.time()
-        #     loss.backward()
-        #     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
-        #     if args.timer:
-        #         time_cost['grad']['comp'] += time.time() - t_start
-        #
-        #     if args.timer:
-        #         t_start = time.time()
-        #     optimizer.step()
-        #     if args.timer:
-        #         time_cost['grad']['apply'] += time.time() - t_start
-        #
-        #     running_loss += loss.item()
-        #
-        #     if batch_ndx % 1 == 0:
-        #         print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
-        #         running_loss = 0.0
-        #     print(str_time_cost(time_cost))
-        #     if args.timer:
-        #         time_cost = reset_time_cost()
-        #
-        #     # for obj in gc.get_objects():
-        #     #     try:
-        #     #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-        #     #             print(type(obj), obj.size())
-        #     #     except:
-        #     #         pass
-        #
-        # model.eval()
-        # torch.save({
-        #     'epoch': epoch,
-        #     'model_state_dict': model.state_dict(),
-        #     'optimizer_state_dict': optimizer.state_dict(),
-        #     'loss': loss,
-        # }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
+        for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
+            optimizer.zero_grad()
+            model.zero_grad()
+            model.train()
+
+            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
+            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
+            query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
+                model.initialize()
+
+            # query_time_emb.to(device)
+            # query_src_emb.to(device)
+            # query_rel_emb.to(device)
+            # attending_node_attention.to(device)
+
+            for step in range(args.DP_steps):
+                # print("{}-th DP step".format(step))
+                attending_nodes, attending_node_attention, memorized_embedding = \
+                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                               query_rel_emb, query_time_emb, tc=time_cost)
+            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes,
+                                                                     tc=time_cost)
+
+            # softmax on entity attention
+            entity_att_score = segment_softmax_op_v2(entity_att_score, entities[:, 0])
+
+            one_hot_label = torch.from_numpy(
+                np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
+            loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+            if args.timer:
+                t_start = time.time()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+            if args.timer:
+                time_cost['grad']['comp'] += time.time() - t_start
+
+            if args.timer:
+                t_start = time.time()
+            optimizer.step()
+            if args.timer:
+                time_cost['grad']['apply'] += time.time() - t_start
+
+            running_loss += loss.item()
+
+            if batch_ndx % 1 == 0:
+                print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
+                running_loss = 0.0
+            print(str_time_cost(time_cost))
+            if args.timer:
+                time_cost = reset_time_cost()
+
+            # for obj in gc.get_objects():
+            #     try:
+            #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+            #             print(type(obj), obj.size())
+            #     except:
+            #         pass
+
+        model.eval()
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+        }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
 
         if epoch % 1 == 0:
             hit_1 = hit_3 = hit_10 = 0
