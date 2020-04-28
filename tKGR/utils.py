@@ -5,6 +5,7 @@ import subprocess
 from collections import defaultdict
 import numpy as np
 import networkx as nx
+import plotly.graph_objects as go
 
 # import tKGR.data
 DataDir = os.path.join(os.path.dirname(__file__), 'data')
@@ -68,8 +69,10 @@ class Data:
                                                               for event in self.test_data_seen_entity])], axis=0)
 
         self.data = np.concatenate([self.train_data, self.valid_data, self.test_data], axis=0)
-        self.refined_data = np.concatenate([self.train_data, self.valid_data_seen_entity, self.valid_data_seen_entity], axis=0)
-        self.refined_data = np.concatenate([self.refined_data, np.arange(len(self.refined_data))[:, np.newaxis]], axis=1)
+        self.refined_data = np.concatenate([self.train_data, self.valid_data_seen_entity, self.valid_data_seen_entity],
+                                           axis=0)
+        self.refined_data = np.concatenate([self.refined_data, np.arange(len(self.refined_data))[:, np.newaxis]],
+                                           axis=1)
 
         self.timestamps = self._get_timestamps(self.data)
 
@@ -326,7 +329,7 @@ class NeighborFinder:
 
         out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
-        out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32) 
+        out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
 
         for i, (src_idx, cut_time, query_time) in enumerate(zip(src_idx_l, cut_time_l, query_time_l)):
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
@@ -335,12 +338,14 @@ class NeighborFinder:
             mid = self.off_set_t_l[src_idx][int(cut_time / 24)]
             end = self.off_set_t_l[src_idx][int(query_time / 24)]
             # every timestamp in neighbors_ts[:mid] is smaller than cut_time
-            ngh_idx_before, ngh_eidx_before, ngh_ts_before = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
+            ngh_idx_before, ngh_eidx_before, ngh_ts_before = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[
+                                                                                                         :mid]
             # every timestamp in neighbors_ts[mid:end] is bigger than cut_time and smaller than query_time
-            ngh_idx_after, ngh_eidx_after, ngh_ts_after = neighbors_idx[mid:end], neighbors_e_idx[mid:end], neighbors_ts[mid:end]
+            ngh_idx_after, ngh_eidx_after, ngh_ts_after = neighbors_idx[mid:end], neighbors_e_idx[
+                                                                                  mid:end], neighbors_ts[mid:end]
 
             # choose events happen closest in time
-            half_num_neighbors = num_neighbors//2
+            half_num_neighbors = num_neighbors // 2
             ngh_ts_before = ngh_ts_before[-half_num_neighbors:]
             ngh_idx_before = ngh_idx_before[-half_num_neighbors:]
             ngh_eidx_before = ngh_eidx_before[-half_num_neighbors:]
@@ -358,7 +363,7 @@ class NeighborFinder:
             out_ngh_eidx_batch[i, half_num_neighbors: len(ngh_eidx_after) + half_num_neighbors] = ngh_eidx_after
 
         out_ngh_query_t_batch = np.repeat(np.repeat(query_time_l[:, np.newaxis], num_neighbors, axis=1))
-        
+
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch, out_ngh_query_t_batch
 
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
@@ -431,7 +436,7 @@ class NeighborFinder:
                     # ngh_ts = ngh_ts + 1e-9
                     # weights = ngh_ts / sum(ngh_ts)
 
-                    delta_t = (ngh_ts - cut_time)/24
+                    delta_t = (ngh_ts - cut_time) / 24
                     weights = np.exp(delta_t)
                     weights = weights / sum(weights)
 
@@ -472,15 +477,226 @@ class NeighborFinder:
                     Gs[graph_index_l[batch_idx]].add_nodes_from(
                         [((node, rel, t), {'rel': rel, 'time': t}) for node, rel, t in
                          list(zip(ngh_nodes, ngh_edges, ngh_ts))])
-                    Gs[graph_index_l[batch_idx]].add_edges_from([((src_idx_l[batch_idx], rel_idx_l[batch_idx], cut_time_l[batch_idx]),
-                                                                  (node, edge, t))
-                                                                 for node, edge, t in list(zip(ngh_nodes, ngh_edges, ngh_ts))])
+                    Gs[graph_index_l[batch_idx]].add_edges_from(
+                        [((src_idx_l[batch_idx], rel_idx_l[batch_idx], cut_time_l[batch_idx]),
+                          (node, edge, t))
+                         for node, edge, t in list(zip(ngh_nodes, ngh_edges, ngh_ts))])
 
                     get_neighbors_recursive(np.repeat(graph_index_l[batch_idx],
-                                                      len(ngh_nodes)), ngh_nodes, ngh_edges, ngh_ts, level - 1, num_neighbors)
+                                                      len(ngh_nodes)), ngh_nodes, ngh_edges, ngh_ts, level - 1,
+                                            num_neighbors)
 
-        get_neighbors_recursive(np.arange(len(src_idx_l)), src_idx_l, [None for _ in src_idx_l], cut_time_l, level, num_neighbors)
+        get_neighbors_recursive(np.arange(len(src_idx_l)), src_idx_l, [None for _ in src_idx_l], cut_time_l, level,
+                                num_neighbors)
         return Gs
+
+
+class GraphGroup:
+    '''
+    Store subgraph explored for tDPMPN
+    - return final subgraph
+    - keep track of node explored
+    - return statistics for evolving subgraph
+    - visualization
+    '''
+
+    def __init__(self, src_idx_l, rel_idx_l, target_idx_l, cut_time_l):
+        """
+
+        :param src_idx_l: numpy array of subject of queries
+        :param rel_idx_l:
+        :param target_idx_l:
+        :param cut_time_l:
+        """
+        self.query_src_idx_l = src_idx_l
+        self.query_rel_idx_l = rel_idx_l
+        self.query_target_idx_l = target_idx_l
+        self.query_cut_time_l = cut_time_l
+        self.num_graph = len(src_idx_l)
+
+        self.tGraphs = {i: Graph(self.query_src_idx_l[i], self.query_rel_idx_l[i], self.query_target_idx_l[i],
+                                 self.query_cut_time_l[i])
+                        for i in range(len(self.query_src_idx_l))}
+
+    def update(self, selected_nodes, selected_edges, flow_score_l):
+        """
+
+        :param selected_edges: {numpy.array, num_edges x 8} -- (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj)
+        :return:
+        """
+        for i in range(self.num_graph):
+            edges = selected_edges[selected_edges[:, 0] == i]
+            self.tGraphs[i].update(edges[:, 1], edges[:, 5], edges[:, 3], edges[:, 4])
+
+
+# class EntityGraph:
+#     def __init__(self, query_src_idx_l, query_rel_idx_l, query_tar_idx_l, query_cut_time_l):
+#         self.query_src_idx = query_src_idx_l
+#         self.query_rel_idx = query_rel_idx_l
+#         self.query_tar_idx = query_tar_idx_l
+#         self.query_cut_time = query_cut_time_l
+#         self.DP_step = 0
+#
+#         self.GraphSlices = {0:{'nodes':np.hstack([np.arange(len(query_src_idx_l))[:, np.newaxis],
+#                                                  self.query_src_idx_l[:, np.newaxis],
+#                                                  self.query_cut_time_l[:, np.newaxis]]),
+#                                'edges':None,
+#                                'flow_score': np.array([1])}}
+#
+#     def update(self, selected_nodes, selected_edges, node_score):
+#         """
+#
+#         :param selected_nodes: {numpy.array} -- num_nodes x3 (eg_idx, entity_id, ts), dtype: numpy.int32
+#         :param selected_edges: (np.array) n_sampled_edges x 8, (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj]
+#         :param node_score:
+#         :return:
+#         """
+#         self.DP_step += 1
+#         self.GraphSlices[self.DP_step] = {'nodes': selected_nodes,
+#                                           'edges': selected_edges[:, :6],
+#                                           'flow_score': node_score}
+#
+#     def plot_graph_til_t(self, step):
+#         pass
+
+class Graph:
+    def __init__(self, query_src_idx, query_rel_idx, query_tar_idx, query_cut_time, graph_idx):
+        self.query_src_idx = query_src_idx
+        self.query_rel_idx = query_rel_idx
+        self.query_tar_idx = query_tar_idx
+        self.query_cut_time = query_cut_time
+        self.DP_step = 0
+        self.graph_idx = graph_idx
+
+        self.GraphSlices = {0: {'edges': {'src_idx_l': np.array([query_src_idx]),
+                                          'rel_idx_l': np.array([query_rel_idx]),
+                                          'tar_idx_l': np.array([query_tar_idx]),
+                                          'cut_time_l': np.array([query_cut_time])
+                                          },
+                                'flow_score_l': np.array([1]),
+                                'nodes': np.array([[self.query_src_idx, self.query_cut_time]])}}
+
+    def update(self, selected_nodes, selected_edges, flow_score_l):
+        self.DP_step += 1
+        self.GraphSlices[self.DP_step] = {'edges': {'src_idx_l': selected_edges[:, 1],
+                                          'rel_idx_l': selected_edges[:, 5],
+                                          'tar_idx_l': selected_edges[:, 3],
+                                          'cut_time_l': selected_edges[:, 4]},
+                                          'flow_score_l': flow_score_l,
+                                          }
+
+    def plot_graph_til_t(self, step):
+        """
+        plot interactively subgraph expasion  til step step
+        :param t:
+        :return:
+        """
+        G = nx.MultiDiGraph()
+        for st in range(step):
+            edges = [(self.GraphSlices[st]['src_idx_l'][i],
+                      self.GraphSlices[st]['tar_idx_l'][i],
+                      dict(rel=self.GraphSlices[st]['rel_idx_l'][i],
+                           timestamp=self.GraphSlices[st]['cut_time_l'][i],
+                           step=st))
+                     for i in range(len(self.GraphSlices[st]['src_idx_l']))]
+            G.add_edges_from(edges)
+
+        pos = nx.spring_layout(G, k=3 / np.sqrt(len(G.nodes)))
+
+        edge_sub = defaultdict(list)
+        edge_obj = defaultdict(list)
+        edge_x = defaultdict(list)
+        edge_y = defaultdict(list)
+        middle_x = defaultdict(list)
+        middle_y = defaultdict(list)
+        rel = defaultdict(list)
+        ts = defaultdict(list)
+        step = defaultdict(list)
+
+        for n, nbrsdict in G.adjacency_iter():
+            for nbr, keydict in nbrsdict.items():
+                for key, eattr in keydict.items():
+                    edge_sub[eattr['step']].append(n)
+                    edge_obj[eattr['step']].append(nbr)
+                    edge_shift = np.random.randn()  # distinguish multiedges between same two nodes
+                    edge_x[eattr['step']].append(pos[n][0]) + edge_shift
+                    edge_x[eattr['step']].append(pos[nbr][0]) + edge_shift
+                    edge_y[eattr['step']].append(pos[n][1]) + edge_shift
+                    edge_y[eattr['step']].append(pos[nbr][1]) + edge_shift
+                    middle_x[eattr['step']].append((pos[n][0] + pos[nbr][0]) / 2 + 0.01 * np.random.randn())
+                    middle_y[eattr['step']].append((pos[n][1] + pos[nbr][1]) / 2 + 0.01 * np.random.randn())
+                    rel[eattr['step']].append(eattr['rel'])
+                    ts[eattr['step']].append(eattr['ts'])
+                    step[eattr['step']].append(eattr['step'])
+
+        edge_color = ['rgb(179,179,179)', 'rgb(229,196,148)', 'rgb(255,217,47)', 'rgb(166,216,84)', 'rgb(231,138,195)']
+        edge_trace = []
+        middle_node_trace = []
+
+        # TBD: handle self loop
+        for st in range(step):
+            # https://plotly.com/python/hover-text-and-formatting/#adding-other-data-to-the-hover-with-customdata-and-a-hovertemplate
+            edge_trace.append(go.Scatter(
+                x=edge_x[st],
+                y=edge_y[st],
+                line=dict(
+                    width=0.5,
+                    color=edge_color[st]),
+                mode='lines'
+            ))
+
+            middle_node_trace.append(go.Scatter(
+                x=middle_x[st],
+                y=middle_y[st],
+                mode='markers',
+                hovertemplate='%{text}',
+                text=['sub: {}<br>obj: {}<br>rel: {}<br>ts: {}<br>step: {}'.format(s, o, r, t) for s, o, r, t in
+                      zip(edge_sub[st], edge_obj[st], rel[st], ts[st], step[st])],
+                marker=go.Marker(
+                    opacity=0
+                )
+            ))
+
+        node_x = []
+        node_y = []
+        for node in G.nodes():
+            x, y = pos[node]
+            node_x.append(x)
+            node_y.append(y)
+
+        node_trace = go.Scatter(
+            x=node_x,
+            y=node_y,
+            mode='markers',
+            customdata=np.array(G.nodes()),
+            hovertemplate='%{customdata: d}',
+            marker=dict(
+                colorscale='YlGnBu',
+                reversescale=True,
+                color=list(G.degree()),
+                size=10,
+                colorbar=dict(
+                    thickness=15,
+                    title='Node Connections',
+                    xanchor='left',
+                    titleside='right'
+                )
+            )
+
+        )
+
+        fig = go.Figure(data=[node_trace, *edge_trace, *middle_node_trace],
+                        layout=go.Layout(
+                            title='<br>Subgraph expanded from ({}, {}, {}, {}) at {} steps'.format(
+                                self.query_src_idx, self.query_rel_idx, self.query_tar_idx, self.query_cut_time, step),
+                            titlefont_size=16,
+                            showlegend=False,
+                            hovermode='closest',
+                            margin=dict(b=20, l=5, t=40),
+                            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                        ))
+        fig.show()
 
 
 class Measure:

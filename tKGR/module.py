@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 # from pytorch_memlab import profile
 
-from utils import get_segment_ids
+from utils import get_segment_ids, GraphGroup
 
 
 class ScaledDotProductAttention(torch.nn.Module):
@@ -1081,14 +1081,14 @@ class AttentionFlow(nn.Module):
 
 
 class tDPMPN(torch.nn.Module):
-    def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
+    def __init__(self, gg, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
                  attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
                  use_TGAN=False, tgan_num_neighbors=20, tgan_num_layers=2, tgan_n_head=4, null_idx=0, drop_out=0.1, seq_len=None,
                  max_attended_nodes=20, max_attending_nodes=200, device='cpu'):
         """[summary]
 
         Arguments:
-            ngh_finder {[type]} -- an instance of NeighborFinder, find neighbors of a node from temporal KG
+            gg {[type]} -- an instance of GraphGroup, find neighbors of a node from temporal KG
             according to TGAN scheme
 
         Keyword Arguments:
@@ -1110,9 +1110,9 @@ class tDPMPN(torch.nn.Module):
         """
         super(tDPMPN, self).__init__()
         self.DP_num_neighbors = DP_num_neighbors
-        self.ngh_finder = ngh_finder
+        self.gg = gg
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in TGAN need to be increased by 1
-        self.TGAN = TGAN(self.ngh_finder, num_nodes=num_entity, num_edges=num_rel + 1, embed_dim=embed_dim,
+        self.TGAN = TGAN(self.gg, num_nodes=num_entity, num_edges=num_rel + 1, embed_dim=embed_dim,
                          attn_mode=attn_mode, use_time=use_time, agg_method=agg_method,
                          num_layers=tgan_num_layers, n_head=tgan_n_head, null_idx=null_idx, drop_out=drop_out,
                          seq_len=seq_len, device=device)
@@ -1132,6 +1132,7 @@ class tDPMPN(torch.nn.Module):
         self.cut_time_l = cut_time_l
         self.batch_i = batch_i
         self.epoch = epoch
+        self.gg.set_init(self.src_idx_l, rel_idx_l, target_idx_l, cut_time_l)
 
     def initialize(self):
         """[summary]
@@ -1161,7 +1162,7 @@ class tDPMPN(torch.nn.Module):
         return query_src_emb, query_rel_emb, query_ts_emb, attending_nodes, attending_node_attention, memorized_embedding
 
     def flow(self, attending_nodes, attending_node_attention, memorized_embedding: dict, query_src_emb, query_rel_emb,
-             query_time_emb, tc=None):
+             query_time_emb, DP_step, tc=None):
         """[summary]
 
         Arguments:
@@ -1181,21 +1182,21 @@ class tDPMPN(torch.nn.Module):
         # Attending-from Horizon of last step
         # attended_nodes: (np.array) n_attended_nodes x 3, (eg_idx, vi, cut_time) sorted
         # attended_nodes_attention: Tensor, n_attended_nodes
-        attended_nodes, attended_node_attention = self._topk_att_score(attending_nodes, attending_node_attention,
-                                                                       self.max_attended_nodes, tc=tc)
+        attended_nodes, attended_node_attention = self.gg.topk_att_score(attending_nodes, attending_node_attention,
+                                                                       self.max_attended_nodes, DP_step, tc=tc)
 
         # Sampling Horizon
         # sampled_edges: (np.array) n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel), sorted by eg_idx, vi, ti, tj
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
-        sampled_edges, src_attention = self._get_sampled_edges(attended_nodes, attended_node_attention,
-                                                               num_neighbors=self.DP_num_neighbors, tc=tc)
+        sampled_edges, src_attention = self.gg.get_sampled_edges(attended_nodes, attended_node_attention,
+                                                               self.DP_num_neighbors, DP_step, tc=tc)
         # print(sampled_edges)
 
         # selected_edges: (np.array) n_sampled_edges x 8, (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj]
         # sorted by eg_idx, ti, tj
         # selected_nodes: (eg_idx, v, t) sorted by (eg_idx, v, t)
-        selected_edges, selected_node = self._get_selected_edges(sampled_edges, tc=tc)
+        selected_edges, selected_node = self.gg.get_selected_edges(sampled_edges, tc=tc)
         # print(selected_edges)
         # print(selected_node)
 
@@ -1240,6 +1241,7 @@ class tDPMPN(torch.nn.Module):
         #         self.cut_time_l[i],
         #         sum(selected_node[:, 0] == i),
         #         sum(new_node_attention[selected_node[:, 0] == i])))
+        self.gg.update_score(new_node_attention.data.numpy(), DP_step)
 
         return selected_node, new_node_attention, memorized_embedding
 
