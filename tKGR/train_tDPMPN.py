@@ -155,7 +155,7 @@ def segment_rank(t, entities, target_idx_l):
     :param target_idx_l: 1-d numpy array, (batch_size, )
     :return:
     """
-    mask = entities[0, 1:] != entities[0, :-1]
+    mask = entities[1:, 0] != entities[:-1, 0]
     key_idx = np.concatenate([np.array([0], dtype=np.int32),
                               np.arange(1, len(entities))[mask],
                               np.array([len(entities)])])
@@ -165,7 +165,7 @@ def segment_rank(t, entities, target_idx_l):
         arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
         if arg_target.size > 0:
             found_mask.append(True)
-            rank.append(torch.sum(t[s:e] > s[s:e][torch.from_numpy(arg_target)]).data.item())
+            rank.append(torch.sum(t[s:e] >= t[s:e][torch.from_numpy(arg_target)]).item())
         else:
             found_mask.append(False)
             rank.append(e - s + 1)
@@ -362,6 +362,7 @@ if __name__ == "__main__":
                 #     hit_3 += target in top10[:3, 1]
                 #     hit_10 += target in top10[:, 1]
                 target_rank_l, found_mask = segment_rank(entity_att_score, entities, target_idx_l)
+                # print(target_rank_l)
                 hit_1 += np.sum(target_rank_l == 1)
                 hit_3 += np.sum(target_idx_l <= 3)
                 hit_10 += np.sum(target_idx_l <= 10)
@@ -370,7 +371,11 @@ if __name__ == "__main__":
                 MR_found += len(found_mask) and np.sum(target_rank_l[found_mask]) # if no subgraph contains ground truch, MR_found = 0 for this batch
                 MRR_total = np.sum(1/target_rank_l)
                 MRR_found = len(found_mask) and np.sum(1/target_rank_l[found_mask]) # if no subgraph contains ground truth, MRR_found = 0 for this batch
-            print("Not filtered: hit@1: {}, hit@3: {}, hit@10: {}, MR: {}, MRR: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
+            print("Not filtered: hit@1: {}, hit@3: {}, hit@10: {}, MR: {}, MRR: {}".format(hit_1 / num_query,
+                                                                                           hit_3 / num_query,
+                                                                                           hit_10 / num_query,
+                                                                                           MR_total / num_query,
+                                                                                           MRR_total / num_query))
             if found_cnt:
                 print("Filtered: Hits@1: {}, Hits@3: {}, Hits@10: {}, MR: {}, MRR: {}".format(hit_1 / found_cnt,
                                                                                           hit_3/found_cnt,
