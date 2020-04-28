@@ -168,7 +168,7 @@ def segment_rank(t, entities, target_idx_l):
             rank.append(torch.sum(t[s:e] >= t[s:e][torch.from_numpy(arg_target)]).item())
         else:
             found_mask.append(False)
-            rank.append(e - s + 1)
+            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
     return np.array(rank), found_mask
 
 
