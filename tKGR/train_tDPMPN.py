@@ -379,14 +379,16 @@ if __name__ == "__main__":
                 MRR_found = len(found_mask) and np.sum(
                     1 / target_rank_l[found_mask])  # if no subgraph contains ground truth, MRR_found = 0 for this batch
             print(
-                "Not filtered: hit@1: {}, hit@3: {}, hit@10: {}, MR: {}, MRR: {}, degree: {}".format(hit_1 / num_query,
-                                                                                                     hit_3 / num_query,
-                                                                                                     hit_10 / num_query,
-                                                                                                     MR_total / num_query,
-                                                                                                     MRR_total / num_query,
-                                                                                                     mean_degree / num_query))
+                "Raw performance: Hits@1: {}, Hits@3: {}, Hits@10: {}, Hits@Inf: {}, MR: {}, MRR: {}, degree: {}".format(
+                    hit_1 / num_query,
+                    hit_3 / num_query,
+                    hit_10 / num_query,
+                    found_cnt / num_query,
+                    MR_total / num_query,
+                    MRR_total / num_query,
+                    mean_degree / num_query))
             if found_cnt:
-                print("Filtered: Hits@1: {}, Hits@3: {}, Hits@10: {}, MR: {}, MRR: {}, degree: {}".format(
+                print("Among Hits@Inf: Hits@1: {}, Hits@3: {}, Hits@10: {}, MR: {}, MRR: {}, degree: {}".format(
                     hit_1 / found_cnt,
                     hit_3 / found_cnt,
                     hit_10 / found_cnt,
