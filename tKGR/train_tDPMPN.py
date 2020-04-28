@@ -375,8 +375,8 @@ if __name__ == "__main__":
                 MR_total += np.sum(target_rank_l)
                 MR_found += len(found_mask) and np.sum(
                     target_rank_l[found_mask])  # if no subgraph contains ground truch, MR_found = 0 for this batch
-                MRR_total = np.sum(1 / target_rank_l)
-                MRR_found = len(found_mask) and np.sum(
+                MRR_total += np.sum(1 / target_rank_l)
+                MRR_found += len(found_mask) and np.sum(
                     1 / target_rank_l[found_mask])  # if no subgraph contains ground truth, MRR_found = 0 for this batch
             print(
                 "Raw performance: Hits@1: {}, Hits@3: {}, Hits@10: {}, Hits@Inf: {}, MR: {}, MRR: {}, degree: {}".format(
