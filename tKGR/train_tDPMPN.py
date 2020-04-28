@@ -83,7 +83,7 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, 
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
     neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
     if args.timer:
-    	tc['data']['load_data'] += time.time() - t_start
+        tc['data']['load_data'] += time.time() - t_start
     return np.concatenate([events, neg_obj_idx], axis=1)
 
 
@@ -147,6 +147,31 @@ def segment_topk(t, segment_idx, k, sorted=False):
     return values, indices
 
 
+def segment_rank(t, entities, target_idx_l):
+    """
+    compute rank of ground truth (target_idx_l) in prediction according to score, i.e. t
+    :param t: prediction score
+    :param entities: 2-d numpy array, (segment_idx, entity_idx)
+    :param target_idx_l: 1-d numpy array, (batch_size, )
+    :return:
+    """
+    mask = entities[0, 1:] != entities[0, :-1]
+    key_idx = np.concatenate([np.array([0], dtype=np.int32),
+                              np.arange(1, len(entities))[mask],
+                              np.array([len(entities)])])
+    rank = []
+    found_mask = []
+    for i, (s, e) in enumerate(zip(key_idx[:-1], key_idx[1:])):
+        arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
+        if arg_target.size > 0:
+            found_mask.append(True)
+            rank.append(torch.sum(t[s:e] > s[s:e][torch.from_numpy(arg_target)]).data.item())
+        else:
+            found_mask.append(False)
+            rank.append(e - s + 1)
+    return np.array(rank), found_mask
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
 parser.add_argument('--num_neg_sampling', type=int, default=5,
@@ -159,9 +184,10 @@ parser.add_argument('--emb_dim_sm', type=int, default=32, help='smaller dimensio
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--tgan_num_neighbors', type=int, default=40, help='how many neighbors to aggregate information from, '
-                                                                  'check paper Inductive Representation Learning '
-                                                                  'for Temporal Graph for detail')
+parser.add_argument('--tgan_num_neighbors', type=int, default=40,
+                    help='how many neighbors to aggregate information from, '
+                         'check paper Inductive Representation Learning '
+                         'for Temporal Graph for detail')
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--sampling', type=int, default=2,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
@@ -217,7 +243,9 @@ if __name__ == "__main__":
         time_cost['data']['ngh'] = time.time() - t_start
 
     # construct model
-    model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm, DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device, use_TGAN=args.use_TGAN)
+    model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
+                   DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device,
+                   use_TGAN=args.use_TGAN)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
     model.TGAN.node_raw_embed.cpu()
@@ -234,73 +262,79 @@ if __name__ == "__main__":
 
         running_loss = 0.
 
-        for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
-            optimizer.zero_grad()
-            model.zero_grad()
-            model.train()
-
-            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
-            query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
-                model.initialize()
-
-            # query_time_emb.to(device)
-            # query_src_emb.to(device)
-            # query_rel_emb.to(device)
-            # attending_node_attention.to(device)
-
-            for step in range(args.DP_steps):
-                # print("{}-th DP step".format(step))
-                attending_nodes, attending_node_attention, memorized_embedding = \
-                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
-                               query_rel_emb, query_time_emb, tc=time_cost)
-            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes, tc=time_cost)
-
-            # softmax on entity attention
-            entity_att_score = segment_softmax_op_v2(entity_att_score, entities[:, 0])
-
-            one_hot_label = torch.from_numpy(
-                np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-            loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
-            if args.timer:
-                t_start = time.time()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
-            if args.timer:
-                time_cost['grad']['comp'] += time.time() - t_start
-
-            if args.timer:
-                t_start = time.time()
-            optimizer.step()
-            if args.timer:
-                time_cost['grad']['apply'] += time.time() - t_start
-
-            running_loss += loss.item()
-
-            if batch_ndx % 1 == 0:
-                print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
-                running_loss = 0.0
-            print(str_time_cost(time_cost))
-            if args.timer:
-                time_cost = reset_time_cost()
-
-            # for obj in gc.get_objects():
-            #     try:
-            #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-            #             print(type(obj), obj.size())
-            #     except:
-            #         pass
-
-        model.eval()
-        torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': loss,
-        }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
+        # for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
+        #     optimizer.zero_grad()
+        #     model.zero_grad()
+        #     model.train()
+        #
+        #     src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
+        #     model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
+        #     query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
+        #         model.initialize()
+        #
+        #     # query_time_emb.to(device)
+        #     # query_src_emb.to(device)
+        #     # query_rel_emb.to(device)
+        #     # attending_node_attention.to(device)
+        #
+        #     for step in range(args.DP_steps):
+        #         # print("{}-th DP step".format(step))
+        #         attending_nodes, attending_node_attention, memorized_embedding = \
+        #             model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+        #                        query_rel_emb, query_time_emb, tc=time_cost)
+        #     entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes,
+        #                                                              tc=time_cost)
+        #
+        #     # softmax on entity attention
+        #     entity_att_score = segment_softmax_op_v2(entity_att_score, entities[:, 0])
+        #
+        #     one_hot_label = torch.from_numpy(
+        #         np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
+        #     loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+        #     if args.timer:
+        #         t_start = time.time()
+        #     loss.backward()
+        #     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+        #     if args.timer:
+        #         time_cost['grad']['comp'] += time.time() - t_start
+        #
+        #     if args.timer:
+        #         t_start = time.time()
+        #     optimizer.step()
+        #     if args.timer:
+        #         time_cost['grad']['apply'] += time.time() - t_start
+        #
+        #     running_loss += loss.item()
+        #
+        #     if batch_ndx % 1 == 0:
+        #         print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
+        #         running_loss = 0.0
+        #     print(str_time_cost(time_cost))
+        #     if args.timer:
+        #         time_cost = reset_time_cost()
+        #
+        #     # for obj in gc.get_objects():
+        #     #     try:
+        #     #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+        #     #             print(type(obj), obj.size())
+        #     #     except:
+        #     #         pass
+        #
+        # model.eval()
+        # torch.save({
+        #     'epoch': epoch,
+        #     'model_state_dict': model.state_dict(),
+        #     'optimizer_state_dict': optimizer.state_dict(),
+        #     'loss': loss,
+        # }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
 
         if epoch % 1 == 0:
             hit_1 = hit_3 = hit_10 = 0
+            found_cnt = 0
+            MR_total = 0
+            MR_found = 0
+            MRR_total = 0
+            MRR_found = 0
             num_query = 0
 
             val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid', tc=time_cost)
@@ -321,12 +355,29 @@ if __name__ == "__main__":
                                    query_rel_emb, query_time_emb)
                 entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
 
-                _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
-                for i, target in enumerate(target_idx_l):
-                    top10 = entities[indices[i]]
-                    hit_1 += target == top10[0, 1]
-                    hit_3 += target in top10[:3, 1]
-                    hit_10 += target in top10[:, 1]
-            print("hit@1: {}, hit@3: {}, hit@10: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
+                # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
+                # for i, target in enumerate(target_idx_l):
+                #     top10 = entities[indices[i]]
+                #     hit_1 += target == top10[0, 1]
+                #     hit_3 += target in top10[:3, 1]
+                #     hit_10 += target in top10[:, 1]
+                target_rank_l, found_mask = segment_rank(entity_att_score, entities, target_idx_l)
+                hit_1 += np.sum(target_rank_l == 1)
+                hit_3 += np.sum(target_idx_l <= 3)
+                hit_10 += np.sum(target_idx_l <= 10)
+                found_cnt += np.sum(found_mask)
+                MR_total += np.sum(target_rank_l)
+                MR_found += len(found_mask) and np.sum(target_rank_l[found_mask]) # if no subgraph contains ground truch, MR_found = 0 for this batch
+                MRR_total = np.sum(1/target_rank_l)
+                MRR_found = len(found_mask) and np.sum(1/target_rank_l[found_mask]) # if no subgraph contains ground truth, MRR_found = 0 for this batch
+            print("Not filtered: hit@1: {}, hit@3: {}, hit@10: {}, MR: {}, MRR: {}".format(hit_1 / num_query, hit_3 / num_query, hit_10 / num_query))
+            if found_cnt:
+                print("Filtered: Hits@1: {}, Hits@3: {}, Hits@10: {}, MR: {}, MRR: {}".format(hit_1 / found_cnt,
+                                                                                          hit_3/found_cnt,
+                                                                                          hit_10/found_cnt,
+                                                                                          MR_found/found_cnt,
+                                                                                          MRR_found/found_cnt))
+            else:
+                print('No subgraph found the ground truth!!')
 print("finished Training")
 #     os.umask(oldmask)
