@@ -982,7 +982,6 @@ class AttentionFlow(nn.Module):
             n_dims_sm -- int, smaller than n_dims to reduce the compuation consumption of calculating attention score
         """
         super(AttentionFlow, self).__init__()
-        self.n_dims = n_dims_sm
 
         self.proj = nn.Linear(n_dims, n_dims_sm)
         self.transition_fn = G(5 * n_dims_sm, 5 * n_dims_sm, n_dims_sm)
