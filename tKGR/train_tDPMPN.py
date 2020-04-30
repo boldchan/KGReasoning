@@ -42,6 +42,20 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
+def load_checkpoint(model, optimizer, checkpoint_dir):
+    if os.path.isfile(checkpoint_dir):
+        print("=> loading checkpoint '{}'".format(checkpoint_dir))
+        checkpoint = torch.load(checkpoint_dir)
+        start_epoch = checkpoint['epoch']
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print("=> loaded checkpoint '{}' (epoch {})".format(checkpoint_dir, checkpoint['epoch']))
+    else:
+        raise IOError("=> no checkpoint found at '{}'".format(checkpoint_dir))
+
+    return model, optimizer, start_epoch
+
+
 def reset_time_cost():
     return {'model': defaultdict(float), 'graph': defaultdict(float), 'grad': defaultdict(float),
             'data': defaultdict(float)}
@@ -252,7 +266,13 @@ if __name__ == "__main__":
     model.TGAN.edge_raw_embed.cpu()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    for epoch in range(args.epoch):
+    start_epoch = 0
+
+    if args.load_checkpoint is not None:
+        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
+        start_epoch += 1
+
+    for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
         # load data
         train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
