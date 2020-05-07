@@ -215,6 +215,7 @@ parser.add_argument('--use_TGAN', action='store_true', default=None, help='use h
 args = parser.parse_args()
 
 if __name__ == "__main__":
+    print(args)
     # sys.settrace(gpu_profile)
     # check cuda
     if torch.cuda.is_available():
