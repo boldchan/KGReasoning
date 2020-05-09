@@ -1135,6 +1135,10 @@ class tDPMPN(torch.nn.Module):
             attending_node_attention, np,array -- n_attending_nodes, (1,)
             memorized_embedding, dict ((entity_id, ts): TGAN_embedding)
         """
+        print("------------------")
+        print(self.device)
+        #pdb.set_trace()
+        #assert 0
         query_src_emb = self.TGAN.get_node_emb(self.src_idx_l, self.device)
         query_rel_emb = self.TGAN.get_rel_emb(self.rel_idx_l, self.device)
         query_ts_emb = self.TGAN.time_encoder(

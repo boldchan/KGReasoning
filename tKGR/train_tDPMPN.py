@@ -41,6 +41,7 @@ np.random.seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 
 def reset_time_cost():
     return {'model': defaultdict(float), 'graph': defaultdict(float), 'grad': defaultdict(float),
@@ -86,8 +87,17 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, 
     	tc['data']['load_data'] += time.time() - t_start
     return np.concatenate([events, neg_obj_idx], axis=1)
 
-
+def collate_custom(batch):
+    transposed_data = list(zip(*batch))
+    src_idx = np.array(transposed_data[0], dtype=np.int32)
+    rel_idx = np.array(transposed_data[1], dtype=np.int32)
+    target_idx = np.array(transposed_data[2], dtype=np.int32)
+    ts = np.array(transposed_data[3], dtype=np.int32)
+    neg_idx = np.array(transposed_data[4:-1], dtype=np.int32).T
+    event_idx = np.array(transposed_data[-1], dtype=np.int32)
+    return src_idx, rel_idx, target_idx, ts, neg_idx, event_idx
 # help Module for custom Dataloader
+"""
 class SimpleCustomBatch:
     def __init__(self, data):
         transposed_data = list(zip(*data))
@@ -106,8 +116,17 @@ class SimpleCustomBatch:
         self.neg_idx = self.neg_idx.pin_memory()
         self.ts = self.ts.pin_memory()
         self.event_idx = self.event_idx.pin_memory()
-
         return self
+    
+    def cuda(self):
+        self.src_idx.cuda()
+        self.rel_idx.to(device)
+        self.target_idx.to(device)
+        self.ts.to(device)
+        self.neg_idx.to(device)
+        self.event_idx.to(device)
+"""
+
 
 
 def collate_wrapper(batch):
@@ -174,6 +193,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 args = parser.parse_args()
 
 if __name__ == "__main__":
+    #pdb.set_trace()
     # sys.settrace(gpu_profile)
     # check cuda
     if torch.cuda.is_available():
@@ -216,8 +236,15 @@ if __name__ == "__main__":
         time_cost['data']['ngh'] = time.time() - t_start
 
     # construct model
+    #pdb.set_trace()
+    device = 'cuda:1,0'
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm, DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
+    #print("Let's use", torch.cuda.device_count(), "GPUs!")
+
+    #print(device)
+    #pdb.set_trace()
+    model = torch.nn.DataParallel(model, device_ids=[0,1])
     model.to(device)
     # model.TGAN.node_raw_embed.cpu()
     # model.TGAN.edge_raw_embed.cpu()
@@ -228,20 +255,23 @@ if __name__ == "__main__":
         # load data
         train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
                                       start_time=args.warm_start_time, tc=time_cost)
-        train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+        print("train_inputs:", train_inputs)
+        train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_custom,
                                        pin_memory=False, shuffle=True)
-
+        #train_data_loader = train_data_loader.cuda()
         running_loss = 0.
 
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
+
             optimizer.zero_grad()
             model.zero_grad()
             model.train()
 
-            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
+            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample[0], sample[1], \
+                                                             sample[2], sample[3]
+            model.module.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
             query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
-                model.initialize()
+                model.module.initialize()
 
             # query_time_emb.to(device)
             # query_src_emb.to(device)
@@ -251,9 +281,9 @@ if __name__ == "__main__":
             for step in range(args.DP_steps):
                 # print("{}-th DP step".format(step))
                 attending_nodes, attending_node_attention, memorized_embedding = \
-                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                    model.module.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
                                query_rel_emb, query_time_emb, tc=time_cost)
-            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes, tc=time_cost)
+            entity_att_score, entities = model.module.get_entity_attn_score(attending_node_attention, attending_nodes, tc=time_cost)
 
             # softmax on entity attention
             entity_att_score = segment_softmax_op_v2(entity_att_score, entities[:, 0])
@@ -303,22 +333,23 @@ if __name__ == "__main__":
             num_query = 0
 
             val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid', tc=time_cost)
-            val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+            val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_custom,
                                          pin_memory=False, shuffle=True)
-
+            #val_data_loader = val_data_loader.cuda()
             for batch_ndx, sample in enumerate(val_data_loader):
+
                 model.eval()
 
-                src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
+                src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample[0], sample[1], sample[2], sample[3]
                 num_query += len(src_idx_l)
 
-                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
-                query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
+                model.module.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
+                query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.module.initialize()
                 for step in range(args.DP_steps):
                     attending_nodes, attending_node_attention, memorized_embedding = \
-                        model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                        model.module.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
                                    query_rel_emb, query_time_emb)
-                entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
+                entity_att_score, entities = model.module.get_entity_attn_score(attending_node_attention, attending_nodes)
 
                 _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
                 for i, target in enumerate(target_idx_l):
