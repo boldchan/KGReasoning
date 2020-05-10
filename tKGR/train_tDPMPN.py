@@ -30,6 +30,7 @@ from utils import Data, NeighborFinder, Measure, save_config
 from module import tDPMPN, segment_softmax_op_v2
 import config
 import local_config
+from segment import *
 
 # from gpu_profile import gpu_profile
 
