@@ -187,29 +187,6 @@ def segment_rank(t, entities, target_idx_l):
     return np.array(rank), found_mask
 
 
-def segment_norm_l1(logits, segment_ids, tc=None):
-    device = logits.get_device()
-    if device == -1:
-        device = torch.device('cpu')
-    else:
-        device = torch.device('cuda:{}'.format(device))
-
-    len_logits = len(segment_ids)
-    if tc:
-        t_start = time.time()
-    sparse_index_np = _segment_id2sparse_block_diag_matrix_coordinate(segment_ids)
-    if tc:
-        tc['model']['DP_attn_softmax_trans_matrix'] = time.time() - t_start
-    sparse_index = torch.LongTensor(sparse_index_np)
-    sparse_value = torch.ones(sparse_index_np.shape[1], dtype=torch.float)
-
-    trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value,
-                                                      torch.Size([len_logits, len_logits])).to(device)
-
-    norm_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, logits.unsqueeze(1)))
-    return logits / norm_den
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
 parser.add_argument('--num_neg_sampling', type=int, default=5,
