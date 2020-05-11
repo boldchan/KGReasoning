@@ -19,7 +19,7 @@ def _segment_id2sparse_block_diag_matrix_coordinate(segment_ids):
     Attention!: But we don't return the matrix, we return the index of nonzero in this matrix
     in the form of a numpy array of shape 2 x N, first row is row index, second row is col index
     """
-    mask = segment_ids[:-1] == segment_ids[1:]
+    mask = segment_ids[:-1] != segment_ids[1:]
     segment_start = np.concatenate([np.array([0]),
                                     np.arange(1, len(segment_ids))[mask],
                                     np.array([len(segment_ids)])])
@@ -177,6 +177,10 @@ def segment_softmax_op_v2(logits, segment_ids, tc=None):
 
 
 def segment_norm_l1(logits, segment_ids, tc=None):
+    """
+    logits: Tensor 1d
+    segment_ids: numpy.array 1d
+    """
     device = logits.get_device()
     if device == -1:
         device = torch.device('cpu')
