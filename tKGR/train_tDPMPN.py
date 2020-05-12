@@ -213,6 +213,7 @@ parser.add_argument('--add_reverse', action='store_true', default=None, help='ad
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--use_TGAN', action='store_true', default=None, help='use hidden representation of TGAN')
+parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -232,21 +233,22 @@ if __name__ == "__main__":
     start_time = time.time()
     struct_time = time.gmtime(start_time)
 
-    if args.load_checkpoint is None:
-        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
-            struct_time.tm_year,
-            struct_time.tm_mon,
-            struct_time.tm_mday,
-            struct_time.tm_hour,
-            struct_time.tm_min,
-            struct_time.tm_sec))
-        if not os.path.exists(CHECKPOINT_PATH):
-            os.makedirs(CHECKPOINT_PATH, mode=0o770)
-    else:
-        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
-    print("Save checkpoints under {}".format(CHECKPOINT_PATH))
-    save_config(args, CHECKPOINT_PATH)
-    print("Log configuration under {}".format(CHECKPOINT_PATH))
+    if not args.debug:
+        if args.load_checkpoint is None:
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+                struct_time.tm_year,
+                struct_time.tm_mon,
+                struct_time.tm_mday,
+                struct_time.tm_hour,
+                struct_time.tm_min,
+                struct_time.tm_sec))
+            if not os.path.exists(CHECKPOINT_PATH):
+                os.makedirs(CHECKPOINT_PATH, mode=0o770)
+        else:
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
+        print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+        save_config(args, CHECKPOINT_PATH)
+        print("Log configuration under {}".format(CHECKPOINT_PATH))
 
     # construct NeighborFinder
     if args.timer:
@@ -312,7 +314,13 @@ if __name__ == "__main__":
 
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-            loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+            try:
+                loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+            except:
+                print(entity_att_score)
+                entity_att_score_np = entity_att_score.detach().numpy()
+                print("all entity score smaller than 1:", all(entity_att_score_np < 1))
+                print("all entity score greater than 0:", all(entity_att_score_np > 0))
             if args.timer:
                 t_start = time.time()
             loss.backward()
@@ -343,12 +351,13 @@ if __name__ == "__main__":
             #         pass
 
         model.eval()
-        torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': loss,
-        }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
+        if not args.debug:
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss,
+            }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
 
         if epoch % 1 == 0:
             hit_1 = hit_3 = hit_10 = 0

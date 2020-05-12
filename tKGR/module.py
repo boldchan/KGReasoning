@@ -722,7 +722,7 @@ def _segment_id2sparse_block_diag_matrix_coordinate(segment_ids):
     Attention!: But we don't return the matrix, we return the index of nonzero in this matrix
     in the form of a numpy array of shape 2 x N, first row is row index, second row is col index
     """
-    mask = segment_ids[:-1] == segment_ids[1:]
+    mask = segment_ids[:-1] != segment_ids[1:]
     segment_start = np.concatenate([np.array([0]),
                                     np.arange(1, len(segment_ids))[mask],
                                     np.array([len(segment_ids)])])
@@ -1386,7 +1386,13 @@ class tDPMPN(torch.nn.Module):
             else:
                 topk_node_attention, indices = torch.topk(masked_node_attention, k)
                 # pdb.set_trace()
-                res_nodes.append(masked_nodes[indices.cpu().numpy()])
+                try:
+                    res_nodes.append(masked_nodes[indices.cpu().numpy()])
+                except Exception as e:
+                    print(indices.cpu().numpy())
+                    print(max(indices.cpu().numpy()))
+                    print(str(e))
+                    raise KeyError
                 res_att.append(topk_node_attention)
         if tc:
             tc['graph']['topk'] += time.time() - t_start
