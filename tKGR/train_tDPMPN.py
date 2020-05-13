@@ -180,11 +180,45 @@ def segment_rank(t, entities, target_idx_l):
         arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
         if arg_target.size > 0:
             found_mask.append(True)
-            rank.append(torch.sum(t[s:e] >= t[s:e][torch.from_numpy(arg_target)]).item())
+            rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
         else:
             found_mask.append(False)
             rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
     return np.array(rank), found_mask
+
+
+def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre):
+    """
+    compute rank of ground truth (target_idx_l) in prediction according to score, i.e. t
+    :param queries_pre: 1d numpy array of query predicate
+    :param queries_sub: 1d numpy array of query subject
+    :param sp2o:
+    :param t: prediction score
+    :param entities: 2-d numpy array, (segment_idx, entity_idx)
+    :param target_idx_l: 1-d numpy array, (batch_size, )
+    :return:
+    """
+    mask = entities[1:, 0] != entities[:-1, 0]
+    key_idx = np.concatenate([np.array([0], dtype=np.int32),
+                              np.arange(1, len(entities))[mask],
+                              np.array([len(entities)])])
+    rank = []
+    rank_fil = []
+    found_mask = []
+    for i, (s, e) in enumerate(zip(key_idx[:-1], key_idx[1:])):
+        arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
+        if arg_target.size > 0:
+            found_mask.append(True)
+            sub, pre = queries_sub[i], queries_pre[i]
+            obj_exist = sp2o[(sub, pre)]
+            rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
+            fil = [ent not in obj_exist for ent in entities[s:e, 1]]
+            rank_fil.append(torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
+        else:
+            found_mask.append(False)
+            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
+            rank_fil.append(1e9)
+    return np.array(rank), found_mask, np.array(rank_fil)
 
 
 parser = argparse.ArgumentParser()
@@ -254,6 +288,10 @@ if __name__ == "__main__":
     if args.timer:
         t_start = time.time()
     contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
+
+    sp2o = contents.get_sp2o()
+    val_spt2o = contents.get_spt2o('valid')
+
     adj = contents.get_adj_dict()
     max_time = max(contents.data[:, 3])
     nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
@@ -361,11 +399,13 @@ if __name__ == "__main__":
 
         if epoch % 1 == 0:
             hit_1 = hit_3 = hit_10 = 0
+            hit_1_fil = hit_3_fil = hit_10_fil = 0
             found_cnt = 0
             MR_total = 0
             MR_found = 0
             MRR_total = 0
             MRR_found = 0
+            MRR_total_fil = 0
             num_query = 0
             mean_degree = 0
             mean_degree_found = 0
@@ -396,12 +436,15 @@ if __name__ == "__main__":
                 #     hit_1 += target == top10[0, 1]
                 #     hit_3 += target in top10[:3, 1]
                 #     hit_10 += target in top10[:, 1]
-                target_rank_l, found_mask = segment_rank(entity_att_score, entities, target_idx_l)
+                target_rank_l, found_mask, target_rank_fil_l = segment_rank_fil(entity_att_score, entities, target_idx_l, sp2o, src_idx_l, rel_idx_l)
                 # print(target_rank_l)
                 mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
                 hit_3 += np.sum(target_rank_l <= 3)
                 hit_10 += np.sum(target_rank_l <= 10)
+                hit_1_fil += np.sum(target_rank_fil_l == 1)
+                hit_3_fil += np.sum(target_rank_fil_l <= 3)
+                hit_10_fil += np.sum(target_rank_fil_l <= 10)
                 found_cnt += np.sum(found_mask)
                 MR_total += np.sum(target_rank_l)
                 MR_found += len(found_mask) and np.sum(
@@ -409,6 +452,13 @@ if __name__ == "__main__":
                 MRR_total += np.sum(1 / target_rank_l)
                 MRR_found += len(found_mask) and np.sum(
                     1 / target_rank_l[found_mask])  # if no subgraph contains ground truth, MRR_found = 0 for this batch
+                MRR_total_fil += np.sum(1 / target_rank_fil_l)
+            print(
+                "Filtered performance: Hits@1: {}, Hits@3: {}, Hits@10: {}, Hits@Inf: {}, MR: {}, MRR: {}, degree: {}".format(
+                    hit_1_fil / num_query,
+                    hit_3_fil / num_query,
+                    hit_10_fil / num_query,
+                    MRR_total_fil / num_query))
             print(
                 "Raw performance: Hits@1: {}, Hits@3: {}, Hits@10: {}, Hits@Inf: {}, MR: {}, MRR: {}, degree: {}".format(
                     hit_1 / num_query,
