@@ -22,7 +22,9 @@ import dgl.function as fn
 PackageDir = '/home/ubuntu/KGReasoning/tKGR'
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder
+from utils import Data
+import local_config
+save_dir = local_config.save_dir
 
 # Reproducibility
 torch.manual_seed(0)
@@ -31,6 +33,24 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 import pdb
+
+
+def load_checkpoint(model, ent_raw_embed, rel_raw_embed, ts_raw_embed, optimizer, checkpoint_dir):
+    if os.path.isfile(checkpoint_dir):
+        print("=> loading checkpoint '{}'".format(checkpoint_dir))
+        checkpoint = torch.load(checkpoint_dir)
+        start_epoch = checkpoint['epoch']
+        model.load_state_dict(checkpoint['model_state_dict'])
+        ent_raw_embed.load_state_dict(checkpoint['ent_raw_embed_state_dict'])
+        rel_raw_embed.load_state_dict(checkpoint['rel_raw_embed_state_dict'])
+        ts_raw_embed.load_state_dict(checkpoint['ts_raw_embed_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print("=> loaded checkpoint '{}' (epoch {})".format(checkpoint_dir, checkpoint['epoch']))
+    else:
+        raise IOError("=> no checkpoint found at '{}'".format(checkpoint_dir))
+
+    return model, optimizer, start_epoch
+
 
 class MultiHeadGATLayer(nn.Module):
     """
@@ -139,9 +159,9 @@ def scaled_exp(field, scale_constant):
 
     return func
 
-class GAT(nn.Module):
-    def __init__(self, G, encoder, dim_model, h, event_encoder, id2evts, num_entity, num_relation, num_neighbors=10, max_sg_num_nodes=20):
-        super(GAT, self).__init__()
+class tE2GN(nn.Module):
+    def __init__(self, G, encoder, dim_model, h, event_encoder, id2evts, num_entity, num_relation, num_neighbors=10, max_sg_num_nodes=20, device='cpu'):
+        super(tE2GN, self).__init__()
         self.G = G
         self.encoder = encoder
         self.h = h
@@ -152,6 +172,7 @@ class GAT(nn.Module):
         self.num_relation = num_relation
         self.num_neighbors = num_neighbors
         self.max_sg_num_nodes = max_sg_num_nodes
+        self.device=device
         
     def propagate_attention(self, g, eids):
         # g is DGLGraph contains selfloop
@@ -203,9 +224,12 @@ class GAT(nn.Module):
 
         sample_obj = sample_evts[:, 2]
 
-        sample_sub_embed_th = self.event_encoder.ent_raw_embed(torch.from_numpy(sample_sub).to(torch.int64))
-        sample_rel_embed_th = self.event_encoder.rel_raw_embed(torch.from_numpy(sample_rel).to(torch.int64))
-        sample_ts_embed_th = self.event_encoder.ts_raw_embed(torch.from_numpy(sample_ts[:, np.newaxis]).to(torch.int64)).squeeze(1)
+        sample_sub_embed_th = self.event_encoder.ent_raw_embed(
+            torch.from_numpy(sample_sub).to(torch.int64)).to(torch.float32).to(self.device)
+        sample_rel_embed_th = self.event_encoder.rel_raw_embed(
+            torch.from_numpy(sample_rel).to(torch.int64)).to(torch.float32).to(self.device)
+        sample_ts_embed_th = self.event_encoder.ts_raw_embed(
+            torch.from_numpy(sample_ts[:, np.newaxis]).to(torch.int64)).squeeze(1).to(torch.float32).to(self.device)
         sample_embed_cat = torch.cat([sample_sub_embed_th, sample_rel_embed_th, sample_ts_embed_th], axis=1)
         
         SG_list = self.G.subgraphs(SG_queries)
@@ -249,26 +273,26 @@ class GAT(nn.Module):
         sparse_idx_th = torch.cat([sparse_idx_th, sparse_idx_sub_th], dim=1)
         sparse_val_th = torch.cat([sparse_val_th, torch.ones(len(sample_sub))])
         
-        self.entity_flow_score = torch.sparse.FloatTensor(sparse_idx_th, sparse_val_th, torch.Size([len(SG_list), self.num_entity])).to_dense()
+        self.entity_flow_score = torch.sparse.FloatTensor(sparse_idx_th, sparse_val_th, torch.Size([len(SG_list), self.num_entity])).to_dense()/2
 #         print(self.entity_flow_score[0][torch.nonzero(self.entity_flow_score[0]).squeeze()])
         
         # print init events and flow score
-        for sg_idx, sg in enumerate(SG_list):
-            print("events in initialized subgraph {}: ".format(sg_idx))
-            for idx, evt in enumerate(sg.ndata['_ID'].numpy()):
-                quad = self.id2evts[evt]
-                print("{} : {}, {}, {}, {}: {}".format(
-                    quad,
-                    contents.id2entity[quad[0]], 
-                    contents.id2relation[quad[1]], 
-                    contents.id2entity[quad[2]], 
-                    quad[3], 
-                    sg.nodes[idx].data['flow_score'].item()))
-            print("init entity flow score:")
-            nonzero_ent = torch.nonzero(self.entity_flow_score[sg_idx], as_tuple=True)[0]
-            nonzero_ent_score = self.entity_flow_score[sg_idx][nonzero_ent]
-            for ent, score in zip(nonzero_ent.detach().numpy(), nonzero_ent_score.detach().numpy()):
-                print("{}({}): {}".format(ent, contents.id2entity[ent], score))
+#         for sg_idx, sg in enumerate(SG_list):
+#             print("events in initialized subgraph {}: ".format(sg_idx))
+#             for idx, evt in enumerate(sg.ndata['_ID'].numpy()):
+#                 quad = self.id2evts[evt]
+#                 print("{} : {}, {}, {}, {}: {}".format(
+#                     quad,
+#                     contents.id2entity[quad[0]], 
+#                     contents.id2relation[quad[1]], 
+#                     contents.id2entity[quad[2]], 
+#                     quad[3], 
+#                     sg.nodes[idx].data['flow_score'].item()))
+#             print("init entity flow score:")
+#             nonzero_ent = torch.nonzero(self.entity_flow_score[sg_idx], as_tuple=True)[0]
+#             nonzero_ent_score = self.entity_flow_score[sg_idx][nonzero_ent]
+#             for ent, score in zip(nonzero_ent.detach().numpy(), nonzero_ent_score.detach().numpy()):
+#                 print("{}({}): {}".format(ent, contents.id2entity[ent], score))
         return dgl.unbatch(bg)
         
     
@@ -353,22 +377,22 @@ class GAT(nn.Module):
                 
                 
                 new_SG_list.append(sg_exp)
-            for sg_idx, sg in enumerate(new_SG_list):
-                print("events in expanded subgraph {}: ".format(sg_idx))
-                for idx, evt in enumerate(sg.ndata['_ID'].numpy()):
-                    quad = self.id2evts[evt]
-                    print(quad, ": {}, {}, {}, {}: {}".format(
-                        contents.id2entity[quad[0]], 
-                        contents.id2relation[quad[1]], 
-                        contents.id2entity[quad[2]], 
-                        quad[3], 
-                        sg.nodes[idx].data['flow_score'].item()))
+#             for sg_idx, sg in enumerate(new_SG_list):
+#                 print("events in expanded subgraph {}: ".format(sg_idx))
+#                 for idx, evt in enumerate(sg.ndata['_ID'].numpy()):
+#                     quad = self.id2evts[evt]
+#                     print(quad, ": {}, {}, {}, {}: {}".format(
+#                         contents.id2entity[quad[0]], 
+#                         contents.id2relation[quad[1]], 
+#                         contents.id2entity[quad[2]], 
+#                         quad[3], 
+#                         sg.nodes[idx].data['flow_score'].item()))
                 
                     
                     
                 
             t_expand = time.time()
-            print('expansion:', t_expand-t0)
+#             print('expansion:', t_expand-t0)
             # update flow score, and node embedding
             bg = dgl.batch(new_SG_list, node_attrs=['event_embed', 'query_embed', 'flow_score', '_ID'])
             pre_func = self.encoder.pre_func(i, 'qkv')
@@ -379,7 +403,7 @@ class GAT(nn.Module):
                 
             
             t_update = time.time()
-            print('update:', t_update-t_expand)
+#             print('update:', t_update-t_expand)
             # pruning
             SG_list = dgl.unbatch(bg)
             pruned_SG_nodes_indices = []
@@ -421,16 +445,16 @@ class GAT(nn.Module):
 
 #                     SG_list[sg_idx] = sg
     
-                print("events in pruned subgraph {}: ".format(sg_idx))
-                for idx, evt in enumerate(pruned_SG_nodes_indices[sg_idx].numpy()):
-                    quad = self.id2evts[evt]
-                    print(quad, ": {}, {}, {}, {}: {}".format(
-                        contents.id2entity[quad[0]], 
-                        contents.id2relation[quad[1]], 
-                        contents.id2entity[quad[2]], 
-                        quad[3], 
-                        pruned_SG_nodes_flow_score[sg_idx][idx].item()
-                    ))
+#                 print("events in pruned subgraph {}: ".format(sg_idx))
+#                 for idx, evt in enumerate(pruned_SG_nodes_indices[sg_idx].numpy()):
+#                     quad = self.id2evts[evt]
+#                     print(quad, ": {}, {}, {}, {}: {}".format(
+#                         contents.id2entity[quad[0]], 
+#                         contents.id2relation[quad[1]], 
+#                         contents.id2entity[quad[2]], 
+#                         quad[3], 
+#                         pruned_SG_nodes_flow_score[sg_idx][idx].item()
+#                     ))
                     
                 edges = np.array([[self.id2evts[evt][2], self.id2evts[evt][0]] for evt in pruned_SG_nodes_indices[sg_idx].numpy()])
                 entity_score_transition_matrix.append(
@@ -463,23 +487,23 @@ class GAT(nn.Module):
 #                     torch.Size([self.num_entity,self.num_entity])))
                
             t_prun = time.time()
-            print('pruning:', t_prun-t_update)
+#             print('pruning:', t_prun-t_update)
             
             # update entity score
             updated_entity_flow_score = torch.cat([torch.sparse.mm(trans_sp, self.entity_flow_score[i, :].view(-1,1)).view(1,-1) 
                                                    for i, trans_sp in enumerate(entity_score_transition_matrix)])
             self.entity_flow_score = updated_entity_flow_score
              
-            for sg_idx, sg in enumerate(SG_list):
-                print("entities with non-zero flow score in subgraph {}: ".format(sg_idx))
-                nonzero_ent = torch.nonzero(self.entity_flow_score[sg_idx], as_tuple=True)[0]
-                nonzero_ent_score = self.entity_flow_score[sg_idx][nonzero_ent]
-                for ent, score in zip(nonzero_ent.detach().numpy(), nonzero_ent_score.detach().numpy()):
-                    print("{}({}): {}".format(ent, contents.id2entity[ent], score))
+#             for sg_idx, sg in enumerate(SG_list):
+#                 print("entities with non-zero flow score in subgraph {}: ".format(sg_idx))
+#                 nonzero_ent = torch.nonzero(self.entity_flow_score[sg_idx], as_tuple=True)[0]
+#                 nonzero_ent_score = self.entity_flow_score[sg_idx][nonzero_ent]
+#                 for ent, score in zip(nonzero_ent.detach().numpy(), nonzero_ent_score.detach().numpy()):
+#                     print("{}({}): {}".format(ent, contents.id2entity[ent], score))
             
             t_ent = time.time()
-            print('update entity:', t_ent-t_prun)
-            print(self.entity_flow_score[0][torch.nonzero(self.entity_flow_score[0]).squeeze()])
+#             print('update entity:', t_ent-t_prun)
+#             print(self.entity_flow_score[0][torch.nonzero(self.entity_flow_score[0]).squeeze()])
 
     
 class TimeEncode(torch.nn.Module):
@@ -540,9 +564,33 @@ class EventEncode(torch.nn.Module):
         sg_ts_embed_th = self.ts_raw_embed(torch.from_numpy(sg_ts[:, np.newaxis]).to(torch.int64)).squeeze(1)
         sg_embed_cat = torch.cat([sg_sub_embed_th, sg_rel_embed_th, sg_obj_embed_th, sg_ts_embed_th], axis=1)
         return sg_embed_cat
+    
+parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', type=str, default=None, help='specify data set')
+parser.add_argument('--dim_model', type=int, default=32, help='dimension of embedding for node, realtion and time')
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--epoch', type=int, default=20)
+parser.add_argument('--batch_size', type=int, default=16)
+parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
+parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
+parser.add_argument('--head', type=int, default=2, help='number of head')
+parser.add_argument('--num_neighbors', type=int, default=20, help='number of neighbors sampled for sampling horizon')
+parser.add_argument('--max_attended_nodes', type=int, default=20, help='max number of nodes in attending from horizon')
+parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
+parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
+args = parser.parse_args()
+
 
 if __name__ == '__main__':
-    contents = Data(dataset='ICEWS14_forecasting', add_reverse_relation=False)
+    print(args)
+
+    # check cuda
+    if torch.cuda.is_available():
+        device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
+    else:
+        device = 'cpu'
+        
+    contents = Data(dataset=args.dataset, add_reverse_relation=False)
     id2evts = {k:tuple(v) for k, v in enumerate(contents.train_data)}
     sub2evt = defaultdict(list)
     obj2evt = defaultdict(list)
@@ -565,6 +613,7 @@ if __name__ == '__main__':
         else:
             train_fil.append(i)
             
+    # construct Event Graph
     sub_sub_edges = []
     sub_sub_edges_weight = []
     for gr in sub2evt.values():
@@ -616,32 +665,62 @@ if __name__ == '__main__':
     del sub_obj_edges
     del sub_obj_edges_weight
     
-    dim_model = 128 # dimension of entity, relation and time
     dropout = 0.1
-    DP_step = 3
     head = 1
     batch_size = 128
-    num_neighbors = 20
+    num_neighbors = 10
+    max_sg_num_nodes = 20
     
     # note that there is difference between current model and TGAN: no offset for entity and relation identity in embedding
     num_entity = len(contents.id2entity)
     num_relation = len(contents.id2relation)
     
-    attn = MultiHeadGATLayer(dim_model, head)
-    ff = torch.nn.Linear(4*dim_model, 4*dim_model) # feed forward after multihead concatenatation
-    encoder = Encoder(EncoderLayer(dim_model, copy.deepcopy(attn), copy.deepcopy(ff), 0.1), DP_step) # event node embedding
-    event_encoder = EventEncode(dim_model, contents.id2entity, contents.id2relation)
-    model = GAT(G, encoder, dim_model, head, event_encoder, id2evts, num_entity, num_relation)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+    attn = MultiHeadGATLayer(args.dim_model, args.head)
+    ff = torch.nn.Linear(4*args.dim_model, 4*args.dim_model) # feed forward after multihead concatenatation
+    encoder = Encoder(EncoderLayer(args.dim_model, copy.deepcopy(attn), copy.deepcopy(ff), 0.1), args.DP_step) # event node embedding
+    event_encoder = EventEncode(args.dim_model, contents.id2entity, contents.id2relation)
+    model = tE2GN(G, encoder, args.dim_model, args.head, event_encoder, id2evts, num_entity, num_relation,
+            num_neighbors=args.num_neighbors, max_sg_num_nodes=args.max_attended_nodes, device=device)
+    model.to(device)
 
-    ent_raw_embed = torch.nn.Embedding(num_entity, dim_model)
-    rel_raw_embed = torch.nn.Embedding(num_relation, dim_model)
-    ts_raw_embed = TimeEncode(dim_model)
+    ent_raw_embed = torch.nn.Embedding(num_entity, args.dim_model)
+    rel_raw_embed = torch.nn.Embedding(num_relation, args.dim_model)
+    ts_raw_embed = TimeEncode(args.dim_model).to(device)
     
-    for epoch in range(20):
+    params = list(model.parameters()) + list(ent_raw_embed.parameters()) + list(rel_raw_embed.parameters()) + list(ts_raw_embed.parameters())
+    optimizer = torch.optim.Adam(params, lr=args.lr)
+    
+    # save configuration
+    start_time = time.time()
+    struct_time = time.gmtime(start_time)
+    
+    if not args.debug:
+        if args.load_checkpoint is None:
+            start_epoch = 0
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'E2Net', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+                struct_time.tm_year,
+                struct_time.tm_mon,
+                struct_time.tm_mday,
+                struct_time.tm_hour,
+                struct_time.tm_min,
+                struct_time.tm_sec))
+            print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+            save_config(args, CHECKPOINT_PATH)
+            print("Log configuration under {}".format(CHECKPOINT_PATH))
+            if not os.path.exists(CHECKPOINT_PATH):
+                os.makedirs(CHECKPOINT_PATH, mode=0o770)
+        else:
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'E2Net', os.path.dirname(args.load_checkpoint))
+            model, optimizer, start_epoch = load_checkpoint(
+                model, optimizer, 
+                os.path.join(save_dir, 'Checkpoints', 'E2Net', args.load_checkpoint))
+            start_epoch += 1
+            print("Load checkpoints from {}".format(args.checkpoint))
+    
+    for epoch in range(start_epoch, args.epoch):
         
         running_loss = 0.
-        for batch_idx, sample in tqdm(enumerate(DataLoader(train_fil, batch_size=batch_size, shuffle=True))):
+        for batch_idx, sample in tqdm(enumerate(DataLoader(train_fil, batch_size=args.batch_size, shuffle=True))):
             optimizer.zero_grad()
             model.zero_grad()
             model.train()
@@ -661,6 +740,21 @@ if __name__ == '__main__':
             if batch_idx % 10 == 0:
                 print('[%d, %5d] training loss: %.3f' % (epoch, batch_idx, running_loss / 10))
                 running_loss = 0.0
+                
+        model.eval()
+        model.eval()
+        if not args.debug:
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'ent_raw_embed_state_dict': ent_raw_embed.state_dict(),
+                'rel_raw_embed_state_dict': rel_raw_embed.state_dict(),
+                'ts_raw_embed_state_dict': ts_raw_embed.state_dict(),
+                'loss': loss,
+            }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
+            
+    print("finished Training")
 
     
     
