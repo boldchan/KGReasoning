@@ -4,6 +4,8 @@ from collections import defaultdict
 import itertools
 import time
 import copy
+import argparse
+import pdb
 
 import numpy as np
 np.set_printoptions(edgeitems=10)
@@ -31,8 +33,6 @@ torch.manual_seed(0)
 np.random.seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-
-import pdb
 
 
 def load_checkpoint(model, ent_raw_embed, rel_raw_embed, ts_raw_embed, optimizer, checkpoint_dir):
@@ -105,9 +105,11 @@ class Encoder(nn.Module):
         def func(nodes):
             x = nodes.data['event_embed']
             context = nodes.data['query_embed']
-            norm_x = layer.sublayer[0].norm(x)
-            norm_context = layer.sublayer[1].norm(context)
-            return layer.self_attn.get(norm_x, norm_context, fields=fields)
+            return layer.self_attn.get(x, context, fields=fields)
+
+#             norm_x = layer.sublayer[0].norm(x)
+#             norm_context = layer.sublayer[1].norm(context)
+#             return layer.self_attn.get(norm_x, norm_context, fields=fields)
         return func
     
     def post_func(self, i):
@@ -120,7 +122,7 @@ class Encoder(nn.Module):
             x, wv, z = nodes.data['event_embed'], nodes.data['wv'], nodes.data['z']
             o = layer.self_attn.get_o(wv / z)
             x = x + layer.sublayer[0].dropout(o)
-            x = layer.sublayer[0](x, layer.feed_forward)
+#             x = layer.sublayer[0](x, layer.feed_forward)
             return {'event_embed': x if i < self.N - 1 else self.norm(x)}
 #             return {'event_embed': x if i < self.N - 1 else self.norm(x),}
         return func
@@ -158,6 +160,27 @@ def scaled_exp(field, scale_constant):
         return {field: torch.exp((edges.data[field] / scale_constant).clamp(-5, 5))}
 
     return func
+
+
+# def get_independent_subgraphs(G, SG_nodes_l):
+#     SG_list = G.subgraphs(SG_nodes_l)
+#     res = []
+#     for sg in SG_list:
+#         sg_deepcopy = dgl.DGLGraph()
+#         sg_deepcopy.add_nodes(sg.number_of_nodes())
+#         sg_deepcopy.add_edges(*sg.edges())
+#         sg_deepcopy.ndata['_ID'] = sg.ndata['_ID']
+#         res.append(sg_deepcopy)
+#     return res
+
+# def get_independent_subgraph(G, SG_nodes):
+#     sg = G.subgraph(SG_nodes)
+#     sg_deepcopy = dgl.DGLGraph()
+#     sg_deepcopy.add_nodes(sg.number_of_nodes())
+#     sg_deepcopy.add_edges(*sg.edges())
+#     sg_deepcopy.ndata['_ID'] = sg.ndata['_ID']
+#     return sg_deepcopy
+    
 
 class tE2GN(nn.Module):
     def __init__(self, G, encoder, dim_model, h, event_encoder, id2evts, num_entity, num_relation, num_neighbors=10, max_sg_num_nodes=20, device='cpu'):
@@ -225,13 +248,14 @@ class tE2GN(nn.Module):
         sample_obj = sample_evts[:, 2]
 
         sample_sub_embed_th = self.event_encoder.ent_raw_embed(
-            torch.from_numpy(sample_sub).to(torch.int64)).to(torch.float32).to(self.device)
+            torch.from_numpy(sample_sub).to(torch.int64).to(self.device)).to(torch.float32)
         sample_rel_embed_th = self.event_encoder.rel_raw_embed(
-            torch.from_numpy(sample_rel).to(torch.int64)).to(torch.float32).to(self.device)
+            torch.from_numpy(sample_rel).to(torch.int64).to(self.device)).to(torch.float32)
         sample_ts_embed_th = self.event_encoder.ts_raw_embed(
-            torch.from_numpy(sample_ts[:, np.newaxis]).to(torch.int64)).squeeze(1).to(torch.float32).to(self.device)
+            torch.from_numpy(sample_ts[:, np.newaxis]).to(torch.int64).to(self.device)).squeeze(1).to(torch.float32)
         sample_embed_cat = torch.cat([sample_sub_embed_th, sample_rel_embed_th, sample_ts_embed_th], axis=1)
         
+#         SG_list = get_independent_subgraphs(self.G, SG_queries)
         SG_list = self.G.subgraphs(SG_queries)
         self.sample_query_embed = sample_embed_cat
 #         self.entity_flow_score = torch.zeros(len(queries), num_entity)
@@ -253,7 +277,8 @@ class tE2GN(nn.Module):
             sg.ndata['event_embed'] = sg_event_embed
 
             # init score
-            sg.ndata['flow_score'] = torch.ones(sg.number_of_nodes(),1,1, requires_grad=False)/sg.number_of_nodes()
+            init_flow_score = torch.ones(sg.number_of_nodes(),self.h,1, requires_grad=False)/sg.number_of_nodes()
+            sg.ndata['flow_score'] = init_flow_score.to(self.device)
             SG_list[i] = sg
             
         bg = dgl.batch(SG_list)
@@ -265,13 +290,13 @@ class tE2GN(nn.Module):
         # update entity_flow_score 
         SG_list = dgl.unbatch(bg)
         sparse_idx = np.array([[i, self.id2evts[evt][2]] for i, sg in enumerate(SG_list) for evt in sg.ndata['_ID'].numpy()])
-        sparse_idx_th = torch.from_numpy(np.transpose(sparse_idx)).to(torch.int64)
-        sparse_val_th = torch.cat([sg.ndata['flow_score'].view(-1) for sg in SG_list])
+        sparse_idx_th = torch.from_numpy(np.transpose(sparse_idx)).to(torch.int64).to(self.device)
+        sparse_val_th = torch.cat([torch.mean(sg.ndata['flow_score'], dim=-2).view(-1) for sg in SG_list])
         # init flow score for sub
         sparse_idx_sub = np.vstack([np.arange(len(sample_sub))[np.newaxis, :], sample_sub[np.newaxis, :]])
-        sparse_idx_sub_th = torch.from_numpy(sparse_idx_sub).to(torch.int64)
+        sparse_idx_sub_th = torch.from_numpy(sparse_idx_sub).to(torch.int64).to(self.device)
         sparse_idx_th = torch.cat([sparse_idx_th, sparse_idx_sub_th], dim=1)
-        sparse_val_th = torch.cat([sparse_val_th, torch.ones(len(sample_sub))])
+        sparse_val_th = torch.cat([sparse_val_th, torch.ones(len(sample_sub)).to(self.device)])
         
         self.entity_flow_score = torch.sparse.FloatTensor(sparse_idx_th, sparse_val_th, torch.Size([len(SG_list), self.num_entity])).to_dense()/2
 #         print(self.entity_flow_score[0][torch.nonzero(self.entity_flow_score[0]).squeeze()])
@@ -299,7 +324,7 @@ class tE2GN(nn.Module):
     def entity_score_update(self, edge_score, edges):
         """
         return normalized transition matrix on entity level
-        edge_score: 1d tensor (num_edges, )
+        edge_score: 2d tensor (num_edges, )
         edges: 2d numpy array (num_edges, 2)
         num_entity: int
         """
@@ -309,20 +334,27 @@ class tE2GN(nn.Module):
         entities_out = np.setdiff1d(np.arange(self.num_entity), entities_in)
         edge_u, edge_v = np.transpose(edges)
         sparse_idx = np.vstack([np.concatenate([edge_v, edge_u]), np.concatenate([edge_u, edge_v])])
-        sparse_idx_th = torch.from_numpy(sparse_idx)
+        sparse_idx_th = torch.from_numpy(sparse_idx).to(self.device)
         sub_segment_id = sparse_idx[1]
         
         val = edge_score.repeat(2)
         xv_sub, yv_sub = np.meshgrid(sub_segment_id, sub_segment_id)
-        sparse_val_sub_norm_den = torch.mm(torch.from_numpy(xv_sub==yv_sub).to(torch.float32), val.view(-1,1)).view(-1)
+        sparse_val_sub_norm_den = torch.mm(
+            torch.from_numpy(xv_sub==yv_sub).to(torch.float32).to(self.device), 
+            val.view(-1,1)).view(-1)
         # xv_obj, yv_obj = np.meshgrid(obj_segment_id, obj_segment_id)
         # sparse_val_obj_norm_den = torch.mm(torch.from_numpy(xv_obj==yv_obj).to(torch.float32), val.view(-1,1)).view(-1)
 
         sparse_val_sub2obj_th = torch.div(val, sparse_val_sub_norm_den).to(torch.float32)
         # sparse_val_obj2sub_th = torch.div(val, sparse_val_obj_norm_den).to(torch.float32)
 
-        sparse_idx_th = torch.cat([sparse_idx_th, torch.from_numpy(entities_in).repeat(2, 1), torch.from_numpy(entities_out).repeat(2,1)], dim=1)
-        sparse_val_th = torch.cat([0.8*sparse_val_sub2obj_th, 0.2*torch.ones(len(entities_in)), torch.ones(len(entities_out))])
+        sparse_idx_th = torch.cat([
+            sparse_idx_th, 
+            torch.from_numpy(entities_in).repeat(2, 1).to(self.device), 
+            torch.from_numpy(entities_out).repeat(2,1).to(self.device)], dim=1)
+        sparse_val_th = torch.cat([0.8*sparse_val_sub2obj_th, 
+                                   0.2*torch.ones(len(entities_in)).to(self.device), 
+                                   torch.ones(len(entities_out)).to(self.device)])
 #         print(sparse_idx_th.shape, sparse_val_th.shape)
         tran = torch.sparse.FloatTensor(
             sparse_idx_th, sparse_val_th, 
@@ -330,31 +362,34 @@ class tE2GN(nn.Module):
         return tran
     
     
-    def forward(self, SG_list):
+    def forward(self, SG_nodes_l, SG_event_embed, SG_query_embed, SG_flow_score):
         """
-        g: DGLGraph, preprocessed: node raw embedding from entity, relation and time embedding
-        nodes: 2-d numpy array: (node_idx, sub_idx, rel_idx, obj_idx, timestamp)
+        SG_nodes_l: list of 1d tensor
+        SG_event_embed: list of 2d tensor
+        SG_query_embed: list of 2d tensor
+        SG_flow_score: list of 2d tensor (num_nodes, num_heads)
         """
         for i in range(1, self.encoder.N):
             # dynamically expand graph
             # flow_score initialization against edge direction
             t0 = time.time()
             new_SG_list = []
-            for group_idx, sg in enumerate(SG_list):
+            for group_idx, sg_nodes in enumerate(SG_nodes_l):
                 neighbor = torch.cat([sub.layer_parent_nid(0)[-self.num_neighbors:] 
                                       for sub in dgl.contrib.sampling.sampler.NeighborSampler(
-                                          G, 1, expand_factor=10000, num_hops=1, seed_nodes = sg.ndata['_ID'], 
+                                          G, 1, expand_factor=10000, num_hops=1, seed_nodes = sg_nodes, 
                                           add_self_loop=False)])
-                sub_nodes = torch.unique(torch.cat([neighbor, sg.ndata['_ID']]))
-                sg_exp = G.subgraph(sub_nodes)
+                sub_nodes = torch.unique(torch.cat([neighbor, sg_nodes]))
+#                 sg_exp = get_independent_subgraph(self.G, sub_nodes)
+                sg_exp = self.G.subgraph(sub_nodes)
                 
                 sg_evts = np.array([[*self.id2evts[evt_idx][:-1]] for evt_idx in sub_nodes.numpy()])
                 # init node embedding
                 sg_exp.ndata['event_embed'] = self.event_encoder(sg_evts)
                 sg_exp.ndata['query_embed'] = self.sample_query_embed[group_idx].expand(sg_exp.number_of_nodes(), -1)
                 # update node embedding and flow score from previous subgraph
-                sg_exp.nodes[sg_exp.map_to_subgraph_nid(sg.ndata['_ID'])].data['event_embed'] = sg.ndata['event_embed']
-                sg_exp.nodes[sg_exp.map_to_subgraph_nid(sg.ndata['_ID'])].data['flow_score'] = sg.ndata['flow_score']
+                sg_exp.nodes[sg_exp.map_to_subgraph_nid(sg_nodes)].data['event_embed'] = SG_event_embed[group_idx]
+                sg_exp.nodes[sg_exp.map_to_subgraph_nid(sg_nodes)].data['flow_score'] = SG_flow_score[group_idx]
                 
                 # add selfloop
                 new_sg_exp = dgl.transform.add_self_loop(sg_exp)
@@ -367,8 +402,8 @@ class tE2GN(nn.Module):
                 # note that this implementation also spread flow score between nodes in the previous subgraph
                 # due to implementation difficulity
                 sg_exp_reverse = dgl.transform.reverse(sg_exp, share_ndata=True)
-                sg_exp_reverse.ndata['deg'] = sg_exp_reverse.out_degrees().view(-1,1,1)
-                sg_exp_reverse.ndata['pv_sum'] = torch.zeros(sg_exp_reverse.number_of_nodes(),1,1)
+                sg_exp_reverse.ndata['deg'] = sg_exp_reverse.out_degrees().view(-1,1,1).to(self.device)
+                sg_exp_reverse.ndata['pv_sum'] = torch.zeros(sg_exp_reverse.number_of_nodes(),1,1).to(self.device)
                 sg_exp_reverse.ndata['pv'] = sg_exp_reverse.ndata['flow_score']/sg_exp_reverse.ndata['deg']
                 
                 sg_exp_reverse.update_all(message_func=fn.copy_u('pv','pv'),reduce_func=fn.sum('pv', 'pv_sum'))
@@ -414,11 +449,11 @@ class tE2GN(nn.Module):
             entity_score_transition_matrix = []
             for sg_idx, sg in enumerate(SG_list):
                 if self.max_sg_num_nodes < sg.number_of_nodes():
-                    _, topk_indices = torch.topk(sg.ndata['flow_score'].view(-1), self.max_sg_num_nodes)
+                    _, topk_indices = torch.topk(torch.mean(sg.ndata['flow_score'], dim=-2).view(-1), self.max_sg_num_nodes)
                     topk_parent_nid = sg.ndata['_ID'][topk_indices]
                     pruned_SG_nodes_indices.append(topk_parent_nid)
                     flow_score_raw = sg.nodes[topk_indices].data['flow_score']
-                    flow_score_norm = torch.div(flow_score_raw, torch.sum(flow_score_raw))
+                    flow_score_norm = torch.div(flow_score_raw, torch.sum(flow_score_raw, dim=0, keepdim=True))
                     pruned_SG_nodes_flow_score.append(flow_score_norm)
                     pruned_SG_nodes_event_embed.append(sg.nodes[topk_indices].data['event_embed'])
                     pruned_SG_nodes_query_embed.append(sg.nodes[topk_indices].data['query_embed'])
@@ -456,10 +491,11 @@ class tE2GN(nn.Module):
 #                         pruned_SG_nodes_flow_score[sg_idx][idx].item()
 #                     ))
                     
-                edges = np.array([[self.id2evts[evt][2], self.id2evts[evt][0]] for evt in pruned_SG_nodes_indices[sg_idx].numpy()])
+                edges = np.array([[self.id2evts[evt][2], self.id2evts[evt][0]] 
+                                  for evt in pruned_SG_nodes_indices[sg_idx].numpy()])
                 entity_score_transition_matrix.append(
                     self.entity_score_update(
-                        pruned_SG_nodes_flow_score[sg_idx].squeeze(), 
+                        torch.mean(pruned_SG_nodes_flow_score[sg_idx], dim=-2).view(-1), 
                         edges))
                 
                     
@@ -490,8 +526,9 @@ class tE2GN(nn.Module):
 #             print('pruning:', t_prun-t_update)
             
             # update entity score
-            updated_entity_flow_score = torch.cat([torch.sparse.mm(trans_sp, self.entity_flow_score[i, :].view(-1,1)).view(1,-1) 
-                                                   for i, trans_sp in enumerate(entity_score_transition_matrix)])
+            updated_entity_flow_score = torch.cat([
+                torch.sparse.mm(trans_sp, self.entity_flow_score[i, :].view(-1,1)).view(1,-1) 
+                for i, trans_sp in enumerate(entity_score_transition_matrix)])
             self.entity_flow_score = updated_entity_flow_score
              
 #             for sg_idx, sg in enumerate(SG_list):
@@ -504,6 +541,10 @@ class tE2GN(nn.Module):
             t_ent = time.time()
 #             print('update entity:', t_ent-t_prun)
 #             print(self.entity_flow_score[0][torch.nonzero(self.entity_flow_score[0]).squeeze()])
+            SG_nodes_l = pruned_SG_nodes_indices
+            SG_event_embed = pruned_SG_nodes_event_embed
+            SG_query_embed = pruned_SG_nodes_query_embed
+            SG_flow_score = pruned_SG_nodes_flow_score
 
     
 class TimeEncode(torch.nn.Module):
@@ -554,19 +595,20 @@ class EventEncode(torch.nn.Module):
         """
         events_idx: 1d tensor of events
         """
+        device = next(self.ent_raw_embed.parameters()).device
         sg_sub = sg_evts[:, 0]
         sg_rel = sg_evts[:, 1]
         sg_obj = sg_evts[:, 2]
         sg_ts = sg_evts[:, 3]
-        sg_sub_embed_th = self.ent_raw_embed(torch.from_numpy(sg_sub).to(torch.int64))
-        sg_rel_embed_th = self.rel_raw_embed(torch.from_numpy(sg_rel).to(torch.int64))
-        sg_obj_embed_th = self.ent_raw_embed(torch.from_numpy(sg_obj).to(torch.int64))
-        sg_ts_embed_th = self.ts_raw_embed(torch.from_numpy(sg_ts[:, np.newaxis]).to(torch.int64)).squeeze(1)
+        sg_sub_embed_th = self.ent_raw_embed(torch.from_numpy(sg_sub).to(torch.int64).to(device))
+        sg_rel_embed_th = self.rel_raw_embed(torch.from_numpy(sg_rel).to(torch.int64).to(device))
+        sg_obj_embed_th = self.ent_raw_embed(torch.from_numpy(sg_obj).to(torch.int64).to(device))
+        sg_ts_embed_th = self.ts_raw_embed(torch.from_numpy(sg_ts[:, np.newaxis]).to(torch.int64).to(device)).squeeze(1)
         sg_embed_cat = torch.cat([sg_sub_embed_th, sg_rel_embed_th, sg_obj_embed_th, sg_ts_embed_th], axis=1)
         return sg_embed_cat
     
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, default=None, help='specify data set')
+parser.add_argument('--dataset', type=str, default='ICEWS14_forecasting', help='specify data set')
 parser.add_argument('--dim_model', type=int, default=32, help='dimension of embedding for node, realtion and time')
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
@@ -574,7 +616,8 @@ parser.add_argument('--batch_size', type=int, default=16)
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
 parser.add_argument('--head', type=int, default=2, help='number of head')
-parser.add_argument('--num_neighbors', type=int, default=20, help='number of neighbors sampled for sampling horizon')
+parser.add_argument('--dropout', type=float, default=0.1, help='dropout for encoder')
+parser.add_argument('--num_neighbors', type=int, default=10, help='number of neighbors sampled for sampling horizon')
 parser.add_argument('--max_attended_nodes', type=int, default=20, help='max number of nodes in attending from horizon')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
@@ -665,11 +708,11 @@ if __name__ == '__main__':
     del sub_obj_edges
     del sub_obj_edges_weight
     
-    dropout = 0.1
-    head = 1
-    batch_size = 128
-    num_neighbors = 10
-    max_sg_num_nodes = 20
+#     dropout = 0.1
+#     head = 1
+#     batch_size = 128
+#     num_neighbors = 10
+#     max_sg_num_nodes = 20
     
     # note that there is difference between current model and TGAN: no offset for entity and relation identity in embedding
     num_entity = len(contents.id2entity)
@@ -677,26 +720,25 @@ if __name__ == '__main__':
     
     attn = MultiHeadGATLayer(args.dim_model, args.head)
     ff = torch.nn.Linear(4*args.dim_model, 4*args.dim_model) # feed forward after multihead concatenatation
-    encoder = Encoder(EncoderLayer(args.dim_model, copy.deepcopy(attn), copy.deepcopy(ff), 0.1), args.DP_step) # event node embedding
+    encoder = Encoder(EncoderLayer(args.dim_model, copy.deepcopy(attn), copy.deepcopy(ff), args.dropout), args.DP_steps) # event node embedding
     event_encoder = EventEncode(args.dim_model, contents.id2entity, contents.id2relation)
     model = tE2GN(G, encoder, args.dim_model, args.head, event_encoder, id2evts, num_entity, num_relation,
             num_neighbors=args.num_neighbors, max_sg_num_nodes=args.max_attended_nodes, device=device)
     model.to(device)
-
-    ent_raw_embed = torch.nn.Embedding(num_entity, args.dim_model)
-    rel_raw_embed = torch.nn.Embedding(num_relation, args.dim_model)
-    ts_raw_embed = TimeEncode(args.dim_model).to(device)
     
-    params = list(model.parameters()) + list(ent_raw_embed.parameters()) + list(rel_raw_embed.parameters()) + list(ts_raw_embed.parameters())
-    optimizer = torch.optim.Adam(params, lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            print(name, ":", param.shape, param.device)
     
     # save configuration
     start_time = time.time()
     struct_time = time.gmtime(start_time)
     
+    start_epoch = 0
+    
     if not args.debug:
         if args.load_checkpoint is None:
-            start_epoch = 0
             CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'E2Net', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
                 struct_time.tm_year,
                 struct_time.tm_mon,
@@ -726,13 +768,17 @@ if __name__ == '__main__':
             model.train()
 
             SG_queries = [[ngh for ngh in sub2evt[id2evts[query][0]] 
-                       if id2evts[ngh][3] < id2evts[query][3]][-num_neighbors:]
+                       if id2evts[ngh][3] < id2evts[query][3]][-args.num_neighbors:]
                       for query in sample.numpy()]
             SG_list = model.initialize(sample, SG_queries)
+            SG_nodes_l = [sg.ndata['_ID'] for sg in SG_list]
+            SG_event_embed = [sg.ndata['event_embed'] for sg in SG_list] 
+            SG_query_embed = [sg.ndata['query_embed'] for sg in SG_list] 
+            SG_flow_score = [sg.ndata['flow_score'] for sg in SG_list]
         #     print(SG_list[0].number_of_nodes())
-            model(SG_list)
-            logits = torch.nn.Softmax(dim=1)(model.entity_flow_score)+1e-20
-            one_hot_label = torch.tensor(np.array([np.arange(num_entity) == id2evts[evt][2] for evt in sample.numpy()], dtype=np.float32))
+            model(SG_nodes_l, SG_event_embed, SG_query_embed, SG_flow_score)
+            logits = torch.nn.Softmax(dim=1)(model.entity_flow_score+1e-20)
+            one_hot_label = torch.tensor(np.array([np.arange(num_entity) == id2evts[evt][2] for evt in sample.numpy()], dtype=np.float32)).to(device)
             loss = torch.nn.BCELoss()(logits, one_hot_label)
             loss.backward()
             optimizer.step()
