@@ -36,35 +36,6 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-def calc_metric(heads, relations, prediction, targets, filter_pool, num_entity):
-    hit_1, hit_3, hit_5, hit_10, mr, mrr, max_r = 0., 0., 0., 0., 0., 0., 0.
-
-    n_preds = prediction.shape[0]
-    for i in range(n_preds):
-        head = heads[i]
-        rel = relations[i]
-        tar = targets[i]
-        pred = prediction[i]
-        fil = list(filter_pool[(head, rel)] - {tar})
-
-        sorted_idx = np.argsort(-pred)
-        mask = np.logical_not(np.isin(sorted_idx, fil))
-        sorted_idx = sorted_idx[mask]
-
-        rank = num_entity if pred[tar] == 0 else np.where(sorted_idx == tar)[0].item() + 1
-
-        if rank <= 1:
-            hit_1 += 1
-        if rank <= 3:
-            hit_3 += 1
-        if rank <= 10:
-            hit_10 += 1
-        mr += rank
-        mrr += 1. / rank
-
-    return hit_1, hit_3, hit_10, mr, mrr
-
-
 def load_checkpoint(model, ent_raw_embed, rel_raw_embed, ts_raw_embed, optimizer, checkpoint_dir):
     if os.path.isfile(checkpoint_dir):
         print("=> loading checkpoint '{}'".format(checkpoint_dir))
@@ -676,10 +647,11 @@ if __name__ == '__main__':
         obj2evt[evt[2]].append(i)
         
     # filter out event with subject appearing for the first time
+    train_set = contents.train_data
     sub_exists = [False]*len(contents.id2entity)
     train_fil = []
 
-    for i, evt in enumerate(contents.train_data):
+    for i, evt in enumerate(train_set):
         if not sub_exists[evt[0]]:
             for ngh in sub2evt[evt[0]]:
                 if id2evts[ngh][3] < evt[3]:
@@ -691,42 +663,41 @@ if __name__ == '__main__':
     valid_fil = [i for i in range(len(contents.train_data), len(train_valid_data))]
             
     # construct Event Graph
-    
     sub_sub_edges = []
     sub_sub_edges_weight = []
     for gr in sub2evt.values():
         for i, j in itertools.combinations(gr, r=2):
-            if train_valid_data[j, 3] - train_valid_data[i,3] >= 0:
+            if contents.train_data[j, 3]-contents.train_data[i,3] >= 0:
                 sub_sub_edges.append((i, j))
-                sub_sub_edges_weight.append(train_valid_data[j,3]-train_valid_data[i,3])
+                sub_sub_edges_weight.append(contents.train_data[j,3]-contents.train_data[i,3])
 
     obj_obj_edges = []
     obj_obj_edges_weight = []
     for gr in obj2evt.values():
         for i, j in itertools.combinations(gr, r=2):
-            if train_valid_data[j, 3] - train_valid_data[i, 3] >= 0:
+            if contents.train_data[j, 3] - contents.train_data[i, 3] >= 0:
                 obj_obj_edges.append((i,j))
-                obj_obj_edges_weight.append(train_valid_data[j, 3] - train_valid_data[i, 3])
+                obj_obj_edges_weight.append(contents.train_data[j, 3] - contents.train_data[i, 3])
 
     sub_obj_edges = []
     sub_obj_edges_weight = []
     for sub, sub_evt in sub2evt.items():
         for i, j in itertools.product(sub_evt, obj2evt[sub]):
-            if train_valid_data[j,3] > train_valid_data[i,3]: # this relation doesn't exist when two events happen simultaneously
+            if contents.train_data[j,3] > contents.train_data[i,3]: # this relation doesn't exist when two events happen simultaneously
                 sub_obj_edges.append((i, j))
-                sub_obj_edges_weight.append(train_valid_data[j,3]-train_valid_data[i,3])
+                sub_obj_edges_weight.append(contents.train_data[j,3]-contents.train_data[i,3])
 
     obj_sub_edges = []
     obj_sub_edges_weight = []
     for obj, obj_evt in obj2evt.items():
         for i, j in itertools.product(obj_evt, sub2evt[obj]):
-            if train_valid_data[j,3] > train_valid_data[i,3]: # this relation doesn't exist when two events happen simultaneously
+            if contents.train_data[j,3] > contents.train_data[i,3]: # this relation doesn't exist when two events happen simultaneously
                 obj_sub_edges.append((i, j))
-                obj_sub_edges_weight.append(train_valid_data[j,3]-train_valid_data[i,3])
+                obj_sub_edges_weight.append(contents.train_data[j,3]-contents.train_data[i,3])
                 
     # edge point from event happen earlier to later
     G = dgl.DGLGraph()
-    G.add_nodes(len(train_valid_data)+1)
+    G.add_nodes(len(contents.train_data)+1)
     edges = sub_sub_edges + obj_obj_edges + sub_obj_edges + obj_sub_edges
     temp = np.array(edges)
     u,v = temp[:, 0], temp[:, 1]
@@ -742,6 +713,12 @@ if __name__ == '__main__':
     del obj_sub_edges_weight
     del sub_obj_edges
     del sub_obj_edges_weight
+    
+#     dropout = 0.1
+#     head = 1
+#     batch_size = 128
+#     num_neighbors = 10
+#     max_sg_num_nodes = 20
     
     # note that there is difference between current model and TGAN: no offset for entity and relation identity in embedding
     num_entity = len(contents.id2entity)
@@ -811,11 +788,11 @@ if __name__ == '__main__':
             # logits = torch.nn.Softmax(dim=1)(model.entity_flow_score+1e-20)
             logits = torch.div(model.entity_flow_score+1e-20, torch.sum(model.entity_flow_score+1e-20, dim=-1, keepdim=True))
             one_hot_label = torch.tensor(np.array([np.arange(num_entity) == id2evts[evt][2] for evt in sample.numpy()], dtype=np.float32)).to(device)
-            loss = torch.mean(torch.sum(torch.nn.BCELoss(reduction='none')(logits, one_hot_label), dim=-1))
+            loss = torch.nn.BCELoss(reduction='none')(logits, one_hot_label)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-            if batch_idx % 10 == 9:
+            if batch_idx % 10 == 0:
                 print('[%d, %5d] training loss: %.3f' % (epoch, batch_idx, running_loss / 10))
                 running_loss = 0.0
                 
@@ -864,7 +841,6 @@ if __name__ == '__main__':
                 mr/num_query,
                 mrr/num_query))
                  
-            
     print("finished Training")
 
     
