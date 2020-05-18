@@ -454,7 +454,7 @@ if __name__ == "__main__":
                     1 / target_rank_l[found_mask])  # if no subgraph contains ground truth, MRR_found = 0 for this batch
                 MRR_total_fil += np.sum(1 / target_rank_fil_l)
             print(
-                "Filtered performance: Hits@1: {}, Hits@3: {}, Hits@10: {}, Hits@Inf: {}, MR: {}, MRR: {}, degree: {}".format(
+                "Filtered performance: Hits@1: {}, Hits@3: {}, Hits@10: {}, MRR: {}".format(
                     hit_1_fil / num_query,
                     hit_3_fil / num_query,
                     hit_10_fil / num_query,
