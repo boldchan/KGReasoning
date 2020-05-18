@@ -777,9 +777,10 @@ if __name__ == '__main__':
             SG_flow_score = [sg.ndata['flow_score'] for sg in SG_list]
         #     print(SG_list[0].number_of_nodes())
             model(SG_nodes_l, SG_event_embed, SG_query_embed, SG_flow_score)
-            logits = torch.nn.Softmax(dim=1)(model.entity_flow_score+1e-20)
+            # logits = torch.nn.Softmax(dim=1)(model.entity_flow_score+1e-20)
+            logits = torch.div(model.entity_flow_score+1e-20, torch.sum(model.entity_flow_score+1e-20, dim=-1, keepdim=True))
             one_hot_label = torch.tensor(np.array([np.arange(num_entity) == id2evts[evt][2] for evt in sample.numpy()], dtype=np.float32)).to(device)
-            loss = torch.nn.BCELoss()(logits, one_hot_label)
+            loss = torch.nn.BCELoss(reduction='none')(logits, one_hot_label)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -787,7 +788,6 @@ if __name__ == '__main__':
                 print('[%d, %5d] training loss: %.3f' % (epoch, batch_idx, running_loss / 10))
                 running_loss = 0.0
                 
-        model.eval()
         model.eval()
         if not args.debug:
             torch.save({

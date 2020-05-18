@@ -359,6 +359,7 @@ if __name__ == "__main__":
                 entity_att_score_np = entity_att_score.detach().numpy()
                 print("all entity score smaller than 1:", all(entity_att_score_np < 1))
                 print("all entity score greater than 0:", all(entity_att_score_np > 0))
+                raise ValueError("Check if entity score in (0,1)")
             if args.timer:
                 t_start = time.time()
             loss.backward()
