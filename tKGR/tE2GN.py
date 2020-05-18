@@ -24,8 +24,9 @@ import dgl.function as fn
 PackageDir = '/home/ubuntu/KGReasoning/tKGR'
 sys.path.insert(1, PackageDir)
 
-from utils import Data
+from utils import Data, save_config
 import local_config
+
 save_dir = local_config.save_dir
 
 # Reproducibility
@@ -663,13 +664,13 @@ if __name__ == '__main__':
         device = 'cpu'
         
     contents = Data(dataset=args.dataset, add_reverse_relation=False)
-    id2evts = {k:tuple(v) for k, v in enumerate(contents.train_data)}
+    train_valid_data = np.concatenate([contents.train_data, contents.valid_data_seen_entity], axis=0)
+    sp2o = contents.get_sp2o()
+    
+    id2evts = {k:tuple(v) for k, v in enumerate(train_valid_data)}
     sub2evt = defaultdict(list)
     obj2evt = defaultdict(list)
-    
-    sp2o = contents.get_sp2o()
 
-    train_valid_data = np.concatenate([contents.train_data, contents.valid_data_seen_entity], axis=0)
     for i, evt in enumerate(train_valid_data):
         sub2evt[evt[0]].append(i)
         obj2evt[evt[2]].append(i)
@@ -686,6 +687,8 @@ if __name__ == '__main__':
                     break
         else:
             train_fil.append(i)
+            
+    valid_fil = [i for i in range(len(contents.train_data), len(train_valid_data))]
             
     # construct Event Graph
     
@@ -765,25 +768,27 @@ if __name__ == '__main__':
     
     if not args.debug:
         if args.load_checkpoint is None:
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'E2Net', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'tE2Net', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
                 struct_time.tm_year,
                 struct_time.tm_mon,
                 struct_time.tm_mday,
                 struct_time.tm_hour,
                 struct_time.tm_min,
                 struct_time.tm_sec))
-            print("Save checkpoints under {}".format(CHECKPOINT_PATH))
-            save_config(args, CHECKPOINT_PATH)
-            print("Log configuration under {}".format(CHECKPOINT_PATH))
             if not os.path.exists(CHECKPOINT_PATH):
                 os.makedirs(CHECKPOINT_PATH, mode=0o770)
         else:
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'E2Net', os.path.dirname(args.load_checkpoint))
-            model, optimizer, start_epoch = load_checkpoint(
-                model, optimizer, 
-                os.path.join(save_dir, 'Checkpoints', 'E2Net', args.load_checkpoint))
-            start_epoch += 1
-            print("Load checkpoints from {}".format(args.checkpoint))
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'tE2Net', os.path.dirname(args.load_checkpoint))
+        print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+        save_config(args, CHECKPOINT_PATH)
+        print("Log configuration under {}".format(CHECKPOINT_PATH))
+        
+    if args.load_checkpoint:
+        model, optimizer, start_epoch = load_checkpoint(
+            model, optimizer, 
+            os.path.join(save_dir, 'Checkpoints', 'tE2Net', args.load_checkpoint))
+        start_epoch += 1
+        print("Load checkpoints from {}".format(args.checkpoint))
     
     for epoch in range(start_epoch, args.epoch):
         
@@ -831,7 +836,7 @@ if __name__ == '__main__':
             num_query = 0
             
             for batch_idx, sample in enumerate(DataLoader(
-                contents.valid_data_seen_entity, batch_size=args.batch_size, shuffle=True)):
+                valid_filter, batch_size=args.batch_size, shuffle=True)):
                 
                 SG_queries = [[ngh for ngh in sub2evt[id2evts[query][0]] 
                        if id2evts[ngh][3] < id2evts[query][3]][-args.num_neighbors:]
