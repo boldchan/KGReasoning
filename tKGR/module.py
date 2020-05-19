@@ -1240,7 +1240,7 @@ class tDPMPN(torch.nn.Module):
         #         sum(selected_node[:, 0] == i),
         #         sum(new_node_attention[selected_node[:, 0] == i])))
 
-        return selected_node, new_node_attention, memorized_embedding
+        return selected_node, new_node_attention, memorized_embedding, selected_edges
 
     def get_entity_attn_score(self, logits, nodes, tc=None):
         if tc:

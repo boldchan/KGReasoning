@@ -825,9 +825,6 @@ if __name__ == '__main__':
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'ent_raw_embed_state_dict': ent_raw_embed.state_dict(),
-                'rel_raw_embed_state_dict': rel_raw_embed.state_dict(),
-                'ts_raw_embed_state_dict': ts_raw_embed.state_dict(),
                 'loss': loss,
             }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
         if epoch % 1 == 0:
@@ -836,7 +833,7 @@ if __name__ == '__main__':
             num_query = 0
             
             for batch_idx, sample in enumerate(DataLoader(
-                valid_filter, batch_size=args.batch_size, shuffle=True)):
+                valid_fil, batch_size=args.batch_size, shuffle=True)):
                 
                 SG_queries = [[ngh for ngh in sub2evt[id2evts[query][0]] 
                        if id2evts[ngh][3] < id2evts[query][3]][-args.num_neighbors:]

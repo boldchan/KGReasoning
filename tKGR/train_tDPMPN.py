@@ -345,7 +345,7 @@ if __name__ == "__main__":
 
             for step in range(args.DP_steps):
                 # print("{}-th DP step".format(step))
-                attending_nodes, attending_node_attention, memorized_embedding = \
+                attending_nodes, attending_node_attention, memorized_embedding, _ = \
                     model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
                                query_rel_emb, query_time_emb, tc=time_cost)
             entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes,
