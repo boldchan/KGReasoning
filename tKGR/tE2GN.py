@@ -45,7 +45,7 @@ def calc_metric(heads, relations, prediction, targets, filter_pool, num_entity):
         rel = relations[i]
         tar = targets[i]
         pred = prediction[i]
-        fil = list(filter_pool[(head, rel)] - {tar})
+        fil = list(set(filter_pool[(head, rel)]) - {tar})
 
         sorted_idx = np.argsort(-pred)
         mask = np.logical_not(np.isin(sorted_idx, fil))
@@ -838,15 +838,17 @@ if __name__ == '__main__':
                 SG_queries = [[ngh for ngh in sub2evt[id2evts[query][0]] 
                        if id2evts[ngh][3] < id2evts[query][3]][-args.num_neighbors:]
                       for query in sample.numpy()]
-                num_query += len(SG_query)
+                num_query += len(SG_queries)
                 SG_list = model.initialize(sample, SG_queries)
                 SG_nodes_l = [sg.ndata['_ID'] for sg in SG_list]
                 SG_event_embed = [sg.ndata['event_embed'] for sg in SG_list] 
                 SG_query_embed = [sg.ndata['query_embed'] for sg in SG_list] 
                 SG_flow_score = [sg.ndata['flow_score'] for sg in SG_list]
                 model(SG_nodes_l, SG_event_embed, SG_query_embed, SG_flow_score)
-                sample_np = sample.numpy()
-                hit_1_batch, hit_3_batch, hit_10_batch, mr_batch, mrr_batch = calc_metric(sample_np[:, 0], sample_np[:, 1], model.entity_flow_score.detach().numpy(), sample_np[:, 2], sp2o, num_entity)
+                sample_src = np.array([id2evts[evt][0] for evt in sample.numpy()])
+                sample_rel = np.array([id2evts[evt][1] for evt in sample.numpy()])
+                sample_tar = np.array([id2evts[evt][2] for evt in sample.numpy()])
+                hit_1_batch, hit_3_batch, hit_10_batch, mr_batch, mrr_batch = calc_metric(sample_src, sample_rel, model.entity_flow_score.detach().cpu().numpy(), sample_tar, sp2o, num_entity)
                 hit_1 += hit_1_batch
                 hit_3 += hit_3_batch
                 hit_10 += hit_10_batch
