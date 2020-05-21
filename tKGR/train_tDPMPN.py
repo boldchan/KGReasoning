@@ -215,7 +215,7 @@ def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, 
             obj_exist_t = spt2o[(sub, pre)]
             rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
             fil = [ent not in obj_exist for ent in entities[s:e, 1]]
-            fil_t = [ent not in obj_exist_t for ent in entities[s:1, 1]]
+            fil_t = [ent not in obj_exist_t for ent in entities[s:e, 1]]
             rank_fil.append(torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
             rank_fil_t.append(torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
         else:
@@ -443,7 +443,7 @@ if __name__ == "__main__":
                 #     hit_1 += target == top10[0, 1]
                 #     hit_3 += target in top10[:3, 1]
                 #     hit_10 += target in top10[:, 1]
-                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score, entities, target_idx_l, sp2o, val_spt2o, src_idx_l, rel_idx_l)
+                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score, entities, target_idx_l, sp2o, src_idx_l, rel_idx_l, val_spt2o)
                 # print(target_rank_l)
                 mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
