@@ -801,7 +801,7 @@ def segment_sum(logits, segment_ids, keep_length=True):
     logits_len = len(segment_ids)
     num_segments = max(segment_ids) + 1
 
-    # calculate summation of exponential of logits value for each group
+    # calculate summation of logits value for each group
     sparse_index = torch.LongTensor(np.stack([segment_ids, np.arange(logits_len)]))
     sparse_value = torch.ones(logits_len, dtype=torch.float)
     trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
@@ -810,7 +810,7 @@ def segment_sum(logits, segment_ids, keep_length=True):
     if not keep_length:
         return seg_sum
 
-    # repeat softmax denominator to have the same length as logits
+    # repeat denominator to have the same length as logits
     sparse_index2 = torch.LongTensor(np.stack([np.arange(logits_len), segment_ids]))
     sparse_value2 = torch.ones(logits_len, dtype=torch.float)
     trans_matrix_sparse2 = torch.sparse.FloatTensor(sparse_index2, sparse_value2,
@@ -878,6 +878,32 @@ def segment_softmax_op_v2(logits, segment_ids, tc=None):
         tc['model']['DP_attn_softmax_v2'] += time.time() - t_start
     return out
 
+
+def aggregate_op_node_score_repre(repre, logits, target_ids):
+    num_targets = len(set(target_ids[:, 1]))
+    num_eg = len(set(target_ids[:, 0]))
+    assert np.max(target_ids[:, 1]) + 1 == num_targets
+    assert 0 in target_ids[:, 1]
+    assert np.max(target_ids[:, 0]) + 1 == num_eg
+    assert 0 in target_ids[:, 0]
+
+    device = logits.get_device()
+    if device == -1:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda:{}'.format(device))
+
+    logits_eg_sum = segment_sum(logits, target_ids[:, 0], keep_length=True)
+    logits = logits / logits_eg_sum
+
+    logits_len = len(target_ids)
+    sparse_index = torch.LongTensor(np.stack([target_ids[:, 1], np.arange(logits_len)]))
+    sparse_value = torch.ones(logits_len, dtype=torch.float)
+    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                   torch.Size([num_targets, logits_len])).to(device)
+    logits_seg_sum = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1)))
+    logits_seg_aggr = torch.sparse.mm(trans_matrix_sparse, repre)
+    return logits_seg_sum, logits_seg_aggr
 
 def aggregate_op_node(logits, target_ids, tc):
     """aggregate attention score of same node, i.e. same (eg_idx, v, t)
@@ -1006,7 +1032,7 @@ class AttentionFlow(nn.Module):
         return np.stack([eg_idx_l, src_idx_l, cut_time_l], axis=1), torch.from_numpy(att_score).to(self.device)
 
     def forward(self, node_attention, selected_edges=None, memorized_embedding=None, rel_emb=None,
-                query_src_emb=None, query_rel_emb=None, query_time_emb=None, training=None, tc=None):
+                query_src_emb=None, query_rel_emb=None, query_time_emb=None, training=None, tc=None, selected_node=None):
         """calculate attention score
 
         Arguments:
@@ -1032,13 +1058,13 @@ class AttentionFlow(nn.Module):
 
         rel_emb = self.proj(rel_emb)
 
-        hidden_vi = torch.stack([memorized_embedding[(e, t)] for e, t in selected_edges[:, [1, 2]]], dim=0).to(
+        hidden_vi_orig = torch.stack([memorized_embedding[(e, t)] for e, t in selected_edges[:, [1, 2]]], dim=0).to(
             self.device)
-        hidden_vj = torch.stack([memorized_embedding[(e, t)] for e, t in selected_edges[:, [3, 4]]], dim=0).to(
+        hidden_vj_orig = torch.stack([memorized_embedding[(e, t)] for e, t in selected_edges[:, [3, 4]]], dim=0).to(
             self.device)
 
-        hidden_vi = self.proj(hidden_vi)
-        hidden_vj = self.proj(hidden_vj)
+        hidden_vi = self.proj(hidden_vi_orig)
+        hidden_vj = self.proj(hidden_vj_orig)
 
         if tc:
             t_proj = time.time()
@@ -1063,11 +1089,16 @@ class AttentionFlow(nn.Module):
         t_transition = time.time()
 
         attending_node_attention = transition_logits * node_attention
+        updated_node_representation = transition_logits * hidden_vi_orig
         softmax_node_attention = segment_softmax_op_v2(attending_node_attention, selected_edges[:, 6], tc=tc)
         if tc:
             t_softmax = time.time()
 
-        new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]], tc)
+        # new_node_attention = aggregate_op_node(softmax_node_attention, selected_edges[:, [0, 7]], tc)
+        new_node_attention, new_node_representation = aggregate_op_node_score_repre(updated_node_representation, softmax_node_attention, selected_edges[:, [0, 7]])
+        new_node_representation_dict = {selected_node[i]: repre for i, repre in enumerate(new_node_representation)}
+        memorized_embedding.update(new_node_representation_dict)
+
 
         if tc:
             tc['model']['DP_attn_aggr'] += time.time() - t_softmax
@@ -1227,7 +1258,7 @@ class tDPMPN(torch.nn.Module):
                                            rel_emb=rel_emb,
                                            query_src_emb=query_src_emb,
                                            query_rel_emb=query_rel_emb,
-                                           query_time_emb=query_time_emb, tc=tc)
+                                           query_time_emb=query_time_emb, tc=tc, selected_node=selected_node)
         # there are events with same (s, o, t) but with different relation, therefore length of new_attending_nodes may be
         # smaller than length of selected_edges
         # print("Sampled {} edges, {} nodes".format(len(sampled_edges), len(selected_node)))
