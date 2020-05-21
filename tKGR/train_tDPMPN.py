@@ -432,7 +432,7 @@ if __name__ == "__main__":
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
                 query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
-                    attending_nodes, attending_node_attention, memorized_embedding = \
+                    attending_nodes, attending_node_attention, memorized_embedding, _  = \
                         model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
                                    query_rel_emb, query_time_emb)
                 entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
@@ -443,7 +443,7 @@ if __name__ == "__main__":
                 #     hit_1 += target == top10[0, 1]
                 #     hit_3 += target in top10[:3, 1]
                 #     hit_10 += target in top10[:, 1]
-                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score, entities, target_idx_l, sp2o, src_idx_l, rel_idx_l)
+                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score, entities, target_idx_l, sp2o, val_spt2o, src_idx_l, rel_idx_l)
                 # print(target_rank_l)
                 mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
