@@ -229,7 +229,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
 parser.add_argument('--num_neg_sampling', type=int, default=5,
                     help="number of negative sampling of objects for each event")
-parser.add_argument('--tgan_num_layers', type=int, default=2, help='number of TGAN layers')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--emb_dim', type=int, default=128, help='dimension of embedding for node, realtion and time')
 parser.add_argument('--emb_dim_sm', type=int, default=32, help='smaller dimension of embedding, '
@@ -237,10 +236,6 @@ parser.add_argument('--emb_dim_sm', type=int, default=32, help='smaller dimensio
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--tgan_num_neighbors', type=int, default=40,
-                    help='how many neighbors to aggregate information from, '
-                         'check paper Inductive Representation Learning '
-                         'for Temporal Graph for detail')
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--sampling', type=int, default=2,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
@@ -250,7 +245,6 @@ parser.add_argument('--max_attended_nodes', type=int, default=20, help='max numb
 parser.add_argument('--add_reverse', action='store_true', default=None, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
-parser.add_argument('--use_TGAN', action='store_true', default=None, help='use hidden representation of TGAN')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 args = parser.parse_args()
 
@@ -304,12 +298,11 @@ if __name__ == "__main__":
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-                   DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device,
-                   use_TGAN=args.use_TGAN)
+                   DP_num_neighbors=args.DP_num_neighbors, device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
-    model.TGAN.node_raw_embed.cpu()
-    model.TGAN.edge_raw_embed.cpu()
+    model.entity_raw_embed.cpu()
+    model.relation_raw_embed.cpu()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     start_epoch = 0
