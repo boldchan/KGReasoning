@@ -12,8 +12,8 @@ def load_data(data_dir, data_type="train"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="ICEWS0515_forecasting", nargs="?", help="Which dataset to use.")
-    parser.add_argument("--increasing_factor", type=float, default=10)
-    parser.add_argument("--time_granularity", type=float, default=24)
+    parser.add_argument("--increasing_factor", type=int, default=10)
+    parser.add_argument("--time_granularity", type=int, default=24)
     args = parser.parse_args()
 
     for subset in ["train", "valid", "test"]:
@@ -26,7 +26,7 @@ if __name__ == "__main__":
         file = open(file_path, "w")
         for quadruple in data:
             file.write(str(quadruple[0]) + '\t' +  str(quadruple[1])  + '\t' + str(quadruple[2]) + "\t" +
-                str(math.floor(float(quadruple[3])/(args.time_granularity * args.increasing_factor))*(args.time_granularity * args.increasing_factor))
+                str(int(quadruple[3])//(args.time_granularity * args.increasing_factor)*(args.time_granularity * args.increasing_factor))
                        + "\t" + str(-1) + '\n')
         file.close()
 
