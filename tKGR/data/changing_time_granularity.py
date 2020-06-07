@@ -12,7 +12,7 @@ def load_data(data_dir, data_type="train"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="ICEWS0515_forecasting", nargs="?", help="Which dataset to use.")
-    parser.add_argument("--increasing_factor", type=float, default=10)
+    parser.add_argument("--increasing_factor", type=float, default=7)
     parser.add_argument("--time_granularity", type=float, default=24)
     args = parser.parse_args()
 
