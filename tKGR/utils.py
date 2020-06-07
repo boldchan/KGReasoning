@@ -249,7 +249,7 @@ class NeighborFinder:
                 n_ts_l.extend(curr_ts)
 
                 off_set_l.append(len(n_idx_l))
-                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time, 24)])
+                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, 24)])# max_time+1 so we have max_time
         elif isinstance(adj, dict):
             for i in range(num_entities):
                 curr = adj.get(i, [])
@@ -260,7 +260,7 @@ class NeighborFinder:
                 n_ts_l.extend(curr_ts)
 
                 off_set_l.append(len(n_idx_l))
-                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time, 24)])
+                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, 24)])# max_time+1 so we have max_time
 
         n_idx_l = np.array(n_idx_l)
         n_ts_l = np.array(n_ts_l)
