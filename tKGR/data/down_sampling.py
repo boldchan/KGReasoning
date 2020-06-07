@@ -43,18 +43,28 @@ def writing_stat(data_dir):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="ICEWS0515_forecasting", nargs="?", help="Which dataset to use.")
-    parser.add_argument("--sampling_factor", type=float, default=0.2)
+    parser.add_argument("--sampling_factor", type=float, default=0.5)
     args = parser.parse_args()
+    prefix = '_half'
 
     for subset in ["train", "valid", "test"]:
         data_t = load_data(data_dir=args.dataset, data_type=subset)
-        dir_name = args.dataset + "_downsampling"
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name)
+        dir_name_1 = args.dataset + "_downsampling" + prefix
+        if not os.path.exists(dir_name_1):
+            os.makedirs(dir_name_1)
 
-        file_path = os.path.join(dir_name, subset + ".txt")
+        dir_name_2 = args.dataset + "_downsampling" + prefix + "_complementary"
+        if not os.path.exists(dir_name_2):
+            os.makedirs(dir_name_2)
+
+        file_path = os.path.join(dir_name_1, subset + ".txt")
         file = open(file_path, "w")
+
+        file_path2 = os.path.join(dir_name_2, subset + ".txt")
+        file_2 = open(file_path2, "w")
+
         num_quad = 0
+        num_quad2 = 0
         for timestamp in list(data_t.keys()):
             subggraph_t = data_t[timestamp]
             for quadruple in subggraph_t:
@@ -62,8 +72,15 @@ if __name__ == "__main__":
                     file.write(str(quadruple[0]) + '\t' +  str(quadruple[1])  + '\t' + str(quadruple[2]) + "\t" + str(quadruple[3])
                        + "\t" + str(-1) + '\n')
                     num_quad +=1
+                else:
+                    file_2.write(str(quadruple[0]) + '\t' + str(quadruple[1]) + '\t' + str(quadruple[2]) + "\t" + str(
+                        quadruple[3]) + "\t" + str(-1) + '\n')
+                    num_quad2 += 1
         file.close()
+        file_2.close()
         print("num of quadurples in " + subset + " :" + str(num_quad) + '\n')
+        print("num of quadurples in the complementary dataset" + subset + " :" + str(num_quad2) + '\n')
 
-    writing_stat(dir_name)
+    writing_stat(dir_name_1)
+    writing_stat(dir_name_2)
 
