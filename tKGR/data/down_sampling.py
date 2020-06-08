@@ -84,3 +84,4 @@ if __name__ == "__main__":
     writing_stat(dir_name_1)
     writing_stat(dir_name_2)
 
+#TODO entity2id and relation2id
