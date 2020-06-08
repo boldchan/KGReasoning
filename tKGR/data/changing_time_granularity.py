@@ -28,7 +28,7 @@ if __name__ == "__main__":
         file = open(file_path, "w")
         for quadruple in data:
             file.write(str(quadruple[0]) + '\t' +  str(quadruple[1])  + '\t' + str(quadruple[2]) + "\t" +
-                str(math.floor(float(quadruple[3])/(args.time_granularity * args.increasing_factor))*(args.time_granularity * args.increasing_factor))
+                str(int(quadruple[3])//(args.time_granularity * args.increasing_factor)*(args.time_granularity * args.increasing_factor))
                        + "\t" + str(-1) + '\n')
         file.close()
 
