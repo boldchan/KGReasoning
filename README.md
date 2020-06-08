@@ -19,3 +19,15 @@ source venv/bin/activate
 ```
 pip install -r requirements.txt
 ```
+- specify directory to save Checkpoint
+```
+vim local_config.py
+```
+For example if you want to save checkpoints where local_config.py is
+
+#### **`local_config.py`**
+```python
+from pathlib import Path
+
+save_dir = Path(__file__).parent.absolute()
+```
