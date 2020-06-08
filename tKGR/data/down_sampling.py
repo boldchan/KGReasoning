@@ -32,7 +32,7 @@ def writing_stat(data_dir):
     entities = get_entities(data_all)
     relations = get_relations(data_all)
 
-    dir_name = args.dataset + "_downsampling"
+    dir_name = args.dataset + "_downsampling" + prefix
     if not os.path.exists(dir_name):
         os.makedirs(dir_name)
     file_path = os.path.join(dir_name, "stat.txt")
@@ -84,3 +84,4 @@ if __name__ == "__main__":
     writing_stat(dir_name_1)
     writing_stat(dir_name_2)
 
+#TODO entity2id and relation2id

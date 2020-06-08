@@ -184,7 +184,7 @@ def segment_rank(t, entities, target_idx_l):
             rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
         else:
             found_mask.append(False)
-            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
+            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
     return np.array(rank), found_mask
 
 
@@ -227,7 +227,7 @@ def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, 
             rank_fil_t.append(rank_pred_com1_fil_t + ((rank_pred_com2_fil_t - 1) / 2) + 1)
         else:
             found_mask.append(False)
-            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
+            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
             rank_fil.append(1e9)
     return np.array(rank), found_mask, np.array(rank_fil), np.array([rank_fil_t])
 
@@ -273,11 +273,11 @@ if __name__ == "__main__":
 
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-        task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+        task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
                     'DP_num_neighbors', 'max_attended_nodes', 'add_reverse', 'git_hash')
         sql_create_tasks_table = """
         CREATE TABLE IF NOT EXISTS tasks (
-        id integer PRIMARY KEY,
+        checkpoint_dir text PRIMARY KEY,
         dataset text NOT NULL,
         emb_dim integer NOT NULL,
         emb_dim_sm integer NOT NULL,
@@ -290,10 +290,11 @@ if __name__ == "__main__":
         add_reverse integer NOT NULL,
         git_hash text NOT NULL);
         """
-        logging_col = ('epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
-                       'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil', 'task_id')
+        logging_col = (
+            'checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
+            'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
         sql_create_loggings_table = """ CREATE TABLE IF NOT EXISTS logging (
-        task_id integer NOT NULL,
+        checkpoint_dir text NOT NULL, 
         epoch integer NOT NULL,
         training_loss real,
         validation_loss real,
@@ -306,8 +307,8 @@ if __name__ == "__main__":
         HITS_3_fil real,
         HITS_10_fil real,
         MRR_fil real,
-        PRIMARY KEY (task_id, epoch),
-        FOREIGN KEY (task_id) REFERENCES tasks (id)
+        PRIMARY KEY (checkpoint_dir, epoch),
+        FOREIGN KEY (checkpoint_dir) REFERENCES tasks (checkpoint_dir)
         );"""
         if sqlite_conn is not None:
             create_table(sqlite_conn, sql_create_tasks_table)
@@ -325,26 +326,29 @@ if __name__ == "__main__":
 
     if not args.debug:
         if args.load_checkpoint is None:
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+            checkpoint_dir = 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
                 struct_time.tm_year,
                 struct_time.tm_mon,
                 struct_time.tm_mday,
                 struct_time.tm_hour,
                 struct_time.tm_min,
-                struct_time.tm_sec))
+                struct_time.tm_sec)
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', checkpoint_dir)
             if not os.path.exists(CHECKPOINT_PATH):
                 os.makedirs(CHECKPOINT_PATH, mode=0o770)
         else:
+            checkpoint_dir = os.path.dirname(args.load_checkpoint)
             CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
 
         if args.sqlite:
             args_dict = vars(args)
             git_hash = get_git_version_short_hash()
+            args_dict['checkpoint_dir'] = checkpoint_dir
             args_dict['git_hash'] = git_hash
             args_dict['add_reverse'] = int(args_dict['add_reverse'])
             with sqlite_conn:
-                placeholders = ', '.join('?'* len(task_col))
-                sql_hp = 'INSERT INTO tasks({}) VALUES ({})'.format(', '.join(task_col), placeholders)
+                placeholders = ', '.join('?' * len(task_col))
+                sql_hp = 'INSERT OR IGNORE INTO tasks({}) VALUES ({})'.format(', '.join(task_col), placeholders)
                 cur = sqlite_conn.cursor()
                 cur.execute(sql_hp, [args_dict[col] for col in task_col])
                 task_id = cur.lastrowid
@@ -381,7 +385,8 @@ if __name__ == "__main__":
     start_epoch = 0
 
     if args.load_checkpoint is not None:
-        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
+        model, optimizer, start_epoch = load_checkpoint(model, optimizer,
+                                                        os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
         start_epoch += 1
 
     for epoch in range(start_epoch, args.epoch):
@@ -500,7 +505,7 @@ if __name__ == "__main__":
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
                 query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
-                    attending_nodes, attending_node_attention, memorized_embedding, _  = \
+                    attending_nodes, attending_node_attention, memorized_embedding, _ = \
                         model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
                                    query_rel_emb, query_time_emb)
                 entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
@@ -516,7 +521,12 @@ if __name__ == "__main__":
                 #     hit_1 += target == top10[0, 1]
                 #     hit_3 += target in top10[:3, 1]
                 #     hit_10 += target in top10[:, 1]
-                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score, entities, target_idx_l, sp2o, src_idx_l, rel_idx_l, val_spt2o)
+                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score,
+                                                                                                     entities,
+                                                                                                     target_idx_l, sp2o,
+                                                                                                     src_idx_l,
+                                                                                                     rel_idx_l,
+                                                                                                     val_spt2o)
                 # print(target_rank_l)
                 mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
@@ -573,13 +583,13 @@ if __name__ == "__main__":
                 with sqlite_conn:
                     placeholders = ', '.join('?' * len(logging_col))
                     sql_logging = 'INSERT INTO logging({}) VALUES ({})'.format(', '.join(logging_col), placeholders)
-                    logging_epoch = (epoch, running_loss, val_running_loss/(batch_ndx+1), hit_1/num_query, hit_3/num_query,
-                                     hit_10/num_query, found_cnt/num_query, MRR_total/num_query, hit_1_fil_t/num_query,
-                                     hit_3_fil_t/num_query, hit_10_fil_t/num_query, MRR_total_fil_t/num_query, task_id)
+                    logging_epoch = (
+                        checkpoint_dir, epoch, running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
+                        hit_3 / num_query,
+                        hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
+                        hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query)
                     cur = sqlite_conn.cursor()
                     cur.execute(sql_logging, logging_epoch)
-
-
 
 print("finished Training")
 #     os.umask(oldmask)
