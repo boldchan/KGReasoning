@@ -267,11 +267,11 @@ if __name__ == "__main__":
 
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-        task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+        task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
                     'DP_num_neighbors', 'max_attended_nodes', 'add_reverse', 'git_hash')
         sql_create_tasks_table = """
         CREATE TABLE IF NOT EXISTS tasks (
-        id integer PRIMARY KEY,
+        checkpoint_dir text PRIMARY KEY,
         dataset text NOT NULL,
         emb_dim integer NOT NULL,
         emb_dim_sm integer NOT NULL,
@@ -284,11 +284,11 @@ if __name__ == "__main__":
         add_reverse integer NOT NULL,
         git_hash text NOT NULL);
         """
-        logging_col = ('epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
-                       'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil', 'task_id')
+        logging_col = ('checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
+                       'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
         sql_create_loggings_table = """ CREATE TABLE IF NOT EXISTS logging (
-        epoch integer PRIMARY KEY,
-        task_id integer NOT NULL,
+        checkpoint_dir text NOT NULL, 
+	epoch integer NOT NULL,
         training_loss real,
         validation_loss real,
         HITS_1_raw real,
@@ -300,7 +300,8 @@ if __name__ == "__main__":
         HITS_3_fil real,
         HITS_10_fil real,
         MRR_fil real,
-        FOREIGN KEY (task_id) REFERENCES tasks (id)
+        PRIMARY KEY (checkpoint_dir, epoch),
+        FOREIGN KEY (checkpoint_dir) REFERENCES tasks (checkpoint_dir)
         );"""
         if sqlite_conn is not None:
             create_table(sqlite_conn, sql_create_tasks_table)
@@ -318,26 +319,29 @@ if __name__ == "__main__":
 
     if not args.debug:
         if args.load_checkpoint is None:
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+            checkpoint_dir = 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
                 struct_time.tm_year,
                 struct_time.tm_mon,
                 struct_time.tm_mday,
                 struct_time.tm_hour,
                 struct_time.tm_min,
-                struct_time.tm_sec))
+                struct_time.tm_sec)
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', checkpoint_dir)
             if not os.path.exists(CHECKPOINT_PATH):
                 os.makedirs(CHECKPOINT_PATH, mode=0o770)
         else:
+            checkpoint_dir = os.path.dirname(args.load_checkpoint)
             CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
 
         if args.sqlite:
             args_dict = vars(args)
             git_hash = get_git_version_short_hash()
+            args_dict['checkpoint_dir'] = checkpoint_dir
             args_dict['git_hash'] = git_hash
             args_dict['add_reverse'] = int(args_dict['add_reverse'])
             with sqlite_conn:
                 placeholders = ', '.join('?'* len(task_col))
-                sql_hp = 'INSERT INTO tasks({}) VALUES ({})'.format(', '.join(task_col), placeholders)
+                sql_hp = 'INSERT OR IGNORE INTO tasks({}) VALUES ({})'.format(', '.join(task_col), placeholders)
                 cur = sqlite_conn.cursor()
                 cur.execute(sql_hp, [args_dict[col] for col in task_col])
                 task_id = cur.lastrowid
@@ -566,9 +570,9 @@ if __name__ == "__main__":
                 with sqlite_conn:
                     placeholders = ', '.join('?' * len(logging_col))
                     sql_logging = 'INSERT INTO logging({}) VALUES ({})'.format(', '.join(logging_col), placeholders)
-                    logging_epoch = (epoch, running_loss, val_running_loss/(batch_ndx+1), hit_1/num_query, hit_3/num_query,
+                    logging_epoch = (checkpoint_dir, epoch, running_loss, val_running_loss/(batch_ndx+1), hit_1/num_query, hit_3/num_query,
                                      hit_10/num_query, found_cnt/num_query, MRR_total/num_query, hit_1_fil_t/num_query,
-                                     hit_3_fil_t/num_query, hit_10_fil_t/num_query, MRR_total_fil_t/num_query, task_id)
+                                     hit_3_fil_t/num_query, hit_10_fil_t/num_query, MRR_total_fil_t/num_query)
                     cur = sqlite_conn.cursor()
                     cur.execute(sql_logging, logging_epoch)
 
