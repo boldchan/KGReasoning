@@ -38,8 +38,8 @@ from database_op import create_connection, create_table
 save_dir = local_config.save_dir
 
 # Reproducibility
-torch.manual_seed(0)
-np.random.seed(0)
+torch.manual_seed(1)
+np.random.seed(1)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
@@ -214,11 +214,17 @@ def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, 
             sub, pre = queries_sub[i], queries_pre[i]
             obj_exist = sp2o[(sub, pre)]
             obj_exist_t = spt2o[(sub, pre)]
-            rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
+            rank_pred_com1 = torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2 = torch.sum(t[s:e] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank.append(rank_pred_com1 + ((rank_pred_com2 - 1) / 2) + 1)
             fil = [ent not in obj_exist for ent in entities[s:e, 1]]
             fil_t = [ent not in obj_exist_t for ent in entities[s:e, 1]]
-            rank_fil.append(torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
-            rank_fil_t.append(torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
+            rank_pred_com1_fil = torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2_fil = torch.sum(t[s:e][fil] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_fil.append(rank_pred_com1_fil + ((rank_pred_com2_fil - 1) / 2) + 1)
+            rank_pred_com1_fil_t = torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2_fil_t = torch.sum(t[s:e][fil_t] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_fil_t.append(rank_pred_com1_fil_t + ((rank_pred_com2_fil_t - 1) / 2) + 1)
         else:
             found_mask.append(False)
             rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
@@ -287,8 +293,8 @@ if __name__ == "__main__":
         logging_col = ('epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
                        'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil', 'task_id')
         sql_create_loggings_table = """ CREATE TABLE IF NOT EXISTS logging (
-        epoch integer PRIMARY KEY,
         task_id integer NOT NULL,
+        epoch integer NOT NULL,
         training_loss real,
         validation_loss real,
         HITS_1_raw real,
@@ -300,6 +306,7 @@ if __name__ == "__main__":
         HITS_3_fil real,
         HITS_10_fil real,
         MRR_fil real,
+        PRIMARY KEY (task_id, epoch),
         FOREIGN KEY (task_id) REFERENCES tasks (id)
         );"""
         if sqlite_conn is not None:
