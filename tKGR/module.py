@@ -665,8 +665,11 @@ class G(torch.nn.Module):
         """
         super(G, self).__init__()
         self.left_dense = nn.Linear(left_dims, output_dims)
+        nn.init.normal_(self.left_dense.weight, mean=0, std=np.sqrt(2.0 / (left_dims)))
         self.right_dense = nn.Linear(right_dims, output_dims)
+        nn.init.normal_(self.right_dense.weight, mean=0, std=np.sqrt(2.0 / (right_dims)))
         self.center_dense = nn.Linear(output_dims, output_dims)
+        nn.init.xavier_normal_(self.center_dense.weight)
         self.left_act = nn.LeakyReLU()
         self.right_act = nn.LeakyReLU()
 
