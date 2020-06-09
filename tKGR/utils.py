@@ -203,7 +203,7 @@ class Data:
 
 
 class NeighborFinder:
-    def __init__(self, adj, sampling=1, max_time=366 * 24, num_entities=None):
+    def __init__(self, adj, sampling=1, max_time=366 * 24, num_entities=None, weight_factor=1):
         """
         Params
         ------
@@ -213,6 +213,7 @@ class NeighborFinder:
         off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i][:,0]
         off_set_t_l: node_idx_l[off_set_l[i]:off_set_l[i + 1]][:off_set_t_l[i][cut_time/24]] --> object of entity i that happen before cut time
         num_entities: number of entities, if adj is dict it cannot be None
+        weight_factor: if sampling==3, use weight_factor to scale the time difference
         """
 
         node_idx_l, node_ts_l, edge_idx_l, off_set_l, off_set_t_l = self.init_off_set(adj, max_time, num_entities)
@@ -224,6 +225,7 @@ class NeighborFinder:
         self.off_set_t_l = off_set_t_l
 
         self.sampling = sampling
+        self.weight_factor = weight_factor
 
     def init_off_set(self, adj, max_time, num_entities):
         """
@@ -384,7 +386,7 @@ class NeighborFinder:
         cut_time_l: List[float],
         num_neighbors: int
         return:
-        out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch: sorted by out_ngh_t_batch 
+        out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch: sorted by out_ngh_t_batch
         """
         assert (len(src_idx_l) == len(cut_time_l))
 
@@ -445,7 +447,7 @@ class NeighborFinder:
                     # ngh_ts = ngh_ts + 1e-9
                     # weights = ngh_ts / sum(ngh_ts)
 
-                    delta_t = (ngh_ts - cut_time)/24
+                    delta_t = (ngh_ts - cut_time)/(24*self.weight_factor)
                     weights = np.exp(delta_t)
                     weights = weights / sum(weights)
 

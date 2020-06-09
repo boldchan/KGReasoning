@@ -260,6 +260,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--use_TGAN', action='store_true', default=None, help='use hidden representation of TGAN')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
+parser.add_argument('--weight_factor', type=float, default=1, help='sampling 3, scale weight')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -368,7 +369,7 @@ if __name__ == "__main__":
 
     adj = contents.get_adj_dict()
     max_time = max(contents.data[:, 3])
-    nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
+    nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity), weight_factor=args.weight_factor)
     if args.timer:
         time_cost['data']['ngh'] = time.time() - t_start
 
