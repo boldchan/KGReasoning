@@ -26,19 +26,20 @@ from tqdm import tqdm
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure, save_config
+from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash
 from module import tDPMPN, segment_softmax_op_v2
 import config
 import local_config
 from segment import *
+from database_op import create_connection, create_table
 
 # from gpu_profile import gpu_profile
 
 save_dir = local_config.save_dir
 
 # Reproducibility
-torch.manual_seed(0)
-np.random.seed(0)
+torch.manual_seed(1)
+np.random.seed(1)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
@@ -183,7 +184,7 @@ def segment_rank(t, entities, target_idx_l):
             rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
         else:
             found_mask.append(False)
-            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
+            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
     return np.array(rank), found_mask
 
 
@@ -213,14 +214,20 @@ def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, 
             sub, pre = queries_sub[i], queries_pre[i]
             obj_exist = sp2o[(sub, pre)]
             obj_exist_t = spt2o[(sub, pre)]
-            rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
+            rank_pred_com1 = torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2 = torch.sum(t[s:e] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank.append(rank_pred_com1 + ((rank_pred_com2 - 1) / 2) + 1)
             fil = [ent not in obj_exist for ent in entities[s:e, 1]]
             fil_t = [ent not in obj_exist_t for ent in entities[s:e, 1]]
-            rank_fil.append(torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
-            rank_fil_t.append(torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
+            rank_pred_com1_fil = torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2_fil = torch.sum(t[s:e][fil] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_fil.append(rank_pred_com1_fil + ((rank_pred_com2_fil - 1) / 2) + 1)
+            rank_pred_com1_fil_t = torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2_fil_t = torch.sum(t[s:e][fil_t] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_fil_t.append(rank_pred_com1_fil_t + ((rank_pred_com2_fil_t - 1) / 2) + 1)
         else:
             found_mask.append(False)
-            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
+            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
             rank_fil.append(1e9)
     return np.array(rank), found_mask, np.array(rank_fil), np.array([rank_fil_t])
 
@@ -242,10 +249,12 @@ parser.add_argument('--sampling', type=int, default=2,
 parser.add_argument('--DP_steps', type=int, default=2, help='number of DP steps')
 parser.add_argument('--DP_num_neighbors', type=int, default=20, help='number of neighbors sampled for sampling horizon')
 parser.add_argument('--max_attended_nodes', type=int, default=20, help='max number of nodes in attending from horizon')
-parser.add_argument('--add_reverse', action='store_true', default=None, help='add reverse relation into data set')
+parser.add_argument('--add_reverse', action='store_true', default=False, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
+parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
+parser.add_argument('--weight_factor', type=float, default=1, help='sampling 3, scale weight')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -257,6 +266,51 @@ if __name__ == "__main__":
     else:
         device = 'cpu'
 
+    if args.sqlite and not args.debug:
+        sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
+        task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+                    'DP_num_neighbors', 'max_attended_nodes', 'add_reverse', 'git_hash')
+        sql_create_tasks_table = """
+        CREATE TABLE IF NOT EXISTS tasks (
+        checkpoint_dir text PRIMARY KEY,
+        dataset text NOT NULL,
+        emb_dim integer NOT NULL,
+        emb_dim_sm integer NOT NULL,
+        lr real NOT NULL,
+        batch_size integer NOT NULL,
+        sampling integer NOT NULL,
+        DP_steps integer NOT NULL,
+        DP_num_neighbors integer NOT NULL,
+        max_attended_nodes integer NOT NULL,
+        add_reverse integer NOT NULL,
+        git_hash text NOT NULL);
+        """
+        logging_col = (
+            'checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
+            'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
+        sql_create_loggings_table = """ CREATE TABLE IF NOT EXISTS logging (
+        checkpoint_dir text NOT NULL, 
+        epoch integer NOT NULL,
+        training_loss real,
+        validation_loss real,
+        HITS_1_raw real,
+        HITS_3_raw real,
+        HITS_10_raw real,
+        HITS_INF real,
+        MRR_raw real,
+        HITS_1_fil real,
+        HITS_3_fil real,
+        HITS_10_fil real,
+        MRR_fil real,
+        PRIMARY KEY (checkpoint_dir, epoch),
+        FOREIGN KEY (checkpoint_dir) REFERENCES tasks (checkpoint_dir)
+        );"""
+        if sqlite_conn is not None:
+            create_table(sqlite_conn, sql_create_tasks_table)
+            create_table(sqlite_conn, sql_create_loggings_table)
+        else:
+            print("Error! cannot create the database connection.")
+
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
@@ -267,20 +321,37 @@ if __name__ == "__main__":
 
     if not args.debug:
         if args.load_checkpoint is None:
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+            checkpoint_dir = 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
                 struct_time.tm_year,
                 struct_time.tm_mon,
                 struct_time.tm_mday,
                 struct_time.tm_hour,
                 struct_time.tm_min,
-                struct_time.tm_sec))
+                struct_time.tm_sec)
+            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', checkpoint_dir)
             if not os.path.exists(CHECKPOINT_PATH):
                 os.makedirs(CHECKPOINT_PATH, mode=0o770)
         else:
+            checkpoint_dir = os.path.dirname(args.load_checkpoint)
             CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
-        print("Save checkpoints under {}".format(CHECKPOINT_PATH))
-        save_config(args, CHECKPOINT_PATH)
-        print("Log configuration under {}".format(CHECKPOINT_PATH))
+
+        if args.sqlite:
+            args_dict = vars(args)
+            git_hash = get_git_version_short_hash()
+            args_dict['checkpoint_dir'] = checkpoint_dir
+            args_dict['git_hash'] = git_hash
+            args_dict['add_reverse'] = int(args_dict['add_reverse'])
+            with sqlite_conn:
+                placeholders = ', '.join('?' * len(task_col))
+                sql_hp = 'INSERT OR IGNORE INTO tasks({}) VALUES ({})'.format(', '.join(task_col), placeholders)
+                cur = sqlite_conn.cursor()
+                cur.execute(sql_hp, [args_dict[col] for col in task_col])
+                task_id = cur.lastrowid
+            print("Log configuration to SQLite under {}".format(os.path.join(save_dir, 'tKGR.db')))
+        else:
+            print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+            save_config(args, CHECKPOINT_PATH)
+            print("Log configuration under {}".format(CHECKPOINT_PATH))
 
     # construct NeighborFinder
     if args.timer:
@@ -292,7 +363,7 @@ if __name__ == "__main__":
 
     adj = contents.get_adj_dict()
     max_time = max(contents.data[:, 3])
-    nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
+    nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity), weight_factor=args.weight_factor)
     if args.timer:
         time_cost['data']['ngh'] = time.time() - t_start
 
@@ -308,7 +379,8 @@ if __name__ == "__main__":
     start_epoch = 0
 
     if args.load_checkpoint is not None:
-        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
+        model, optimizer, start_epoch = load_checkpoint(model, optimizer,
+                                                        os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
         start_epoch += 1
 
     for epoch in range(start_epoch, args.epoch):
@@ -372,9 +444,9 @@ if __name__ == "__main__":
 
             running_loss += loss.item()
 
-            if batch_ndx % 1 == 0:
-                print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
-                running_loss = 0.0
+            # if batch_ndx % 1 == 0:
+            #     print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
+            #     running_loss = 0.0
             print(str_time_cost(time_cost))
             if args.timer:
                 time_cost = reset_time_cost()
@@ -385,6 +457,7 @@ if __name__ == "__main__":
             #             print(type(obj), obj.size())
             #     except:
             #         pass
+        running_loss /= batch_ndx + 1
 
         model.eval()
         if not args.debug:
@@ -414,6 +487,7 @@ if __name__ == "__main__":
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                          pin_memory=False, shuffle=True)
 
+            val_running_loss = 0
             for batch_ndx, sample in enumerate(val_data_loader):
                 model.eval()
 
@@ -425,10 +499,15 @@ if __name__ == "__main__":
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
                 query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
-                    attending_nodes, attending_node_attention, memorized_embedding, _  = \
+                    attending_nodes, attending_node_attention, memorized_embedding, _ = \
                         model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
                                    query_rel_emb, query_time_emb)
                 entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
+
+                one_hot_label = torch.from_numpy(
+                    np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
+                loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                val_running_loss += loss.item()
 
                 # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
                 # for i, target in enumerate(target_idx_l):
@@ -436,7 +515,12 @@ if __name__ == "__main__":
                 #     hit_1 += target == top10[0, 1]
                 #     hit_3 += target in top10[:3, 1]
                 #     hit_10 += target in top10[:, 1]
-                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score, entities, target_idx_l, sp2o, src_idx_l, rel_idx_l, val_spt2o)
+                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score,
+                                                                                                     entities,
+                                                                                                     target_idx_l, sp2o,
+                                                                                                     src_idx_l,
+                                                                                                     rel_idx_l,
+                                                                                                     val_spt2o)
                 # print(target_rank_l)
                 mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
@@ -488,5 +572,18 @@ if __name__ == "__main__":
                     mean_degree_found / found_cnt))
             else:
                 print('No subgraph found the ground truth!!')
+            if args.sqlite:
+                sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
+                with sqlite_conn:
+                    placeholders = ', '.join('?' * len(logging_col))
+                    sql_logging = 'INSERT INTO logging({}) VALUES ({})'.format(', '.join(logging_col), placeholders)
+                    logging_epoch = (
+                        checkpoint_dir, epoch, running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
+                        hit_3 / num_query,
+                        hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
+                        hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query)
+                    cur = sqlite_conn.cursor()
+                    cur.execute(sql_logging, logging_epoch)
+
 print("finished Training")
 #     os.umask(oldmask)
