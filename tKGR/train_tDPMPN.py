@@ -26,7 +26,7 @@ from tqdm import tqdm
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash
+from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit
 from module import tDPMPN, segment_softmax_op_v2
 import config
 import local_config
@@ -337,7 +337,7 @@ if __name__ == "__main__":
 
         if args.sqlite:
             args_dict = vars(args)
-            git_hash = get_git_version_short_hash()
+            git_hash = '\t'.join(get_git_version_short_hash(), get_git_description_last_commit())
             args_dict['checkpoint_dir'] = checkpoint_dir
             args_dict['git_hash'] = git_hash
             args_dict['add_reverse'] = int(args_dict['add_reverse'])

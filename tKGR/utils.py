@@ -562,11 +562,15 @@ class Measure:
 def get_git_version_short_hash():
     return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'])[:-1].decode("utf-8")
 
+def get_git_description_last_commit():
+    return subprocess.check_output(['git', 'log', '-2', '--pretty=%B']).decode('utf-8')
+
 
 def save_config(args, dir: str):
     args_dict = vars(args)
     git_hash = get_git_version_short_hash()
-    args_dict['git_hash'] = git_hash
+    git_comment = get_git_description_last_commit()
+    args_dict['git_hash'] = '\t'.join(git_hash, git_comment)
     with open(os.path.join(dir, 'config.json'), 'w') as fp:
         json.dump(args_dict, fp)
 

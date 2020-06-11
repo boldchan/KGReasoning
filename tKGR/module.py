@@ -1094,7 +1094,7 @@ class AttentionFlow(nn.Module):
         t_transition = time.time()
 
         logits_len = len(node_attention)
-        sparse_index = torch.LongTensor(np.stack([selected_edges[:, 7], np.arange(logits_len)]))
+        sparse_index = torch.LongTensor(np.stack([selected_edges[:, 7], np.arange(logits_len)])).to(self.device)
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits,
                                                        torch.Size([len(set(selected_edges[:, 7])), logits_len])).to(self.device)
         attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, node_attention.unsqueeze(1)))
