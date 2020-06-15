@@ -400,7 +400,7 @@ if __name__ == "__main__":
 
             src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
             model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
-            query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
+            query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = \
                 model.initialize()
 
             # query_time_emb.to(device)
@@ -410,10 +410,11 @@ if __name__ == "__main__":
 
             for step in range(args.DP_steps):
                 # print("{}-th DP step".format(step))
-                attending_nodes, attending_node_attention, memorized_embedding, _ = \
-                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                attended_nodes, attended_node_attention, memorized_embedding = \
+                    model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
                                query_rel_emb, query_time_emb, tc=time_cost)
-            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes,
+	    
+            entity_att_score, entities = model.get_entity_attn_score(attended_node_attentioni[attended_nodes[:, 3]], attended_nodes,
                                                                      tc=time_cost)
 
             # l1 norm on entity attention
