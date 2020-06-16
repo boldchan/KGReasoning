@@ -221,7 +221,7 @@ class AttentionFlow(nn.Module):
 
         return np.concatenate(res_edges, axis=0), torch.cat(res_logits, dim=0), np.concatenate(res_indices, axis=0)
 
-    def forward(self, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
+    def forward(self, attended_nodes, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
                 query_src_emb=None, query_rel_emb=None, query_time_emb=None, max_edges=10, tc=None):
         """calculate attention score
 
@@ -302,8 +302,11 @@ class AttentionFlow(nn.Module):
         sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], pruned_edges[:, 6]])).to(self.device)
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
                                                        torch.Size([num_nodes, num_nodes])).to(self.device)
-        # node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
-        #                                                  node_attention)
+        # expand node attention:
+        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
+                                                         node_attention)
+        print("expanded node attention", node_attention)
+        # ATTENTION: node_attention[i] must be attention of node with node_idx==i
         attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, node_attention.unsqueeze(1)))
 
         print("edges for message passing:")
@@ -313,9 +316,10 @@ class AttentionFlow(nn.Module):
         sparse_index_rep = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
         sparse_value = torch.cat([transition_logits_pruned_softmax, torch.ones(len(sparse_index_identical)).to(self.device)])
         trans_matrix_sparse_rep = torch.sparse.FloatTensor(sparse_index_rep.t(), sparse_value, torch.Size([num_nodes, num_nodes])).to(self.device)
+        # ATTENTION: memorized_embedding[i] is embedding of node with node_idx==i
         updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse_rep, memorized_embedding)
 
-        for selected_edges, rel_emb in zip(selected_edges_l[:-1], rel_emb_l[:-1]):
+        for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
             hidden_vi_orig = updated_memorized_embedding[selected_edges[:, -2]]
             hidden_vj_orig = updated_memorized_embedding[selected_edges[:, -1]]
 
@@ -475,6 +479,7 @@ class tDPMPN(torch.nn.Module):
         print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
         print("sampled edge:")
         print(sampled_edges)
+        print("sampled nodes", sampled_nodes)
         new_sampled_nodes_mask = sampled_nodes[:,3]>max(attended_nodes[:, 3])
         print("{} new sampled nodes".format(sum(new_sampled_nodes_mask)))
         new_sampled_nodes = sampled_nodes[new_sampled_nodes_mask]
@@ -509,7 +514,7 @@ class tDPMPN(torch.nn.Module):
         rel_emb = self.get_rel_emb(sampled_edges[:, 5], self.device)
         self.rel_emb_l.append(rel_emb)
 
-        new_node_attention, updated_memorized_embedding, pruned_edges, orig_indices = self.att_flow(attended_node_attention,
+        new_node_attention, updated_memorized_embedding, pruned_edges, orig_indices = self.att_flow(attended_nodes, attended_node_attention,
                                                                         selected_edges_l=self.sampled_edges_l,
                                                                         memorized_embedding=new_memorized_embedding,
                                                                         rel_emb_l=self.rel_emb_l,
@@ -604,13 +609,17 @@ class tDPMPN(torch.nn.Module):
         # index new selected nodes
         target_nodes_index = []
         for eg, node, edge in sampled_edges[:, [0,3,4]]:
-            target_nodes_index.append(tuple2index.setdefault((eg, node, edge), self.num_existing_nodes))
-            self.num_existing_nodes += 1
+            if (eg, node, edge) in tuple2index:
+                target_nodes_index.append(tuple2index[(eg, node, edge)])
+            else:
+                tuple2index[(eg, node, edge)] = self.num_existing_nodes
+                target_nodes_index.append(self.num_existing_nodes)
+                self.num_existing_nodes += 1
 
         sampled_edges = np.concatenate([sampled_edges, np.array(target_nodes_index)[:, np.newaxis]], axis=1)
         # new_sampled_nodes = sampled_edges[:, [0, 3, 4, 7]]
         sampled_nodes = np.array([[*k, v] for k, v in tuple2index.items()])
-        sampled_nodes.view('i8,i8,i8,i8').sort(order=['f0', 'f2', 'f1'], axis=0)
+        sampled_nodes.view('i8,i8,i8,i8').sort(order=['f3'], axis=0)
 
         if tc:
             tc['graph']['sample'] += time.time() - t_start
