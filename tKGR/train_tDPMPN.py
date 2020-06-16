@@ -27,7 +27,7 @@ PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
 from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit
-from module import tDPMPN, segment_softmax_op_v2
+from model import tDPMPN
 import config
 import local_config
 from segment import *
@@ -74,7 +74,7 @@ def str_time_cost(tc):
         return ''
 
 
-def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, tc=None):
+def prepare_inputs(contents, dataset='train', start_time=0, tc=None):
     '''
     :param tc: time recorder
     :param contents: instance of Data object
@@ -97,10 +97,9 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, 
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
-    neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
     if args.timer:
         tc['data']['load_data'] += time.time() - t_start
-    return np.concatenate([events, neg_obj_idx], axis=1)
+    return events
 
 
 # help Module for custom Dataloader
@@ -111,7 +110,6 @@ class SimpleCustomBatch:
         self.rel_idx = np.array(transposed_data[1], dtype=np.int32)
         self.target_idx = np.array(transposed_data[2], dtype=np.int32)
         self.ts = np.array(transposed_data[3], dtype=np.int32)
-        self.neg_idx = np.array(transposed_data[4:-1], dtype=np.int32).T
         self.event_idx = np.array(transposed_data[-1], dtype=np.int32)
 
     # custom memory pinning method on custom type
@@ -119,11 +117,13 @@ class SimpleCustomBatch:
         self.src_idx = self.src_idx.pin_memory()
         self.rel_idx = self.rel_idx.pin_memory()
         self.target_idx = self.target_idx.pin_memory()
-        self.neg_idx = self.neg_idx.pin_memory()
         self.ts = self.ts.pin_memory()
         self.event_idx = self.event_idx.pin_memory()
 
         return self
+
+    def __str__(self):
+        return "Batch Information:\nsrc_idx: {}\nrel_idx: {}\ntarget_idx: {}\nts: {}".format(self.src_idx, self.rel_idx, self.target_idx, self.ts)
 
 
 def collate_wrapper(batch):
@@ -234,8 +234,6 @@ def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
-parser.add_argument('--num_neg_sampling', type=int, default=5,
-                    help="number of negative sampling of objects for each event")
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--emb_dim', type=int, default=128, help='dimension of embedding for node, realtion and time')
 parser.add_argument('--emb_dim_sm', type=int, default=32, help='smaller dimension of embedding, '
@@ -248,7 +246,7 @@ parser.add_argument('--sampling', type=int, default=2,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
 parser.add_argument('--DP_steps', type=int, default=2, help='number of DP steps')
 parser.add_argument('--DP_num_neighbors', type=int, default=20, help='number of neighbors sampled for sampling horizon')
-parser.add_argument('--max_attended_nodes', type=int, default=20, help='max number of nodes in attending from horizon')
+parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of nodes in attending from horizon')
 parser.add_argument('--add_reverse', action='store_true', default=False, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
@@ -369,7 +367,7 @@ if __name__ == "__main__":
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-                   DP_num_neighbors=args.DP_num_neighbors, device=device)
+                   DP_num_neighbors=args.DP_num_neighbors, max_attended_edges = args.max_attended_edges, device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
     model.entity_raw_embed.cpu()
@@ -386,8 +384,7 @@ if __name__ == "__main__":
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
         # load data
-        train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
-                                      start_time=args.warm_start_time, tc=time_cost)
+        train_inputs = prepare_inputs(contents, start_time=args.warm_start_time, tc=time_cost)
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                        pin_memory=False, shuffle=True)
 
@@ -400,21 +397,24 @@ if __name__ == "__main__":
 
             src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
             model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
-            query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
+            query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = \
                 model.initialize()
 
             # query_time_emb.to(device)
             # query_src_emb.to(device)
             # query_rel_emb.to(device)
             # attending_node_attention.to(device)
+            print("queries: ", sample)
 
             for step in range(args.DP_steps):
-                # print("{}-th DP step".format(step))
-                attending_nodes, attending_node_attention, memorized_embedding, _ = \
-                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                print("{}-th DP step".format(step))
+                attended_nodes, attended_node_attention, memorized_embedding = \
+                    model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
                                query_rel_emb, query_time_emb, tc=time_cost)
-            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes,
+            entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes,
                                                                      tc=time_cost)
+            print("entities:", entities)
+            print("entity score:", entity_att_score)
 
             # l1 norm on entity attention
             entity_att_score = segment_norm_l1(entity_att_score, entities[:, 0])
@@ -422,6 +422,7 @@ if __name__ == "__main__":
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             try:
+                pdb.set_trace()
                 loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
             except:
                 print(entity_att_score)
@@ -483,7 +484,7 @@ if __name__ == "__main__":
             mean_degree = 0
             mean_degree_found = 0
 
-            val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid', tc=time_cost)
+            val_inputs = prepare_inputs(contents, dataset='valid', tc=time_cost)
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                          pin_memory=False, shuffle=True)
 
@@ -499,10 +500,10 @@ if __name__ == "__main__":
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
                 query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
-                    attending_nodes, attending_node_attention, memorized_embedding, _ = \
-                        model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                    attended_nodes, attended_node_attention, memorized_embedding = \
+                        model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
                                    query_rel_emb, query_time_emb)
-                entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
+                entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[:, attended_nodes[:, -1]], attended_nodes)
 
                 one_hot_label = torch.from_numpy(
                     np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)

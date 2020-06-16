@@ -302,7 +302,7 @@ class AttentionFlow(nn.Module):
         sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], pruned_edges[:, 6]])).to(self.device)
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
                                                        torch.Size([num_nodes, num_nodes])).to(self.device)
-        node_attention = torch.zeros(num_nodes).scatter_(0, torch.from_numpy(attended_nodes[:, -1]),
+        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]),
                                                          node_attention)
         attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, node_attention.unsqueeze(1)))
 
@@ -538,6 +538,7 @@ class tDPMPN(torch.nn.Module):
         pruned_nodes = pruned_nodes[indices]
         print("# pruned nodes {}".format(len(pruned_nodes)))
         print("pruned nodes {}".format(pruned_nodes))
+        print('node attention:', new_node_attention)
 
         return pruned_nodes, new_node_attention, updated_memorized_embedding
 
