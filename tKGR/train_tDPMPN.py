@@ -1,8 +1,8 @@
 import os
 # the mode argument of the os.makedirs function may be ignored on some systems
-# umask (user file-creation mode mask) specify the default denial value of variable mode, 
-# which means if this value is passed to makedirs function,  
-# it will be ignored and a folder/file with d_________ will be created 
+# umask (user file-creation mode mask) specify the default denial value of variable mode,
+# which means if this value is passed to makedirs function,
+# it will be ignored and a folder/file with d_________ will be created
 # we can either set the umask or specify mode in makedirs
 
 # oldmask = os.umask(0o770)
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
         task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                    'DP_num_neighbors', 'max_attended_nodes', 'add_reverse', 'git_hash')
+                    'DP_num_neighbors', 'max_attended_edges', 'add_reverse', 'git_hash')
         sql_create_tasks_table = """
         CREATE TABLE IF NOT EXISTS tasks (
         checkpoint_dir text PRIMARY KEY,
@@ -279,7 +279,7 @@ if __name__ == "__main__":
         sampling integer NOT NULL,
         DP_steps integer NOT NULL,
         DP_num_neighbors integer NOT NULL,
-        max_attended_nodes integer NOT NULL,
+        max_attended_edges integer NOT NULL,
         add_reverse integer NOT NULL,
         git_hash text NOT NULL);
         """
@@ -287,7 +287,7 @@ if __name__ == "__main__":
             'checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
             'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
         sql_create_loggings_table = """ CREATE TABLE IF NOT EXISTS logging (
-        checkpoint_dir text NOT NULL, 
+        checkpoint_dir text NOT NULL,
         epoch integer NOT NULL,
         training_loss real,
         validation_loss real,
@@ -335,7 +335,7 @@ if __name__ == "__main__":
 
         if args.sqlite:
             args_dict = vars(args)
-            git_hash = '\t'.join(get_git_version_short_hash(), get_git_description_last_commit())
+            git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
             args_dict['checkpoint_dir'] = checkpoint_dir
             args_dict['git_hash'] = git_hash
             args_dict['add_reverse'] = int(args_dict['add_reverse'])
@@ -422,7 +422,7 @@ if __name__ == "__main__":
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             try:
-                pdb.set_trace()
+#                pdb.set_trace()
                 loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
             except:
                 print(entity_att_score)
