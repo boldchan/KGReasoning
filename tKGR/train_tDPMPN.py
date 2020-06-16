@@ -397,6 +397,7 @@ if __name__ == "__main__":
 
             src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
             model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
+            # attended_nodes tensor: batch_size x 4 (eg_idx, v_i, ts, node_idx)
             query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = \
                 model.initialize()
 
@@ -422,7 +423,7 @@ if __name__ == "__main__":
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             try:
-#                pdb.set_trace()
+                pdb.set_trace()
                 loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
             except:
                 print(entity_att_score)

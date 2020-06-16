@@ -156,7 +156,7 @@ class AttentionFlow(nn.Module):
         """
         super(AttentionFlow, self).__init__()
 
-        self.proj = nn.Linear(n_dims, n_dims_sm)
+        self.proj = nn.Linear(n_dims, n_dims_sm) #?TODO
         self.transition_fn = G(5 * n_dims_sm, 5 * n_dims_sm, n_dims_sm)
         # self.linears = nn.ModuleList([nn.Linear(n_dims, n_dims) for i in range(DP_steps)])
         self.linear = nn.Linear(n_dims, n_dims)  # use shared Linear for representation update
@@ -221,7 +221,7 @@ class AttentionFlow(nn.Module):
 
         return np.concatenate(res_edges, axis=0), torch.cat(res_logits, dim=0), np.concatenate(res_indices, axis=0)
 
-    def forward(self, attended_nodes, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
+    def forward(self, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
                 query_src_emb=None, query_rel_emb=None, query_time_emb=None, max_edges=10, tc=None):
         """calculate attention score
 
@@ -284,15 +284,15 @@ class AttentionFlow(nn.Module):
 
         # prune edges whose target node attention score is small
         # get source attention score
-        src_att = node_attention[selected_edges_l[-1][:, 6]]
+        src_att = node_attention[selected_edges_l[-1][:, -2]]
         # target_att = transition_logits*src_att
-        transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges_l[-1][:, 6], tc=tc)
+        transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges_l[-1][:, -2], tc=tc)
         target_att = transition_logits_softmax*src_att
-#        print("target node score:")
-#        print(target_att)
+        print("target node score:")
+        print(target_att)
         pruned_edges, pruned_att, orig_indices = self._topk_att_score(selected_edges_l[-1], target_att, max_edges)
-#        print("chosen indices:")
-#        print(orig_indices)
+        print("chosen indices:")
+        print(orig_indices)
 
         # softmax after pruning. remove the pruned nodes from computing graph (check if true and then if it helps)?
         transition_logits_pruned = transition_logits[orig_indices]
@@ -302,15 +302,16 @@ class AttentionFlow(nn.Module):
         sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], pruned_edges[:, 6]])).to(self.device)
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
                                                        torch.Size([num_nodes, num_nodes])).to(self.device)
-        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
-                                                         node_attention)
+        # node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
+        #                                                  node_attention)
         attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, node_attention.unsqueeze(1)))
 
-#        print("edges for messaage passing:")
-#        print(pruned_edges[:, [6,7]])
-        sparse_index_rep = torch.from_numpy(pruned_edges[:, [6,7]]).to(torch.int64).to(self.device)
-        sparse_index_rep = torch.cat([sparse_index_rep, torch.arange(num_nodes).unsqueeze(1).repeat(1,2).to(self.device)], axis=0)
-        sparse_value = torch.cat([transition_logits_pruned_softmax-1, torch.ones(num_nodes).to(self.device)])
+        print("edges for message passing:")
+        print(pruned_edges[:, [6, 7]])
+        sparse_index_rep = torch.from_numpy(pruned_edges[:, [6, 7]]).to(torch.int64).to(self.device)
+        sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), pruned_edges[:, 6])).unsqueeze(1).repeat(1,2).to(self.device)
+        sparse_index_rep = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
+        sparse_value = torch.cat([transition_logits_pruned_softmax, torch.ones(len(sparse_index_identical)).to(self.device)])
         trans_matrix_sparse_rep = torch.sparse.FloatTensor(sparse_index_rep.t(), sparse_value, torch.Size([num_nodes, num_nodes])).to(self.device)
         updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse_rep, memorized_embedding)
 
@@ -337,8 +338,8 @@ class AttentionFlow(nn.Module):
                 ((hidden_vi, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat),
                  (hidden_vj, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat)))
 
-#            print("edges for messaage passing:")
-#            print(selected_edges[:, [6, 7]])
+            print("edges for messaage passing:")
+            print(selected_edges[:, [6, 7]])
             sparse_index_rep = torch.from_numpy(selected_edges[:, [6, 7]]).to(torch.int64).to(self.device)
             sparse_index_rep = torch.cat(
                 [sparse_index_rep, torch.arange(num_nodes).unsqueeze(1).repeat(1, 2).to(self.device)], axis=0)
@@ -392,11 +393,11 @@ class tDPMPN(torch.nn.Module):
         super(tDPMPN, self).__init__()
         self.DP_num_neighbors = DP_num_neighbors
         self.ngh_finder = ngh_finder
-        self.entity_raw_embed = torch.nn.Embedding(num_entity + 1, embed_dim).cpu()
+        self.entity_raw_embed = torch.nn.Embedding(num_entity, embed_dim).cpu()
         nn.init.xavier_normal_(self.entity_raw_embed.weight)
         self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, embed_dim).cpu()
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
-        self.selfloop = 0  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
+        self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
         self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, device=device)
         self.max_attended_edges = max_attended_edges
 
@@ -407,6 +408,7 @@ class tDPMPN(torch.nn.Module):
         self.device = device
 
         self.src_idx_l, self.rel_idx_l = None, None
+        self.num_existing_nodes = 0
 
     def set_init(self, src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_i, epoch):
         self.src_idx_l = src_idx_l
@@ -440,12 +442,13 @@ class tDPMPN(torch.nn.Module):
         # refer to https://discuss.pytorch.org/t/feeding-dictionary-of-tensors-to-model-on-gpu/68289
         # attending_node_emb = self.TGAN.temp_conv(self.src_idx_l, self.cut_time_l, curr_layers=2,
         #                                         num_neighbors=self.tgan_num_neighbors, query_time_l=self.cut_time_l)
-        hidden_node = self.get_ent_emb(self.src_idx_l, self.device)
-        hidden_time = self.time_encoder(torch.from_numpy(self.cut_time_l[:, np.newaxis]).to(self.device))
-        attending_node_emb = self.hidden_node_proj(torch.cat([hidden_node, torch.squeeze(hidden_time, 1)], axis=1))
+        ent_emb = self.get_ent_emb(self.src_idx_l, self.device)
+        time_emb = self.time_encoder(torch.from_numpy(self.cut_time_l[:, np.newaxis]).to(self.device))
+        attending_node_emb = self.hidden_node_proj(torch.cat([ent_emb, torch.squeeze(time_emb, 1)], axis=1))
         # memorized_embedding = {(i, src_idx, cut_time): emb for i, (src_idx, cut_time, emb) in
         #                        enumerate(list(zip(self.src_idx_l, self.cut_time_l, attending_node_emb.to('cpu'))))}
         memorized_embedding = attending_node_emb
+        self.num_existing_nodes = len(attending_node_emb)
         return query_src_emb, query_rel_emb, query_ts_emb, attending_nodes, attending_node_attention, memorized_embedding
 
     def flow(self, attended_nodes, attended_node_attention, memorized_embedding, query_src_emb, query_rel_emb,
@@ -468,17 +471,16 @@ class tDPMPN(torch.nn.Module):
         # sampled_edges: (np.array) n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel), sorted by eg_idx, ti, vi, tj, vj, rel
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
-        sampled_edges, sampled_nodes = self._get_sampled_edges(attended_nodes, attended_node_attention,
-                                                               num_neighbors=self.DP_num_neighbors, tc=tc)
-#        print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
-#        print("sampled edge:")
-#        print(sampled_edges)
-        new_sampled_nodes_mask = sampled_nodes[:,3]>max(attended_nodes[:,3])
-#        print("{} new sampled nodes".format(sum(new_sampled_nodes_mask)))
+        sampled_edges, sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, tc=tc)
+        print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
+        print("sampled edge:")
+        print(sampled_edges)
+        new_sampled_nodes_mask = sampled_nodes[:,3]>max(attended_nodes[:, 3])
+        print("{} new sampled nodes".format(sum(new_sampled_nodes_mask)))
         new_sampled_nodes = sampled_nodes[new_sampled_nodes_mask]
         new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2])
         new_memorized_embedding = torch.cat([memorized_embedding, new_sampled_nodes_emb], axis=0)
-#        print("# new memorized embedding: {}".format(len(new_memorized_embedding)))
+        print("# new memorized embedding: {}".format(len(new_memorized_embedding)))
 
         self.sampled_edges_l.append(sampled_edges)
         # print(sampled_edges)
@@ -507,7 +509,7 @@ class tDPMPN(torch.nn.Module):
         rel_emb = self.get_rel_emb(sampled_edges[:, 5], self.device)
         self.rel_emb_l.append(rel_emb)
 
-        new_node_attention, updated_memorized_embedding, pruned_edges, orig_indices = self.att_flow(attended_nodes, attended_node_attention,
+        new_node_attention, updated_memorized_embedding, pruned_edges, orig_indices = self.att_flow(attended_node_attention,
                                                                         selected_edges_l=self.sampled_edges_l,
                                                                         memorized_embedding=new_memorized_embedding,
                                                                         rel_emb_l=self.rel_emb_l,
@@ -516,7 +518,7 @@ class tDPMPN(torch.nn.Module):
                                                                         query_time_emb=query_time_emb, max_edges=self.max_attended_edges, tc=tc)
 
         assert len(pruned_edges) == len(orig_indices)
-#        print("# pruned_edges {}".format(len(pruned_edges)))
+        print("# pruned_edges {}".format(len(pruned_edges)))
         self.sampled_edges_l[-1] = pruned_edges
         self.rel_emb_l[-1] = self.rel_emb_l[-1][orig_indices]
         # there are events with same (s, o, t) but with different relation, therefore length of new_attending_nodes may be
@@ -536,9 +538,9 @@ class tDPMPN(torch.nn.Module):
         _, indices = np.unique(pruned_edges[:, [0,4,3]], return_index=True, axis=0)
         # pruned_nodes.view('i8,i8,i8,i8').sort(order=['f0', 'f2', 'f1'], axis=0)
         pruned_nodes = pruned_nodes[indices]
-#        print("# pruned nodes {}".format(len(pruned_nodes)))
-#        print("pruned nodes {}".format(pruned_nodes))
-#        print('node attention:', new_node_attention)
+        print("# pruned nodes {}".format(len(pruned_nodes)))
+        print("pruned nodes {}".format(pruned_nodes))
+        print('node attention:', new_node_attention)
 
         return pruned_nodes, new_node_attention, updated_memorized_embedding
 
@@ -555,12 +557,12 @@ class tDPMPN(torch.nn.Module):
             tc['model']['entity_attn'] = time.time() - t_start
         return entity_attn_score
 
-    def _get_sampled_edges(self, attended_nodes, node_attention, num_neighbors: int = 20, tc=None):
+    def _get_sampled_edges(self, attended_nodes, num_neighbors: int = 20, tc=None):
         """[summary]
         sample neighbors for attended_nodes from all events happen before attended_nodes
         with strategy specified by ngh_finder, selfloop is added
         Arguments:
-            attended_nodes {numpy.array} shape: num_attended_nodes x 3 (eg_idx, vi, ti), dtype int32
+            attended_nodes {numpy.array} shape: num_attended_nodes x 4 (eg_idx, vi, ti, node_idx), dtype int32
             -- [nodes (with time) in attended from horizon, for detail refer to DPMPN paper]
             node_attention {Tensor} shape: num_attended_nodes
 
@@ -575,6 +577,7 @@ class tDPMPN(torch.nn.Module):
         cut_time_l = attended_nodes[:, 2]
         node_idx_l = attended_nodes[:, 3]
         tuple2index = {(eg, src, ts):idx for eg, src, ts, idx in attended_nodes}
+
         src_ngh_node_batch, src_ngh_eidx_batch, src_ngh_t_batch = self.ngh_finder.get_temporal_neighbor(
             src_idx_l,
             cut_time_l,
@@ -601,7 +604,8 @@ class tDPMPN(torch.nn.Module):
         # index new selected nodes
         target_nodes_index = []
         for eg, node, edge in sampled_edges[:, [0,3,4]]:
-            target_nodes_index.append(tuple2index.setdefault((eg, node, edge), len(tuple2index)))
+            target_nodes_index.append(tuple2index.setdefault((eg, node, edge), self.num_existing_nodes))
+            self.num_existing_nodes += 1
 
         sampled_edges = np.concatenate([sampled_edges, np.array(target_nodes_index)[:, np.newaxis]], axis=1)
         # new_sampled_nodes = sampled_edges[:, [0, 3, 4, 7]]
@@ -731,7 +735,7 @@ class tDPMPN(torch.nn.Module):
             embed_device = torch.device('cpu')
         else:
             embed_device = torch.device('cuda:{}'.format(embed_device))
-        return self.entity_raw_embed(torch.from_numpy(ent_idx_l + 1).long().to(embed_device)).to(device)
+        return self.entity_raw_embed(torch.from_numpy(ent_idx_l).long().to(embed_device)).to(device)
 
     def get_rel_emb(self, rel_idx_l, device):
         """
@@ -745,4 +749,4 @@ class tDPMPN(torch.nn.Module):
             embed_device = torch.device('cpu')
         else:
             embed_device = torch.device('cuda:{}'.format(embed_device))
-        return self.relation_raw_embed(torch.from_numpy(rel_idx_l + 1).long().to(embed_device)).to(device)
+        return self.relation_raw_embed(torch.from_numpy(rel_idx_l).long().to(embed_device)).to(device)
