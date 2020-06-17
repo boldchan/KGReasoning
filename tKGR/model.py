@@ -460,7 +460,7 @@ class tDPMPN(torch.nn.Module):
         """[summary]
 
         Arguments:
-            attended_nodes {numpy.array} -- num_nodes x3 (eg_idx, entity_id, ts), dtype: numpy.int32, sort (eg_idx, ts, entity_id)
+            attended_nodes {numpy.array} -- num_nodes x 4 (eg_idx, entity_id, ts, node_idx), dtype: numpy.int32, sort (eg_idx, ts, entity_id)
             attended_node_attention {Tensor} -- num_nodes, dtype: torch.float32
             query_src_emb {Tensor} -- batch_size x n_dim, dtype: torch.float32
             query_rel_emb {Tensor} -- batch_size x n_dim, dtype: torch.float32
@@ -475,16 +475,18 @@ class tDPMPN(torch.nn.Module):
         # sampled_edges: (np.array) n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel), sorted by eg_idx, ti, vi, tj, vj, rel
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
-        sampled_edges, sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, tc=tc)
+        sampled_edges, new_sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, tc=tc)
 #        print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
 #        print("sampled edge:")
 #        print(sampled_edges)
 #        print("sampled nodes", sampled_nodes)
-        new_sampled_nodes_mask = sampled_nodes[:,3]>max(attended_nodes[:, 3])
-#        print("{} new sampled nodes".format(sum(new_sampled_nodes_mask)))
-        new_sampled_nodes = sampled_nodes[new_sampled_nodes_mask]
+#         new_sampled_nodes_mask = sampled_nodes[:,3]>max(attended_nodes[:, 3])
+# #        print("{} new sampled nodes".format(sum(new_sampled_nodes_mask)))
+#         new_sampled_nodes = sampled_nodes[new_sampled_nodes_mask]
         new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2])
         new_memorized_embedding = torch.cat([memorized_embedding, new_sampled_nodes_emb], axis=0)
+        assert len(new_sampled_nodes) == self.num_existing_nodes
+        assert max(sampled_edges[:, -1]) < self.num_existing_nodes
 #        print("# new memorized embedding: {}".format(len(new_memorized_embedding)))
 
         self.sampled_edges_l.append(sampled_edges)
@@ -608,89 +610,27 @@ class tDPMPN(torch.nn.Module):
 
         # index new selected nodes
         target_nodes_index = []
+        new_sampled_nodes = []
         for eg, node, edge in sampled_edges[:, [0,3,4]]:
             if (eg, node, edge) in tuple2index:
                 target_nodes_index.append(tuple2index[(eg, node, edge)])
             else:
                 tuple2index[(eg, node, edge)] = self.num_existing_nodes
                 target_nodes_index.append(self.num_existing_nodes)
+                new_sampled_nodes.append([(eg, node, edge, self.num_existing_nodes)])
                 self.num_existing_nodes += 1
 
         sampled_edges = np.concatenate([sampled_edges, np.array(target_nodes_index)[:, np.newaxis]], axis=1)
         # new_sampled_nodes = sampled_edges[:, [0, 3, 4, 7]]
-        sampled_nodes = np.array([[*k, v] for k, v in tuple2index.items()])
-        sampled_nodes.view('i8,i8,i8,i8').sort(order=['f3'], axis=0)
+        # sampled_nodes = np.array([[*k, v] for k, v in tuple2index.items()])
+        # sampled_nodes.view('i8,i8,i8,i8').sort(order=['f3'], axis=0)
+        new_sampled_nodes = sorted(new_sampled_nodes, key=lambda x: x[:-1])
+        new_sampled_nodes = np.array(new_sampled_nodes)
 
         if tc:
             tc['graph']['sample'] += time.time() - t_start
-        return sampled_edges, sampled_nodes
+        return sampled_edges, new_sampled_nodes
 
-    def _get_selected_edges(self, sampled_edges, tc=None):
-        '''
-        idx_eg_vi_ti, idx_eg_vj_tj facilitate message aggregation,
-        avoiding aggregating message from the same node of another batch
-        :param sampled_edges: n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel) sorted by (eg_idx, ti, tj) ascending
-        :return:
-        selected_edges: (np.array) n_selected_edges (=n_sampled_edges) x 8, (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj]
-                        sorted by eg_idx, vi, tj
-        selected_nodes: (np.array) n_attending_nodes x 3 (eg_idx, v, t), sorted by (eg_idx, v, t) ascending
-        '''
-        if tc:
-            t_start = time.time()
-        if len(sampled_edges) == 0:
-            return np.zeros((0, 6), dtype='int32')
-
-        selected_nodes, idx_eg_v_t = np.unique(np.concatenate([sampled_edges[:, [0,2,1]], sampled_edges[:, [0, 4, 3]]], axis=0), axis=0, return_inverse=True)
-        new_selected_nodes = np.unique(selected_nodes[idx_eg_v_t[-len(sampled_edges):]], axis=0) # attended nodes can be selectted
-        new_idx_selected_nodes = np.unique(idx_eg_v_t[-len(sampled_edges):], axis=0)
-        # _, idx_eg_vi_ti = np.unique(sampled_edges[:, :3], axis=0, return_inverse=True)
-        # selected_nodes, idx_eg_vj_tj = np.unique(sampled_edges[:, [0, 3, 4]], axis=0, return_inverse=True)
-
-        idx_eg_v_t = np.expand_dims(np.array(idx_eg_v_t, dtype='int32'), 1)
-        idx_eg_vi_ti = idx_eg_v_t[:len(sampled_edges)]
-        idx_eg_vj_tj = idx_eg_v_t[-len(sampled_edges):]
-
-        selected_edges = np.concatenate([sampled_edges[:, :6], idx_eg_vi_ti, idx_eg_vj_tj], axis=1)
-        if tc:
-            tc['graph']['select'] += time.time() - t_start
-        return selected_edges, new_selected_nodes
-
-    def _get_selfloop_edges(self, attended_nodes):
-        eg_idx, vi, ti = attended_nodes[:, 0], attended_nodes[:, 1], attended_nodes[:, 2]
-        selfloop_edges = np.stack([eg_idx, vi, ti, vi, ti,
-                                   np.repeat(np.array(self.selfloop, dtype='int32'), eg_idx.shape[0])],
-                                  axis=1)
-        return selfloop_edges  # (eg_idx, vi, ti, vi, ti, selfloop)
-
-    def _get_union_edges(self, selected_edges, repeated_node_attention, selfloop_edges, node_attention):
-        """ selected_edges: (np.array) n_selected_edges x 8, (eg_idx, vi, ti, vj, tj, rel, idx_vi, idx_vj) sorted by (eg_idx, vi, vj)
-            selfloop_edges: (np.array) n_selfloop_edges x 6 (eg_idx, vi, ti, vi, ti, selfloop)
-        return:
-        aug_scanned_edges: (eg_idx, vi, ti, vj, tj, rel, idx_vi, idx_vj)
-        aug_node_attention: torch.Tensor
-        new_attending_nodes: np.array (eg_idx, vj, tj)
-        """
-        selected_edges = np.zeros((0, 6), dtype='int32') if len(selected_edges) == 0 else selected_edges[:,
-                                                                                          :6]  # (eg_idx, vi, ti, vj, tj, rel)
-        all_edges = np.concatenate([selected_edges, selfloop_edges], axis=0).copy()
-        all_attention = torch.cat([repeated_node_attention, node_attention], dim=0)
-        sorted_idx = np.squeeze(np.argsort(all_edges.view('<i4,<i4,<i4,<i4,<i4,<i4'),
-                                           order=['f0', 'f1', 'f3'], axis=0), 1).astype('int32')
-        aug_selected_edges = all_edges[sorted_idx]  # sorted by (eg_idx, vi, vj)
-        aug_node_attention = all_attention[sorted_idx]
-        idx_vi_ti = get_segment_ids(aug_selected_edges[:, :3])
-        # new_attending_nodes[idx_vj_tj] --> aug_selected_edges
-        new_attending_nodes, idx_vj_tj = np.unique(aug_selected_edges[:, [0, 3, 4]], axis=0, return_inverse=True)
-        idx_vi_ti = np.expand_dims(np.array(idx_vi_ti, dtype='int32'), 1)
-        idx_vj_tj = np.expand_dims(np.array(idx_vj_tj, dtype='int32'), 1)
-        aug_selected_edges = np.concatenate([aug_selected_edges, idx_vi_ti, idx_vj_tj], axis=1)
-
-        return aug_selected_edges, aug_node_attention, new_attending_nodes
-
-    def _add_nodes_to_memorized(self, scanned_edges, hidden_src_emb, hidden_target_emb):
-        for i, edge in enumerate(scanned_edges):
-            self.memorized_embedding[(edge[1], edge[2])] = hidden_src_emb[i]
-            self.memorized_embedding[(edge[3], edge[4])] = hidden_target_emb[i]
 
     def _topk_att_score(self, attending_nodes, attending_node_attention, k: int, tc=None):
         """
