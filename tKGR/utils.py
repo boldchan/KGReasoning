@@ -337,13 +337,13 @@ class NeighborFinder:
         but are extended to be drawn from all events that happen before query time
         More specifically, for each query we have (sub_q, rel_q, ?, t_q). By each step, for
         every node, i.e. entity-timestamp pair (e_i, t_i), we looked for such entity-timestamp
-        pair (e, t) that (e_i, some_relation, e, t) exists. By first step, (e_i, t_i) == (sub_q, t_q) 
-        where t < t_q is the restriction (rather than t<t_0) 
+        pair (e, t) that (e_i, some_relation, e, t) exists. By first step, (e_i, t_i) == (sub_q, t_q)
+        where t < t_q is the restriction (rather than t<t_0)
         Arguments:
             src_idx_l {numpy.array, 1d} -- entity index
             cut_time_l {numpy.array, 1d} -- timestamp of events
             query_time_l {numpy.array, 1d} -- timestamp of query
-        
+
         Keyword Arguments:
             num_neighbors {int} -- [number of neighbors for each node] (default: {20})
         """
@@ -354,7 +354,7 @@ class NeighborFinder:
 
         out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
-        out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32) 
+        out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
 
         for i, (src_idx, cut_time, query_time) in enumerate(zip(src_idx_l, cut_time_l, query_time_l)):
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
@@ -386,7 +386,7 @@ class NeighborFinder:
             out_ngh_eidx_batch[i, half_num_neighbors: len(ngh_eidx_after) + half_num_neighbors] = ngh_eidx_after
 
         out_ngh_query_t_batch = np.repeat(np.repeat(query_time_l[:, np.newaxis], num_neighbors, axis=1))
-        
+
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch, out_ngh_query_t_batch
 
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
@@ -582,7 +582,7 @@ def save_config(args, dir: str):
     args_dict = vars(args)
     git_hash = get_git_version_short_hash()
     git_comment = get_git_description_last_commit()
-    args_dict['git_hash'] = '\t'.join(git_hash, git_comment)
+    args_dict['git_hash'] = '\t'.join([git_hash, git_comment])
     with open(os.path.join(dir, 'config.json'), 'w') as fp:
         json.dump(args_dict, fp)
 

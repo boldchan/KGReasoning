@@ -176,7 +176,7 @@ class AttentionFlow(nn.Module):
             eg_idx indicates nodes in subgraph for which query
         """
         eg_idx_l = np.arange(len(src_idx_l), dtype=np.int32)
-        att_score = np.ones_like(src_idx_l, dtype=np.float32)
+        att_score = np.ones_like(src_idx_l, dtype=np.float32)*(1-1e-8)
 
         return np.stack([eg_idx_l, src_idx_l, cut_time_l, np.arange(len(src_idx_l))], axis=1), torch.from_numpy(att_score).to(self.device)
 
@@ -288,29 +288,29 @@ class AttentionFlow(nn.Module):
         # target_att = transition_logits*src_att
         transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges_l[-1][:, -2], tc=tc)
         target_att = transition_logits_softmax*src_att
-        print("target node score:")
-        print(target_att)
+#        print("target node score:")
+#        print(target_att)
         pruned_edges, pruned_att, orig_indices = self._topk_att_score(selected_edges_l[-1], target_att, max_edges)
-        print("chosen indices:")
-        print(orig_indices)
+#        print("chosen indices:")
+#        print(orig_indices)
 
         # softmax after pruning. remove the pruned nodes from computing graph (check if true and then if it helps)?
         transition_logits_pruned = transition_logits[orig_indices]
         transition_logits_pruned_softmax = segment_softmax_op_v2(transition_logits_pruned, pruned_edges[:, 6], tc=tc)
 
         num_nodes = len(memorized_embedding)
-        sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], pruned_edges[:, 6]])).to(self.device)
+        sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(self.device)
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
-                                                       torch.Size([num_nodes, num_nodes])).to(self.device)
+                                                       torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
         # expand node attention:
-        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
-                                                         node_attention)
-        print("expanded node attention", node_attention)
+#        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
+#                                                         node_attention)
+#        print("expanded node attention", node_attention)
         # ATTENTION: node_attention[i] must be attention of node with node_idx==i
-        attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, node_attention.unsqueeze(1)))
+        attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
 
-        print("edges for message passing:")
-        print(pruned_edges[:, [-2, -1]])
+#        print("edges for message passing:")
+#        print(pruned_edges[:, [-2, -1]])
         sparse_index_rep = torch.from_numpy(pruned_edges[:, [-2, -1]]).to(torch.int64).to(self.device)
         sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), pruned_edges[:, -2])).unsqueeze(1).repeat(1,2).to(self.device)
         sparse_index_rep = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
@@ -342,8 +342,8 @@ class AttentionFlow(nn.Module):
                 ((hidden_vi, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat),
                  (hidden_vj, rel_emb, query_src_vec_repeat, query_rel_vec_repeat, query_time_vec_repeat)))
 
-            print("edges for messaage passing:")
-            print(selected_edges[:, [6, 7]])
+#            print("edges for messaage passing:")
+#            print(selected_edges[:, [6, 7]])
             sparse_index_rep = torch.from_numpy(selected_edges[:, [-2, -1]]).to(torch.int64).to(self.device)
             sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), selected_edges[:, -2])).unsqueeze(1).repeat(1, 2).to(self.device)
             sparse_index_rep = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
@@ -476,16 +476,16 @@ class tDPMPN(torch.nn.Module):
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
         sampled_edges, sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, tc=tc)
-        print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
-        print("sampled edge:")
-        print(sampled_edges)
-        print("sampled nodes", sampled_nodes)
+#        print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
+#        print("sampled edge:")
+#        print(sampled_edges)
+#        print("sampled nodes", sampled_nodes)
         new_sampled_nodes_mask = sampled_nodes[:,3]>max(attended_nodes[:, 3])
-        print("{} new sampled nodes".format(sum(new_sampled_nodes_mask)))
+#        print("{} new sampled nodes".format(sum(new_sampled_nodes_mask)))
         new_sampled_nodes = sampled_nodes[new_sampled_nodes_mask]
         new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2])
         new_memorized_embedding = torch.cat([memorized_embedding, new_sampled_nodes_emb], axis=0)
-        print("# new memorized embedding: {}".format(len(new_memorized_embedding)))
+#        print("# new memorized embedding: {}".format(len(new_memorized_embedding)))
 
         self.sampled_edges_l.append(sampled_edges)
         # print(sampled_edges)
@@ -523,7 +523,7 @@ class tDPMPN(torch.nn.Module):
                                                                         query_time_emb=query_time_emb, max_edges=self.max_attended_edges, tc=tc)
 
         assert len(pruned_edges) == len(orig_indices)
-        print("# pruned_edges {}".format(len(pruned_edges)))
+#        print("# pruned_edges {}".format(len(pruned_edges)))
         self.sampled_edges_l[-1] = pruned_edges
         self.rel_emb_l[-1] = self.rel_emb_l[-1][orig_indices]
         # there are events with same (s, o, t) but with different relation, therefore length of new_attending_nodes may be
@@ -543,9 +543,9 @@ class tDPMPN(torch.nn.Module):
         _, indices = np.unique(pruned_edges[:, [0,4,3]], return_index=True, axis=0)
         # pruned_nodes.view('i8,i8,i8,i8').sort(order=['f0', 'f2', 'f1'], axis=0)
         pruned_nodes = pruned_nodes[indices]
-        print("# pruned nodes {}".format(len(pruned_nodes)))
-        print("pruned nodes {}".format(pruned_nodes))
-        print('node attention:', new_node_attention)
+#        print("# pruned nodes {}".format(len(pruned_nodes)))
+#        print("pruned nodes {}".format(pruned_nodes))
+#        print('node attention:', new_node_attention)
 
         return pruned_nodes, new_node_attention, updated_memorized_embedding
 

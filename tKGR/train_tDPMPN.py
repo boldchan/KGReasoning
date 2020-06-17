@@ -405,25 +405,24 @@ if __name__ == "__main__":
             # query_src_emb.to(device)
             # query_rel_emb.to(device)
             # attending_node_attention.to(device)
-            print("queries: ", sample)
+#            print("queries: ", sample)
 
             for step in range(args.DP_steps):
-                print("{}-th DP step".format(step))
+#                print("{}-th DP step".format(step))
                 attended_nodes, attended_node_attention, memorized_embedding = \
                     model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
                                query_rel_emb, query_time_emb, tc=time_cost)
             entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes,
                                                                      tc=time_cost)
-            print("entities:", entities)
-            print("entity score:", entity_att_score)
+#            print("entities:", entities)
+#            print("entity score:", entity_att_score)
 
             # l1 norm on entity attention
-            entity_att_score = segment_norm_l1(entity_att_score, entities[:, 0])
+            entity_att_score = segment_norm_l1(entity_att_score+1e-9, entities[:, 0])
 
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             try:
-                pdb.set_trace()
                 loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
             except:
                 print(entity_att_score)
