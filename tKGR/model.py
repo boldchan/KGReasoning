@@ -485,7 +485,7 @@ class tDPMPN(torch.nn.Module):
 #         new_sampled_nodes = sampled_nodes[new_sampled_nodes_mask]
         new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2])
         new_memorized_embedding = torch.cat([memorized_embedding, new_sampled_nodes_emb], axis=0)
-        assert len(new_sampled_nodes) == self.num_existing_nodes
+        assert max(new_sampled_nodes[:, -1]) == self.num_existing_nodes
         assert max(sampled_edges[:, -1]) < self.num_existing_nodes
 #        print("# new memorized embedding: {}".format(len(new_memorized_embedding)))
 
@@ -617,14 +617,14 @@ class tDPMPN(torch.nn.Module):
             else:
                 tuple2index[(eg, node, edge)] = self.num_existing_nodes
                 target_nodes_index.append(self.num_existing_nodes)
-                new_sampled_nodes.append([(eg, node, edge, self.num_existing_nodes)])
+                new_sampled_nodes.append([eg, node, edge, self.num_existing_nodes])
                 self.num_existing_nodes += 1
 
         sampled_edges = np.concatenate([sampled_edges, np.array(target_nodes_index)[:, np.newaxis]], axis=1)
         # new_sampled_nodes = sampled_edges[:, [0, 3, 4, 7]]
         # sampled_nodes = np.array([[*k, v] for k, v in tuple2index.items()])
         # sampled_nodes.view('i8,i8,i8,i8').sort(order=['f3'], axis=0)
-        new_sampled_nodes = sorted(new_sampled_nodes, key=lambda x: x[:-1])
+        new_sampled_nodes = sorted(new_sampled_nodes, key=lambda x: x[-1])
         new_sampled_nodes = np.array(new_sampled_nodes)
 
         if tc:
