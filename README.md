@@ -31,3 +31,5 @@ from pathlib import Path
 
 save_dir = Path(__file__).parent.absolute()
 ```
+#### Run:
+python train_tDPMPN.py --warm_start_time 48 --emb_dim 256 --emb_dim_sm 64 --batch_size 1024 --lr 0.002 --dataset ICEWS0515_forecasting --epoch 50 --sampling 2 --device 0 --DP_steps 3 --DP_num_neighbors 10 --max_attended_nodes 40
