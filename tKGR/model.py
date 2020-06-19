@@ -485,8 +485,11 @@ class tDPMPN(torch.nn.Module):
 #         new_sampled_nodes = sampled_nodes[new_sampled_nodes_mask]
         new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2])
         new_memorized_embedding = torch.cat([memorized_embedding, new_sampled_nodes_emb], axis=0)
-        assert max(new_sampled_nodes[:, -1]) == self.num_existing_nodes
-        assert max(sampled_edges[:, -1]) < self.num_existing_nodes
+#        pdb.set_trace()
+        if len(new_sampled_nodes) == 0:
+            assert len(new_memorized_embedding) == self.num_existing_nodes
+            assert max(new_sampled_nodes[:, -1]) + 1 == self.num_existing_nodes
+            assert max(sampled_edges[:, -1]) < self.num_existing_nodes
 #        print("# new memorized embedding: {}".format(len(new_memorized_embedding)))
 
         self.sampled_edges_l.append(sampled_edges)

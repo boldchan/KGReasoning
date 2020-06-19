@@ -496,12 +496,12 @@ if __name__ == "__main__":
                 mean_degree += sum(degree_batch)
 
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
-                query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
+                query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
                     attended_nodes, attended_node_attention, memorized_embedding = \
                         model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
                                    query_rel_emb, query_time_emb)
-                entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[:, attended_nodes[:, -1]], attended_nodes)
+                entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes)
 
                 one_hot_label = torch.from_numpy(
                     np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
