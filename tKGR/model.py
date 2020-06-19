@@ -147,7 +147,7 @@ class G(torch.nn.Module):
 
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims, n_dims_sm, device='cpu'):
+    def __init__(self, n_dims, n_dims_sm, recalculate_att_after_prun, device='cpu'):
         """[summary]
 
         Arguments:
@@ -160,6 +160,7 @@ class AttentionFlow(nn.Module):
         self.transition_fn = G(5 * n_dims_sm, 5 * n_dims_sm, n_dims_sm)
         # self.linears = nn.ModuleList([nn.Linear(n_dims, n_dims) for i in range(DP_steps)])
         self.linear = nn.Linear(n_dims, n_dims)  # use shared Linear for representation update
+        self.recalculate_att_after_prun = recalculate_att_after_prun
 
         self.device = device
 
@@ -295,8 +296,12 @@ class AttentionFlow(nn.Module):
 #        print(orig_indices)
 
         # softmax after pruning. remove the pruned nodes from computing graph (check if true and then if it helps)?
-        transition_logits_pruned = transition_logits[orig_indices]
-        transition_logits_pruned_softmax = segment_softmax_op_v2(transition_logits_pruned, pruned_edges[:, 6], tc=tc)
+        if self.recalculate_att_after_prun:
+            transition_logits_pruned = transition_logits[orig_indices]
+            transition_logits_pruned_softmax = segment_softmax_op_v2(transition_logits_pruned, pruned_edges[:, 6], tc=tc)
+        else:
+            transition_logits_pruned_softmax = transition_logits_softmax[orig_indices]
+
 
         num_nodes = len(memorized_embedding)
         sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(self.device)
@@ -370,7 +375,7 @@ class AttentionFlow(nn.Module):
 class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
                  attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
-                 null_idx=0, drop_out=0.1, seq_len=None,
+                 null_idx=0, drop_out=0.1, seq_len=None, recalculate_att_after_prun=True,
                  max_attended_edges=20, device='cpu'):
         """[summary]
 
@@ -402,7 +407,7 @@ class tDPMPN(torch.nn.Module):
         self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, embed_dim).cpu()
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
-        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, device=device)
+        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, recalculate_att_after_prun=recalculate_att_after_prun, device=device)
         self.max_attended_edges = max_attended_edges
 
         self.time_encoder = TimeEncode(expand_dim=embed_dim, device=device)
@@ -525,7 +530,9 @@ class tDPMPN(torch.nn.Module):
                                                                         rel_emb_l=self.rel_emb_l,
                                                                         query_src_emb=query_src_emb,
                                                                         query_rel_emb=query_rel_emb,
-                                                                        query_time_emb=query_time_emb, max_edges=self.max_attended_edges, tc=tc)
+                                                                        query_time_emb=query_time_emb,
+                                                                                                    recalculate_att_after_prun=recalculate_att_after_prun,
+                                                                                                    max_edges=self.max_attended_edges, tc=tc)
 
         assert len(pruned_edges) == len(orig_indices)
 #        print("# pruned_edges {}".format(len(pruned_edges)))

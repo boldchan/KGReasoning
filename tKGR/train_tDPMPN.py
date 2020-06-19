@@ -251,6 +251,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--weight_factor', type=float, default=1, help='sampling 3, scale weight')
+parser.add_argument('--recalculate_att_after_prun', action='store_true', default=None, help='in attention module, whether re-calculate attention score after pruning')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -265,7 +266,7 @@ if __name__ == "__main__":
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
         task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                    'DP_num_neighbors', 'max_attended_edges', 'add_reverse', 'git_hash')
+                    'DP_num_neighbors', 'max_attended_edges', 'recalculate_att_after_prun', 'add_reverse', 'git_hash')
         sql_create_tasks_table = """
         CREATE TABLE IF NOT EXISTS tasks (
         checkpoint_dir text PRIMARY KEY,
@@ -279,6 +280,7 @@ if __name__ == "__main__":
         DP_num_neighbors integer NOT NULL,
         max_attended_edges integer NOT NULL,
         add_reverse integer NOT NULL,
+        recalculate_att_after_prun integer NOT NULL,
         git_hash text NOT NULL);
         """
         logging_col = (
@@ -336,6 +338,7 @@ if __name__ == "__main__":
             git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
             args_dict['checkpoint_dir'] = checkpoint_dir
             args_dict['git_hash'] = git_hash
+            args_dict['recalculate_att_after_prun'] = int(args_dict['recalculate_att_after_prun'])
             args_dict['add_reverse'] = int(args_dict['add_reverse'])
             with sqlite_conn:
                 placeholders = ', '.join('?' * len(task_col))
@@ -365,7 +368,7 @@ if __name__ == "__main__":
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-                   DP_num_neighbors=args.DP_num_neighbors, max_attended_edges = args.max_attended_edges, device=device)
+                   DP_num_neighbors=args.DP_num_neighbors, max_attended_edges = args.max_attended_edges, recalculate_att_after_prun=args.recalculate_att_after_prun, device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
     model.entity_raw_embed.cpu()
