@@ -559,10 +559,10 @@ class tDPMPN(torch.nn.Module):
     def get_entity_attn_score(self, logits, nodes, tc=None):
         if tc:
             t_start = time.time()
-        entity_attn_score = _aggregate_op_entity(logits, nodes)
+        entity_attn_score, entities = _aggregate_op_entity(logits, nodes)
         if tc:
             tc['model']['entity_attn'] = time.time() - t_start
-        return entity_attn_score
+        return entity_attn_score, entities
 
     def _get_sampled_edges(self, attended_nodes, num_neighbors: int = 20, tc=None):
         """[summary]

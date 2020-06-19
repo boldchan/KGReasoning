@@ -191,8 +191,6 @@ def segment_rank(t, entities, target_idx_l):
 def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, spt2o):
     """
     compute rank of ground truth (target_idx_l) in prediction according to score, i.e. t
-    :param queries_pre: 1d numpy array of query predicate
-    :param queries_sub: 1d numpy array of query subject
     :param sp2o:
     :param t: prediction score
     :param entities: 2-d numpy array, (segment_idx, entity_idx)
