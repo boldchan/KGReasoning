@@ -1178,7 +1178,7 @@ class tDPMPN(torch.nn.Module):
         return query_src_emb, query_rel_emb, query_ts_emb, attending_nodes, attending_node_attention, memorized_embedding
 
     def flow(self, attending_nodes, attending_node_attention, memorized_embedding: dict, query_src_emb, query_rel_emb,
-             query_time_emb, tc=None):
+             query_time_emb, tc=None, pruning = True):
         """[summary]
 
         Arguments:
@@ -1198,9 +1198,11 @@ class tDPMPN(torch.nn.Module):
         # Attending-from Horizon of last step
         # attended_nodes: (np.array) n_attended_nodes x 3, (eg_idx, vi, cut_time) sorted
         # attended_nodes_attention: Tensor, n_attended_nodes
-        attended_nodes, attended_node_attention = self._topk_att_score(attending_nodes, attending_node_attention,
+        if pruning:
+            attended_nodes, attended_node_attention = self._topk_att_score(attending_nodes, attending_node_attention,
                                                                        self.max_attended_nodes, tc=tc)
-
+        else:
+            attended_nodes, attended_node_attention = attending_nodes, attending_node_attention
         # Sampling Horizon
         # sampled_edges: (np.array) n_sampled_edges x 6, (eg_idx, vi, ti, vj, tj, rel), sorted by eg_idx, vi, ti, tj
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
