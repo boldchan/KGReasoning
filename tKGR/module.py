@@ -321,7 +321,7 @@ class TGAN(torch.nn.Module):
     def __init__(self, ngh_finder, num_nodes=None, num_edges=None, embed_dim=None, n_feat=None, e_feat=None,
                  attn_mode='prod', use_time='time', agg_method='attn',
                  num_layers=3, n_head=4, null_idx=0, drop_out=0.1, seq_len=None, device='cpu',
-                 looking_afterwards=False):
+                 looking_afterwards=False, s_t_ratio = 2):
         """
         initialize TGAN, either (num_nodes, num_edge, embed_dim) are given or (n_feat, e_feat) are given.
         If (n_feat, e_feat) are given, this pre-trained embedding is being used.
@@ -350,7 +350,7 @@ class TGAN(torch.nn.Module):
         self.num_layers = num_layers
         self.ngh_finder = ngh_finder
         self.null_idx = null_idx
-
+        self.s_t_ratio = s_t_ratio
         self.num_nodes = num_nodes
         self.num_edges = num_edges
 
@@ -388,7 +388,7 @@ class TGAN(torch.nn.Module):
                                                               n_head=n_head,
                                                               drop_out=drop_out) for _ in range(num_layers)])
 
-        self.time_encoder = TimeEncode(expand_dim=self.n_feat_dim, device=device)
+        self.time_encoder = TimeEncode(expand_dim=int(self.n_feat_dim/self.s_t_ratio), device=device)
 
         self.hidden_target_proj = torch.nn.Linear(2 * embed_dim, embed_dim)
 
@@ -1086,7 +1086,7 @@ class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
                  attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
                  use_TGAN=False, tgan_num_neighbors=20, tgan_num_layers=2, tgan_n_head=4, null_idx=0, drop_out=0.1, seq_len=None,
-                 max_attended_nodes=20, max_attending_nodes=200, device='cpu'):
+                 max_attended_nodes=20, max_attending_nodes=200, device='cpu', s_t_ratio = 2):
         """[summary]
 
         Arguments:
@@ -1109,22 +1109,23 @@ class tDPMPN(torch.nn.Module):
             seq_len {[type]} -- [description] (default: {None})
             max_attended_nodes {int} -- [max number of nodes in attending-from horizon] (default: {20})
             device {str} -- [description] (default: {'cpu'})
+            s_t_ratio: ratio of static embeddings to time (temporal) embeddings
         """
         super(tDPMPN, self).__init__()
         self.DP_num_neighbors = DP_num_neighbors
         self.ngh_finder = ngh_finder
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in TGAN need to be increased by 1
+        self.s_t_ratio = s_t_ratio
         self.TGAN = TGAN(self.ngh_finder, num_nodes=num_entity, num_edges=num_rel + 1, embed_dim=embed_dim,
                          attn_mode=attn_mode, use_time=use_time, agg_method=agg_method,
                          num_layers=tgan_num_layers, n_head=tgan_n_head, null_idx=null_idx, drop_out=drop_out,
-                         seq_len=seq_len, device=device)
+                         seq_len=seq_len, device=device, s_t_ratio = s_t_ratio)
         self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, device=device)
         self.max_attended_nodes = max_attended_nodes
         self.tgan_num_neighbors = tgan_num_neighbors
         self.memorized_embedding = dict()
         self.device = device
         self.use_TGAN = use_TGAN
-
         self.src_idx_l, self.rel_idx_l = None, None
 
     def set_init(self, src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_i, epoch):
