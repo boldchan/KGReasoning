@@ -1132,8 +1132,8 @@ class tDPMPN(torch.nn.Module):
                          attn_mode=attn_mode, use_time=use_time, agg_method=agg_method,
                          num_layers=tgan_num_layers, n_head=tgan_n_head, null_idx=null_idx, drop_out=drop_out,
                          seq_len=seq_len, device=device, s_t_ratio = s_t_ratio)
-        self.temporal_embed_dim = int(self.feat_dim * 2 / (1 + self.s_t_ratio))
-        self.static_embed_dim = self.feat_dim * 2 - self.temporal_embed_dim
+        self.temporal_embed_dim = int(embed_dim * 2 / (1 + self.s_t_ratio))
+        self.static_embed_dim = embed_dim * 2 - self.temporal_embed_dim
         self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, self.static_embed_dim, self.temporal_embed_dim, device=device)
         self.max_attended_nodes = max_attended_nodes
         self.tgan_num_neighbors = tgan_num_neighbors
