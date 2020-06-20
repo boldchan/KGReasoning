@@ -390,11 +390,11 @@ class TGAN(torch.nn.Module):
 
         self.time_encoder = TimeEncode(expand_dim=int(self.n_feat_dim/self.s_t_ratio), device=device)
 
-        self.hidden_target_proj = torch.nn.Linear(int((1+self.s_t_ratio)*embed_dim), int((1+self.s_t_ratio)*embed_dim/2))
-        print("ATTENTION\n")
-        print(int((1+self.s_t_ratio)*embed_dim))
-        print("\n")
-        print(int((1+self.s_t_ratio)*embed_dim/2))
+        self.hidden_target_proj = torch.nn.Linear(int((1+1/self.s_t_ratio)*embed_dim), int((1+1/self.s_t_ratio)*embed_dim/2))
+        # print("ATTENTION\n")
+        # print(int((1+self.s_t_ratio)*embed_dim))
+        # print("\n")
+        # print(int((1+self.s_t_ratio)*embed_dim/2))
 
 
     # def link_predict(self, src_idx_l, target_idx_l, cut_time_l, num_neighbors=20):
