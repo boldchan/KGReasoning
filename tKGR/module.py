@@ -353,7 +353,6 @@ class TGAN(torch.nn.Module):
         self.s_t_ratio = s_t_ratio
         self.num_nodes = num_nodes
         self.num_edges = num_edges
-
         self.looking_afterwards = looking_afterwards
 
         self.logger = logging.getLogger(__name__)
@@ -377,7 +376,8 @@ class TGAN(torch.nn.Module):
         self.n_feat_dim = self.feat_dim
         self.e_feat_dim = self.feat_dim
         self.model_dim = self.feat_dim
-
+        self.temporal_embed_dim = int(self.feat_dim * 2 / (1 + self.s_t_ratio))
+        self.static_embed_dim = self.feat_dim * 2 -  self.temporal_embed_dim
         self.use_time = use_time
         self.device = device
 
@@ -388,9 +388,9 @@ class TGAN(torch.nn.Module):
                                                               n_head=n_head,
                                                               drop_out=drop_out) for _ in range(num_layers)])
 
-        self.time_encoder = TimeEncode(expand_dim=int(self.n_feat_dim/self.s_t_ratio), device=device)
+        self.time_encoder = TimeEncode(expand_dim=self.temporal_embed_dim, device=device)
 
-        self.hidden_target_proj = torch.nn.Linear(int((1+1/self.s_t_ratio)*embed_dim), embed_dim)
+        self.hidden_target_proj = torch.nn.Linear(2*embed_dim, embed_dim)
         # print("ATTENTION\n")
         # print(int((1+1/self.s_t_ratio)*embed_dim))
         # print("\n")
@@ -432,7 +432,7 @@ class TGAN(torch.nn.Module):
         if embed_device == -1:
             embed_device = torch.device('cpu')
         else:
-            embed_device = torch.device('cuda:{}'.format(embed_devicel))
+            embed_device = torch.device('cuda:{}'.format(embed_device))
         return self.node_raw_embed(torch.from_numpy(node_idx_l + 1).long().to(embed_device)).to(device)
 
     def get_rel_emb(self, rel_idx_l, device):
@@ -623,7 +623,7 @@ class TGAN(torch.nn.Module):
         hidden_target_node = self.get_node_emb(src_idx_l, self.device)
         hidden_target_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device))
         input = torch.cat([hidden_target_node, torch.squeeze(hidden_target_time, 1)], axis=1)
-        print("shape: " + str(input.shape) + "\n")
+        #print("shape: " + str(input.shape) + "\n")
         return self.hidden_target_proj(input)
 
 
@@ -984,7 +984,7 @@ def _aggregate_op_entity(logits, nodes):
 
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims, n_dims_sm, device='cpu'):
+    def __init__(self, n_dims, n_dims_sm, static_embed_dim, temporal_embed_dim, device='cpu'):
         """[summary]
 
         Arguments:
@@ -994,7 +994,12 @@ class AttentionFlow(nn.Module):
         super(AttentionFlow, self).__init__()
 
         self.proj = nn.Linear(n_dims, n_dims_sm)
-        self.transition_fn = G(5 * n_dims_sm, 5 * n_dims_sm, n_dims_sm)
+        self.satic_embed_dims_sm = static_embed_dim*int(n_dims/n_dims_sm)
+        self.temporal_embed_dims_sm = temporal_embed_dim*int(n_dims/n_dims_sm)
+        self.proj_static_embed = nn.Linear(static_embed_dim, self.satic_embed_dims_sm)
+        self.proj_temporal_embed = nn.Linear(temporal_embed_dim, self.temporal_embed_dims_sm)
+        self.transition_fn = G(3 * n_dims_sm + self.satic_embed_dims_sm + self.temporal_embed_dims_sm, 3 * n_dims_sm + \
+                               self.satic_embed_dims_sm + self.temporal_embed_dims_sm, n_dims_sm)
 
         self.device = device
 
@@ -1036,9 +1041,9 @@ class AttentionFlow(nn.Module):
         """
         if tc:
             t_start = time.time()
-        query_src_vec = self.proj(query_src_emb)  # batch_size x n_dims_sm
+        query_src_vec = self.proj_static_embed(query_src_emb)  # batch_size x n_dims_sm
         query_rel_vec = self.proj(query_rel_emb)  # batch_size x n_dims_sm
-        query_time_vec = self.proj(query_time_emb)  # batch_size x n_dims_sm
+        query_time_vec = self.proj_temporal_embed(query_time_emb)  # batch_size x n_dims_sm
 
         rel_emb = self.proj(rel_emb)
 
@@ -1127,7 +1132,9 @@ class tDPMPN(torch.nn.Module):
                          attn_mode=attn_mode, use_time=use_time, agg_method=agg_method,
                          num_layers=tgan_num_layers, n_head=tgan_n_head, null_idx=null_idx, drop_out=drop_out,
                          seq_len=seq_len, device=device, s_t_ratio = s_t_ratio)
-        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, device=device)
+        self.temporal_embed_dim = int(self.feat_dim * 2 / (1 + self.s_t_ratio))
+        self.static_embed_dim = self.feat_dim * 2 - self.temporal_embed_dim
+        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, self.static_embed_dim, self.temporal_embed_dim, device=device)
         self.max_attended_nodes = max_attended_nodes
         self.tgan_num_neighbors = tgan_num_neighbors
         self.memorized_embedding = dict()
