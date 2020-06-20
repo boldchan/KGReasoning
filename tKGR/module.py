@@ -354,7 +354,6 @@ class TGAN(torch.nn.Module):
         self.num_nodes = num_nodes
         self.num_edges = num_edges
         self.looking_afterwards = looking_afterwards
-
         self.logger = logging.getLogger(__name__)
 
         if n_feat is not None:
@@ -363,9 +362,12 @@ class TGAN(torch.nn.Module):
             self.node_raw_embed = torch.nn.Embedding.from_pretrained(self.n_feat_th, padding_idx=0, freeze=False).cpu()
             self.feat_dim = self.n_feat_th.shape[1]
         else:
-            self.node_raw_embed = torch.nn.Embedding(num_nodes + 1, embed_dim).cpu()
+            self.temporal_embed_dim = int(embed_dim* 2 / (1 + self.s_t_ratio))
+            self.static_embed_dim = embed_dim * 2 - self.temporal_embed_dim
+            self.node_raw_embed = torch.nn.Embedding(num_nodes + 1, self.static_embed_dim).cpu()
             nn.init.xavier_normal_(self.node_raw_embed.weight)
             self.feat_dim = embed_dim
+
         if e_feat is not None:
             self.e_feat_th = torch.nn.Parameter(torch.from_numpy(e_feat.astype(np.float32))).cpu()
             self.edge_raw_embed = torch.nn.Embedding.from_pretrained(self.e_feat_th, padding_idx=0, freeze=False)
@@ -376,8 +378,6 @@ class TGAN(torch.nn.Module):
         self.n_feat_dim = self.feat_dim
         self.e_feat_dim = self.feat_dim
         self.model_dim = self.feat_dim
-        self.temporal_embed_dim = int(self.feat_dim * 2 / (1 + self.s_t_ratio))
-        self.static_embed_dim = self.feat_dim * 2 -  self.temporal_embed_dim
         self.use_time = use_time
         self.device = device
 
