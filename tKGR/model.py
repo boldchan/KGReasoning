@@ -531,8 +531,7 @@ class tDPMPN(torch.nn.Module):
                                                                         query_src_emb=query_src_emb,
                                                                         query_rel_emb=query_rel_emb,
                                                                         query_time_emb=query_time_emb,
-                                                                                                    recalculate_att_after_prun=recalculate_att_after_prun,
-                                                                                                    max_edges=self.max_attended_edges, tc=tc)
+                                                                        max_edges=self.max_attended_edges, tc=tc)
 
         assert len(pruned_edges) == len(orig_indices)
 #        print("# pruned_edges {}".format(len(pruned_edges)))
