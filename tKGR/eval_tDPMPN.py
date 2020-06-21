@@ -312,10 +312,10 @@ if __name__ == "__main__":
         hit_1 += np.sum(target_rank_l == 1)
         hit_3 += np.sum(target_rank_l <= 3)
         hit_10 += np.sum(target_rank_l <= 10)
-        hit_1_fil += np.sum(target_rank_fil_l == 1)
+        hit_1_fil += np.sum(target_rank_fil_l <= 1) # target_rank_fil_l has dtype float
         hit_3_fil += np.sum(target_rank_fil_l <= 3)
         hit_10_fil += np.sum(target_rank_fil_l <= 10)
-        hit_1_fil_t += np.sum(target_rank_fil_t_l == 1)
+        hit_1_fil_t += np.sum(target_rank_fil_t_l <= 1)# target_rank_fil_t_l has dtype float
         hit_3_fil_t += np.sum(target_rank_fil_t_l <= 3)
         hit_10_fil_t += np.sum(target_rank_fil_t_l <= 10)
         found_cnt += np.sum(found_mask)
