@@ -1152,7 +1152,7 @@ class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
                  attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
                  use_TGAN=False, tgan_num_neighbors=20, tgan_num_layers=2, tgan_n_head=4, null_idx=0, drop_out=0.1, seq_len=None,
-                 max_attended_nodes=20, max_attending_nodes=200, device='cpu', s_t_ratio = 2, ent_spec_time_embed = False):
+                 max_attended_nodes=20, max_attending_nodes=200, device='cpu', s_t_ratio = 2, ent_spec_time_embed = False, simpl_att = False):
         """[summary]
 
         Arguments:
@@ -1189,7 +1189,7 @@ class tDPMPN(torch.nn.Module):
                          seq_len=seq_len, device=device, s_t_ratio = s_t_ratio, ent_spec_time_embed = ent_spec_time_embed)
         self.temporal_embed_dim = int(embed_dim * 2 / (1 + self.s_t_ratio))
         self.static_embed_dim = embed_dim * 2 - self.temporal_embed_dim
-        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, self.static_embed_dim, self.temporal_embed_dim, device=device)
+        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, self.static_embed_dim, self.temporal_embed_dim, device=device, simpl_att=simpl_att)
         self.max_attended_nodes = max_attended_nodes
         self.tgan_num_neighbors = tgan_num_neighbors
         self.memorized_embedding = dict()
