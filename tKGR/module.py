@@ -743,7 +743,7 @@ class G_simpl(torch.nn.Module):
         right_x = torch.cat(right, dim=-1)
         # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
         # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
-        return torch.sum(self.act(self.dense(left_x)), self.act(self.dense(right_x)),dim=-1)
+        return torch.sum(self.act(self.dense(left_x)) * self.act(self.dense(right_x)), dim=-1)
 
 def node2edge_v2_op(inputs, selected_edges, return_vi=True, return_vj=True):
     """ inputs (hidden): n_selected_nodes x n_dims
