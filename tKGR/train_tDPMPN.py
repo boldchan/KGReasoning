@@ -225,7 +225,8 @@ if __name__ == "__main__":
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
         task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                    'DP_num_neighbors', 'max_attended_edges', 'recalculate_att_after_prun', 'add_reverse', 'git_hash')
+                    'DP_num_neighbors', 'max_attended_edges', 'add_reverse', 'recalculate_att_after_prun',
+                    'node_score_aggregation', 'git_hash')
         sql_create_tasks_table = """
         CREATE TABLE IF NOT EXISTS tasks (
         checkpoint_dir text PRIMARY KEY,
@@ -240,6 +241,7 @@ if __name__ == "__main__":
         max_attended_edges integer NOT NULL,
         add_reverse integer NOT NULL,
         recalculate_att_after_prun integer NOT NULL,
+        node_score_aggregation text NOT NULL,
         git_hash text NOT NULL);
         """
         logging_col = (
@@ -491,10 +493,10 @@ if __name__ == "__main__":
                 hit_1 += np.sum(target_rank_l == 1)
                 hit_3 += np.sum(target_rank_l <= 3)
                 hit_10 += np.sum(target_rank_l <= 10)
-                hit_1_fil += np.sum(target_rank_fil_l == 1) # unique entity with largest node score
+                hit_1_fil += np.sum(target_rank_fil_l <= 1) # unique entity with largest node score
                 hit_3_fil += np.sum(target_rank_fil_l <= 3)
                 hit_10_fil += np.sum(target_rank_fil_l <= 10)
-                hit_1_fil_t += np.sum(target_rank_fil_t_l == 1) # unique entity with largest node score
+                hit_1_fil_t += np.sum(target_rank_fil_t_l <= 1) # unique entity with largest node score
                 hit_3_fil_t += np.sum(target_rank_fil_t_l <= 3)
                 hit_10_fil_t += np.sum(target_rank_fil_t_l <= 10)
                 found_cnt += np.sum(found_mask)
