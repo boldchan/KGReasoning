@@ -204,7 +204,7 @@ class TimeEncode(torch.nn.Module):
 
         if entity_specific:
             self.basis_freq = torch.nn.Parameter(torch.from_numpy(1 / 10 ** np.linspace(0, 9, time_dim)).float().unsqueeze(dim=0).repeat(num_entities, 1))
-            self.phase = torch.nn.Parameter(torch.zeros(time_dim).float().unsqueeze().repeat(num_entities, 1))
+            self.phase = torch.nn.Parameter(torch.zeros(time_dim).float().unsqueeze(dim=0).repeat(num_entities, 1))
         else:
             self.basis_freq = torch.nn.Parameter(torch.from_numpy(1 / 10 ** np.linspace(0, 9, time_dim)).float())
             self.phase = torch.nn.Parameter(torch.zeros(time_dim).float())
