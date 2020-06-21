@@ -261,11 +261,9 @@ def segment_rank(t, entities, target_idx_l):
     return np.array(rank), found_mask
 
 
-def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, spt2o):
+def segment_rank_fil(t, entities, target_idx_l, sp2o, spt2o, queries_sub, queries_pre, queries_ts):
     """
     compute rank of ground truth (target_idx_l) in prediction according to score, i.e. t
-    :param queries_pre: 1d numpy array of query predicate
-    :param queries_sub: 1d numpy array of query subject
     :param sp2o:
     :param t: prediction score
     :param entities: 2-d numpy array, (segment_idx, entity_idx)
@@ -284,16 +282,22 @@ def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, 
         arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
         if arg_target.size > 0:
             found_mask.append(True)
-            sub, pre = queries_sub[i], queries_pre[i]
+            sub, pre, ts = queries_sub[i], queries_pre[i], queries_ts[i]
             obj_exist = sp2o[(sub, pre)]
-            obj_exist_t = spt2o[(sub, pre)]
-            rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
+            obj_exist_t = spt2o[(sub, pre, ts)]
+            rank_pred_com1 = torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2 = torch.sum(t[s:e] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank.append(rank_pred_com1 + ((rank_pred_com2 - 1) / 2) + 1)
             fil = [ent not in obj_exist for ent in entities[s:e, 1]]
-            fil_t = [ent not in obj_exist_t for ent in entities[s:1, 1]]
-            rank_fil.append(torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
-            rank_fil_t.append(torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
+            fil_t = [ent not in obj_exist_t for ent in entities[s:e, 1]]
+            rank_pred_com1_fil = torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2_fil = torch.sum(t[s:e][fil] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_fil.append(rank_pred_com1_fil + ((rank_pred_com2_fil - 1) / 2) + 1)
+            rank_pred_com1_fil_t = torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_pred_com2_fil_t = torch.sum(t[s:e][fil_t] == t[s:e][torch.from_numpy(arg_target)]).item()
+            rank_fil_t.append(rank_pred_com1_fil_t + ((rank_pred_com2_fil_t - 1) / 2) + 1)
         else:
             found_mask.append(False)
-            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
+            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
             rank_fil.append(1e9)
-    return np.array(rank), found_mask, np.array(rank_fil), np.array([rank_fil_t])
+    return np.array(rank), found_mask, np.array(rank_fil), np.array(rank_fil_t)
