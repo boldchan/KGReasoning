@@ -1,5 +1,6 @@
 import time
 import pdb
+from collections import Counter
 
 import numpy as np
 import torch
@@ -147,7 +148,7 @@ class G(torch.nn.Module):
 
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims, n_dims_sm, recalculate_att_after_prun, device='cpu'):
+    def __init__(self, n_dims, n_dims_sm, recalculate_att_after_prun, node_score_aggregation='sum', device='cpu'):
         """[summary]
 
         Arguments:
@@ -161,6 +162,7 @@ class AttentionFlow(nn.Module):
         # self.linears = nn.ModuleList([nn.Linear(n_dims, n_dims) for i in range(DP_steps)])
         self.linear = nn.Linear(n_dims, n_dims)  # use shared Linear for representation update
         self.recalculate_att_after_prun = recalculate_att_after_prun
+        self.node_score_aggregation = node_score_aggregation
 
         self.device = device
 
@@ -316,6 +318,15 @@ class AttentionFlow(nn.Module):
 
 #        print("edges for message passing:")
 #        print(pruned_edges[:, [-2, -1]])
+
+        # node score aggregation: average rather than sum, comment to use summation of node score from different path
+        if self.node_score_aggregation == 'mean':
+            c = Counter(pruned_edges[:, -1])
+            target_node_cnt = torch.tensor([c[_] for _ in pruned_edges[:, -1]]).to(self.device)
+            transition_logits_pruned_softmax = torch.div(transition_logits_pruned_softmax, target_node_cnt)
+        elif self.node_score_aggregation != 'sum':
+            raise ValueError("node score_aggregate can only be mean or sum")
+
         sparse_index_rep = torch.from_numpy(pruned_edges[:, [-2, -1]]).to(torch.int64).to(self.device)
         sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), pruned_edges[:, -2])).unsqueeze(1).repeat(1,2).to(self.device)
         sparse_index_rep = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
@@ -376,7 +387,7 @@ class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
                  attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
                  null_idx=0, drop_out=0.1, seq_len=None, recalculate_att_after_prun=True,
-                 max_attended_edges=20, device='cpu'):
+                 node_score_aggregation='sum', max_attended_edges=20, device='cpu'):
         """[summary]
 
         Arguments:
@@ -407,7 +418,8 @@ class tDPMPN(torch.nn.Module):
         self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, embed_dim).cpu()
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
-        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, recalculate_att_after_prun=recalculate_att_after_prun, device=device)
+        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, recalculate_att_after_prun=recalculate_att_after_prun,
+                                      node_score_aggregation=node_score_aggregation, device=device)
         self.max_attended_edges = max_attended_edges
 
         self.time_encoder = TimeEncode(expand_dim=embed_dim, device=device)

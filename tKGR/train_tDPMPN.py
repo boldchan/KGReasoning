@@ -210,6 +210,7 @@ parser.add_argument('--debug', action='store_true', default=None, help='in debug
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--weight_factor', type=float, default=1, help='sampling 3, scale weight')
 parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False, help='in attention module, whether re-calculate attention score after pruning')
+parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean'])
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -326,7 +327,9 @@ if __name__ == "__main__":
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-                   DP_num_neighbors=args.DP_num_neighbors, max_attended_edges = args.max_attended_edges, recalculate_att_after_prun=args.recalculate_att_after_prun, device=device)
+                   DP_num_neighbors=args.DP_num_neighbors, max_attended_edges = args.max_attended_edges,
+                   recalculate_att_after_prun=args.recalculate_att_after_prun, node_score_aggregation=args.node_score_aggregation,
+                   device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
     model.entity_raw_embed.cpu()
