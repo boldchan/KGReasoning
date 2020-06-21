@@ -220,8 +220,8 @@ class TimeEncode(torch.nn.Module):
         ts = torch.unsqueeze(ts, dim=2)
         # print("Forward in TimeEncode: ts is on ", ts.get_device())
         if self.entity_specific:
-            map_ts = ts * self.basis_freq[entities].view(1, 1, -1)  # [batch_size, seq_len, time_dim]
-            map_ts += self.phase[entities].view(1, 1, -1)
+            map_ts = ts * self.basis_freq[entities]  # [batch_size, seq_len, time_dim]
+            map_ts += self.phase[entities]
         else:
             map_ts = ts * self.basis_freq.view(1, 1, -1)  # [batch_size, seq_len, time_dim]
             map_ts += self.phase.view(1, 1, -1)
