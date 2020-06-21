@@ -1046,8 +1046,8 @@ class AttentionFlow(nn.Module):
         super(AttentionFlow, self).__init__()
 
         self.proj = nn.Linear(n_dims, n_dims_sm)
-        self.satic_embed_dims_sm = static_embed_dim*int(n_dims/n_dims_sm)
-        self.temporal_embed_dims_sm = temporal_embed_dim*int(n_dims/n_dims_sm)
+        self.satic_embed_dims_sm = static_embed_dim*int(n_dims_sm/n_dims)
+        self.temporal_embed_dims_sm = temporal_embed_dim*int(n_dims_sm/n_dims)
         self.proj_static_embed = nn.Linear(static_embed_dim, self.satic_embed_dims_sm)
         self.proj_temporal_embed = nn.Linear(temporal_embed_dim, self.temporal_embed_dims_sm)
         if simpl_att:
