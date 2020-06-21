@@ -209,7 +209,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--weight_factor', type=float, default=1, help='sampling 3, scale weight')
-parser.add_argument('--recalculate_att_after_prun', action='store_true', default=None, help='in attention module, whether re-calculate attention score after pruning')
+parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False, help='in attention module, whether re-calculate attention score after pruning')
 args = parser.parse_args()
 
 if __name__ == "__main__":
