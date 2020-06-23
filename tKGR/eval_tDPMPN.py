@@ -245,6 +245,7 @@ parser.add_argument('--add_reverse', action='store_true', default=None, help='ad
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
+parser.add_argument('--no_pruning', action='store_true', default=None)
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -292,6 +293,10 @@ if __name__ == "__main__":
     nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
     if args.timer:
         time_cost['data']['ngh'] = time.time() - t_start
+    if args.no_pruning:
+        pruning = False
+    else:
+        pruning  = True
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
@@ -341,7 +346,7 @@ if __name__ == "__main__":
         for step in range(args.DP_steps):
             attending_nodes, attending_node_attention, memorized_embedding, _  = \
                 model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
-                           query_rel_emb, query_time_emb)
+                           query_rel_emb, query_time_emb, pruning = pruning)
         entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
 
         # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)

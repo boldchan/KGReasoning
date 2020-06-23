@@ -262,6 +262,8 @@ parser.add_argument('--debug', action='store_true', default=None, help='in debug
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--weight_factor', type=float, default=1, help='sampling 3, scale weight')
 parser.add_argument('--emb_static_temporal_ratio', type=float, default=2, help='ratio of static embedding to time(temporal) embeddings')
+parser.add_argument('--ent_spec_time_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
+parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -377,7 +379,8 @@ if __name__ == "__main__":
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
                    DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device,
-                   use_TGAN=args.use_TGAN, s_t_ratio = args.emb_static_temporal_ratio)
+                   use_TGAN=args.use_TGAN, s_t_ratio = args.emb_static_temporal_ratio, ent_spec_time_embed = args.ent_spec_time_embed,
+                   simpl_att = args.simpl_att)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
     model.TGAN.node_raw_embed.cpu()
