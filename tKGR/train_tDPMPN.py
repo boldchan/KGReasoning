@@ -384,7 +384,7 @@ if __name__ == "__main__":
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
                    DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device,
-                   use_TGAN=args.use_TGAN, s_t_ratio = args.emb_static_temporal_ratio, ent_spec_time_embed = args.ent_spec_time_embed,
+                   use_TGAN=args.use_TGAN, s_t_ratio = args.emb_static_ratio, ent_spec_time_embed = args.diac_embed,
                    simpl_att = args.simpl_att)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
