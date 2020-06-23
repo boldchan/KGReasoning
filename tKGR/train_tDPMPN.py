@@ -261,8 +261,8 @@ parser.add_argument('--use_TGAN', action='store_true', default=None, help='use h
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--weight_factor', type=float, default=1, help='sampling 3, scale weight')
-parser.add_argument('--emb_static_temporal_ratio', type=float, default=2, help='ratio of static embedding to time(temporal) embeddings')
-parser.add_argument('--ent_spec_time_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
+parser.add_argument('--emb_static_ratio', type=float, default=2, help='ratio of static embedding to time(temporal) embeddings')
+parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
 parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
 args = parser.parse_args()
 
@@ -278,7 +278,7 @@ if __name__ == "__main__":
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
         task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                    'DP_num_neighbors', 'max_attended_nodes', 'add_reverse', 'git_hash')
+                    'DP_num_neighbors', 'max_attended_nodes', 'add_reverse', 'git_hash', 'diac_embed', 'simpl_att', 'emb_static_ratio')
         sql_create_tasks_table = """
         CREATE TABLE IF NOT EXISTS tasks (
         checkpoint_dir text PRIMARY KEY,
@@ -292,6 +292,9 @@ if __name__ == "__main__":
         DP_num_neighbors integer NOT NULL,
         max_attended_nodes integer NOT NULL,
         add_reverse integer NOT NULL,
+        diac_embed integer NOT NULL,
+        simpl_att integer NOT NULL,
+        emb_static_ratio real NOT NULL,
         git_hash text NOT NULL);
         """
         logging_col = (
@@ -350,6 +353,8 @@ if __name__ == "__main__":
             args_dict['checkpoint_dir'] = checkpoint_dir
             args_dict['git_hash'] = git_hash
             args_dict['add_reverse'] = int(args_dict['add_reverse'])
+            args_dict['diac_embed'] = int(args_dict['diac_embed'])
+            args_dict['simpl_att'] = int(args_dict['simpl_att'])
             with sqlite_conn:
                 placeholders = ', '.join('?' * len(task_col))
                 sql_hp = 'INSERT OR IGNORE INTO tasks({}) VALUES ({})'.format(', '.join(task_col), placeholders)
