@@ -44,10 +44,10 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-def load_checkpoint(model, optimizer, checkpoint_dir):
+def load_checkpoint(model, optimizer, checkpoint_dir, device='cpu'):
     if os.path.isfile(checkpoint_dir):
         print("=> loading checkpoint '{}'".format(checkpoint_dir))
-        checkpoint = torch.load(checkpoint_dir)
+        checkpoint = torch.load(checkpoint_dir, map_location=torch.device(device))
         start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -128,64 +128,6 @@ class SimpleCustomBatch:
 
 def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
-
-
-def segment_topk(t, segment_idx, k, sorted=False):
-    """
-    compute topk along segments of a tensor
-    params:
-        t: Tensor, 1d, dtype=torch.float32
-        segment_idx: numpy.array, 1d, dtype=numpy.int32, sorted
-        k: k largest values
-    return:
-        values[i]: Tensor of topk of segment i
-        indices[i]: numpy.array of position of topk elements of segment i in original Tensor t
-    """
-    mask = segment_idx[1:] != segment_idx[:-1]
-    key_idx = np.concatenate([np.array([0], dtype=np.int32),
-                              np.arange(1, len(segment_idx))[mask],
-                              np.array([len(segment_idx)])])
-    values = []
-    indices = []
-    for s, e in zip(key_idx[:-1], key_idx[1:]):
-        if e - s < k:
-            if sorted:
-                sorted_value, sorted_indices = torch.sort(t[s:e], descending=True)
-                values.append(sorted_value)
-                indices.append(s + sorted_indices.cpu().numpy())
-            else:
-                values.append(t[s:e])
-                indices.append(np.arange(s, e))
-        else:
-            segment_values, segment_indices = torch.topk(t[s:e], k, sorted=sorted)
-            values.append(segment_values)
-            indices.append(s + segment_indices.cpu().numpy())
-    return values, indices
-
-
-def segment_rank(t, entities, target_idx_l):
-    """
-    compute rank of ground truth (target_idx_l) in prediction according to score, i.e. t
-    :param t: prediction score
-    :param entities: 2-d numpy array, (segment_idx, entity_idx)
-    :param target_idx_l: 1-d numpy array, (batch_size, )
-    :return:
-    """
-    mask = entities[1:, 0] != entities[:-1, 0]
-    key_idx = np.concatenate([np.array([0], dtype=np.int32),
-                              np.arange(1, len(entities))[mask],
-                              np.array([len(entities)])])
-    rank = []
-    found_mask = []
-    for i, (s, e) in enumerate(zip(key_idx[:-1], key_idx[1:])):
-        arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
-        if arg_target.size > 0:
-            found_mask.append(True)
-            rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
-        else:
-            found_mask.append(False)
-            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
-    return np.array(rank), found_mask
 
 
 parser = argparse.ArgumentParser()
