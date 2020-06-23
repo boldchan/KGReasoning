@@ -27,7 +27,7 @@ PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
 from utils import Data, NeighborFinder, Measure, save_config
-from module import tDPMPN, segment_softmax_op_v2
+from model import tDPMPN
 import config
 import local_config
 from segment import *
@@ -43,10 +43,10 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-def load_checkpoint(model, optimizer, checkpoint_dir):
+def load_checkpoint(model, optimizer, checkpoint_dir, device='cpu'):
     if os.path.isfile(checkpoint_dir):
         print("=> loading checkpoint '{}'".format(checkpoint_dir))
-        checkpoint = torch.load(checkpoint_dir)
+        checkpoint = torch.load(checkpoint_dir, map_location=torch.device(device))
         start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -188,44 +188,6 @@ def segment_rank(t, entities, target_idx_l):
     return np.array(rank), found_mask
 
 
-def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, spt2o):
-    """
-    compute rank of ground truth (target_idx_l) in prediction according to score, i.e. t
-    :param queries_pre: 1d numpy array of query predicate
-    :param queries_sub: 1d numpy array of query subject
-    :param sp2o:
-    :param t: prediction score
-    :param entities: 2-d numpy array, (segment_idx, entity_idx)
-    :param target_idx_l: 1-d numpy array, (batch_size, )
-    :return:
-    """
-    mask = entities[1:, 0] != entities[:-1, 0]
-    key_idx = np.concatenate([np.array([0], dtype=np.int32),
-                              np.arange(1, len(entities))[mask],
-                              np.array([len(entities)])])
-    rank = []
-    rank_fil = []
-    rank_fil_t = []
-    found_mask = []
-    for i, (s, e) in enumerate(zip(key_idx[:-1], key_idx[1:])):
-        arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
-        if arg_target.size > 0:
-            found_mask.append(True)
-            sub, pre = queries_sub[i], queries_pre[i]
-            obj_exist = sp2o[(sub, pre)]
-            obj_exist_t = spt2o[(sub, pre)]
-            rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
-            fil = [ent not in obj_exist for ent in entities[s:e, 1]]
-            fil_t = [ent not in obj_exist_t for ent in entities[s:e, 1]]
-            rank_fil.append(torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
-            rank_fil_t.append(torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
-        else:
-            found_mask.append(False)
-            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
-            rank_fil.append(1e9)
-    return np.array(rank), found_mask, np.array(rank_fil), np.array([rank_fil_t])
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
@@ -240,12 +202,13 @@ parser.add_argument('--sampling', type=int, default=2,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
 parser.add_argument('--DP_steps', type=int, default=2, help='number of DP steps')
 parser.add_argument('--DP_num_neighbors', type=int, default=20, help='number of neighbors sampled for sampling horizon')
-parser.add_argument('--max_attended_nodes', type=int, default=20, help='max number of nodes in attending from horizon')
+parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of nodes in attending from horizon')
 parser.add_argument('--add_reverse', action='store_true', default=None, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--no_pruning', action='store_true', default=None)
+parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False)
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -265,28 +228,13 @@ if __name__ == "__main__":
     start_time = time.time()
     struct_time = time.gmtime(start_time)
 
-    if not args.debug:
-        if args.load_checkpoint is None:
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
-                struct_time.tm_year,
-                struct_time.tm_mon,
-                struct_time.tm_mday,
-                struct_time.tm_hour,
-                struct_time.tm_min,
-                struct_time.tm_sec))
-            if not os.path.exists(CHECKPOINT_PATH):
-                os.makedirs(CHECKPOINT_PATH, mode=0o770)
-        else:
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
-        print("Log configuration under {}".format(CHECKPOINT_PATH))
-
     # construct NeighborFinder
     if args.timer:
         t_start = time.time()
     contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
 
     sp2o = contents.get_sp2o()
-    val_spt2o = contents.get_spt2o('valid')
+    test_spt2o = contents.get_spt2o('test')
 
     adj = contents.get_adj_dict()
     max_time = max(contents.data[:, 3])
@@ -300,20 +248,19 @@ if __name__ == "__main__":
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-                   DP_num_neighbors=args.DP_num_neighbors, device=device,
-                   use_TGAN=False)
+                   DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
+                   recalculate_att_after_prun=args.recalculate_att_after_prun, device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
-    model.TGAN.node_raw_embed.cpu()
-    model.TGAN.edge_raw_embed.cpu()
+    model.entity_raw_embed.cpu()
+    model.relation_raw_embed.cpu()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
     else:
-        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
-
+        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
 
     hit_1 = hit_3 = hit_10 = 0
     hit_1_fil = hit_3_fil = hit_10_fil = 0
@@ -342,12 +289,14 @@ if __name__ == "__main__":
         mean_degree += sum(degree_batch)
 
         model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
-        query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
+        query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = model.initialize()
         for step in range(args.DP_steps):
-            attending_nodes, attending_node_attention, memorized_embedding, _  = \
-                model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
-                           query_rel_emb, query_time_emb, pruning = pruning)
-        entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
+            attended_nodes, attended_node_attention, memorized_embedding = \
+                model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
+                           query_rel_emb, query_time_emb)
+
+        entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]],
+                                                                 attended_nodes)
 
         # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
         # for i, target in enumerate(target_idx_l):
@@ -355,16 +304,23 @@ if __name__ == "__main__":
         #     hit_1 += target == top10[0, 1]
         #     hit_3 += target in top10[:3, 1]
         #     hit_10 += target in top10[:, 1]
-        target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score, entities, target_idx_l, sp2o, src_idx_l, rel_idx_l, val_spt2o)
+        target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score,
+                                                                                             entities,
+                                                                                             target_idx_l,
+                                                                                             sp2o,
+                                                                                             test_spt2o,
+                                                                                             src_idx_l,
+                                                                                             rel_idx_l,
+                                                                                             cut_time_l)
         # print(target_rank_l)
         mean_degree_found += sum(degree_batch[found_mask])
         hit_1 += np.sum(target_rank_l == 1)
         hit_3 += np.sum(target_rank_l <= 3)
         hit_10 += np.sum(target_rank_l <= 10)
-        hit_1_fil += np.sum(target_rank_fil_l == 1)
+        hit_1_fil += np.sum(target_rank_fil_l <= 1) # target_rank_fil_l has dtype float
         hit_3_fil += np.sum(target_rank_fil_l <= 3)
         hit_10_fil += np.sum(target_rank_fil_l <= 10)
-        hit_1_fil_t += np.sum(target_rank_fil_t_l == 1)
+        hit_1_fil_t += np.sum(target_rank_fil_t_l <= 1)# target_rank_fil_t_l has dtype float
         hit_3_fil_t += np.sum(target_rank_fil_t_l <= 3)
         hit_10_fil_t += np.sum(target_rank_fil_t_l <= 10)
         found_cnt += np.sum(found_mask)

@@ -145,14 +145,14 @@ class Data:
         adj_list for the whole dataset, including training data, validation data and test data
         :return:
         adj_list: List[List[(o(int), p(str), t(int))]], adj_list[i] is the list of (o,p,t) of events
-        where entity i is the subject. Each row is sorted by timestamp of events
+        where entity i is the subject. Each row is sorted by timestamp of events, object and relation index
         '''
         adj_list_dict = defaultdict(list)
         for event in self.data:
             adj_list_dict[int(event[0])].append((int(event[2]), int(event[1]), int(event[3])))
 
         subject_index_sorted = sorted(adj_list_dict.keys())
-        adj_list = [sorted(adj_list_dict[_], key=lambda x: x[2]) for _ in subject_index_sorted]
+        adj_list = [sorted(adj_list_dict[_], key=lambda x: (x[2], x[0], x[1])) for _ in subject_index_sorted]
 
         return adj_list
 
@@ -164,6 +164,10 @@ class Data:
         adj_dict = defaultdict(list)
         for event in self.data:
             adj_dict[int(event[0])].append((int(event[2]), int(event[1]), int(event[3])))
+
+        for value in adj_dict.values():
+            value.sort(key=lambda x: (x[2], x[0], x[1]))
+
         return adj_dict
 
     def get_spt2o(self, dataset: str):
@@ -244,7 +248,7 @@ class NeighborFinder:
             for i in range(len(adj)):
                 assert len(adj) == num_entities
                 curr = adj[i]
-                curr = sorted(curr, key=lambda x: int(x[2]))
+                curr = sorted(curr, key=lambda x: (int(x[2]), int(x[0]), int(x[1])))
                 n_idx_l.extend([x[0] for x in curr])
                 e_idx_l.extend([x[1] for x in curr])
                 curr_ts = [x[2] for x in curr]
@@ -255,7 +259,7 @@ class NeighborFinder:
         elif isinstance(adj, dict):
             for i in range(num_entities):
                 curr = adj.get(i, [])
-                curr = sorted(curr, key=lambda x: int(x[2]))
+                curr = sorted(curr, key=lambda x: (int(x[2]), int(x[0]), int(x[1])))
                 n_idx_l.extend([x[0] for x in curr])
                 e_idx_l.extend([x[1] for x in curr])
                 curr_ts = [x[2] for x in curr]
@@ -288,36 +292,44 @@ class NeighborFinder:
             temp_degree.append(self.off_set_t_l[src_idx][int(cut_time / 24)])  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
         return np.array(temp_degree)
 
+    # def find_before(self, src_idx, cut_time):
+    #     """
+    #     build neighborhood sequence of entity sec_idx before cut_time
+    #     Params
+    #     ------
+    #     src_idx: int
+    #     cut_time: float
+    #     """
+    #     neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+    #     neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+    #     neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
+    #
+    #     if len(neighbors_idx) == 0 or len(neighbors_ts) == 0:
+    #         return neighbors_idx, neighbors_ts, neighbors_e_idx
+    #
+    #     left = 0
+    #     right = len(neighbors_idx) - 1
+    #
+    #     while left + 1 < right:
+    #         mid = (left + right) // 2
+    #         curr_t = neighbors_ts[mid]
+    #         if curr_t < cut_time:
+    #             left = mid
+    #         else:
+    #             right = mid
+    #
+    #     if neighbors_ts[right] < cut_time:
+    #         return neighbors_idx[:right + 1], neighbors_e_idx[:right + 1], neighbors_ts[:right + 1]
+    #     else:
+    #         return neighbors_idx[:left + 1], neighbors_e_idx[:left + 1], neighbors_ts[:left + 1]
+
     def find_before(self, src_idx, cut_time):
-        """
-        build neighborhood sequence of entity sec_idx before cut_time
-        Params
-        ------
-        src_idx: int
-        cut_time: float
-        """
         neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
         neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
         neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-
-        if len(neighbors_idx) == 0 or len(neighbors_ts) == 0:
-            return neighbors_idx, neighbors_ts, neighbors_e_idx
-
-        left = 0
-        right = len(neighbors_idx) - 1
-
-        while left + 1 < right:
-            mid = (left + right) // 2
-            curr_t = neighbors_ts[mid]
-            if curr_t < cut_time:
-                left = mid
-            else:
-                right = mid
-
-        if neighbors_ts[right] < cut_time:
-            return neighbors_idx[:right + 1], neighbors_e_idx[:right + 1], neighbors_ts[:right + 1]
-        else:
-            return neighbors_idx[:left + 1], neighbors_e_idx[:left + 1], neighbors_ts[:left + 1]
+        mid = np.searchsorted(neighbors_ts, cut_time)
+        ngh_idx, ngh_eidx, ngh_ts = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
+        return ngh_idx, ngh_eidx, ngh_ts
 
     def get_temporal_neighbor_v2(self, src_idx_l, cut_time_l, query_time_l, num_neighbors=20):
         """
@@ -325,13 +337,13 @@ class NeighborFinder:
         but are extended to be drawn from all events that happen before query time
         More specifically, for each query we have (sub_q, rel_q, ?, t_q). By each step, for
         every node, i.e. entity-timestamp pair (e_i, t_i), we looked for such entity-timestamp
-        pair (e, t) that (e_i, some_relation, e, t) exists. By first step, (e_i, t_i) == (sub_q, t_q) 
-        where t < t_q is the restriction (rather than t<t_0) 
+        pair (e, t) that (e_i, some_relation, e, t) exists. By first step, (e_i, t_i) == (sub_q, t_q)
+        where t < t_q is the restriction (rather than t<t_0)
         Arguments:
             src_idx_l {numpy.array, 1d} -- entity index
             cut_time_l {numpy.array, 1d} -- timestamp of events
             query_time_l {numpy.array, 1d} -- timestamp of query
-        
+
         Keyword Arguments:
             num_neighbors {int} -- [number of neighbors for each node] (default: {20})
         """
@@ -342,7 +354,7 @@ class NeighborFinder:
 
         out_ngh_node_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.float32)
-        out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32) 
+        out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
 
         for i, (src_idx, cut_time, query_time) in enumerate(zip(src_idx_l, cut_time_l, query_time_l)):
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
@@ -374,7 +386,7 @@ class NeighborFinder:
             out_ngh_eidx_batch[i, half_num_neighbors: len(ngh_eidx_after) + half_num_neighbors] = ngh_eidx_after
 
         out_ngh_query_t_batch = np.repeat(np.repeat(query_time_l[:, np.newaxis], num_neighbors, axis=1))
-        
+
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch, out_ngh_query_t_batch
 
     def get_temporal_neighbor(self, src_idx_l, cut_time_l, num_neighbors=20):
@@ -562,11 +574,15 @@ class Measure:
 def get_git_version_short_hash():
     return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'])[:-1].decode("utf-8")
 
+def get_git_description_last_commit():
+    return subprocess.check_output(['git', 'log', '-2', '--pretty=%B']).decode('utf-8')
+
 
 def save_config(args, dir: str):
     args_dict = vars(args)
     git_hash = get_git_version_short_hash()
-    args_dict['git_hash'] = git_hash
+    git_comment = get_git_description_last_commit()
+    args_dict['git_hash'] = '\t'.join([git_hash, git_comment])
     with open(os.path.join(dir, 'config.json'), 'w') as fp:
         json.dump(args_dict, fp)
 

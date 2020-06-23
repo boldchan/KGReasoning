@@ -1,8 +1,8 @@
 import os
 # the mode argument of the os.makedirs function may be ignored on some systems
-# umask (user file-creation mode mask) specify the default denial value of variable mode, 
-# which means if this value is passed to makedirs function,  
-# it will be ignored and a folder/file with d_________ will be created 
+# umask (user file-creation mode mask) specify the default denial value of variable mode,
+# which means if this value is passed to makedirs function,
+# it will be ignored and a folder/file with d_________ will be created
 # we can either set the umask or specify mode in makedirs
 
 # oldmask = os.umask(0o770)
@@ -26,8 +26,8 @@ from tqdm import tqdm
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash
-from module import tDPMPN, segment_softmax_op_v2
+from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit
+from model import tDPMPN
 import config
 import local_config
 from segment import *
@@ -44,10 +44,10 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-def load_checkpoint(model, optimizer, checkpoint_dir):
+def load_checkpoint(model, optimizer, checkpoint_dir, device='cpu'):
     if os.path.isfile(checkpoint_dir):
         print("=> loading checkpoint '{}'".format(checkpoint_dir))
-        checkpoint = torch.load(checkpoint_dir)
+        checkpoint = torch.load(checkpoint_dir, map_location=torch.device(device))
         start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -74,7 +74,7 @@ def str_time_cost(tc):
         return ''
 
 
-def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, tc=None):
+def prepare_inputs(contents, dataset='train', start_time=0, tc=None):
     '''
     :param tc: time recorder
     :param contents: instance of Data object
@@ -97,10 +97,9 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, 
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
-    neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
     if args.timer:
         tc['data']['load_data'] += time.time() - t_start
-    return np.concatenate([events, neg_obj_idx], axis=1)
+    return events
 
 
 # help Module for custom Dataloader
@@ -111,7 +110,6 @@ class SimpleCustomBatch:
         self.rel_idx = np.array(transposed_data[1], dtype=np.int32)
         self.target_idx = np.array(transposed_data[2], dtype=np.int32)
         self.ts = np.array(transposed_data[3], dtype=np.int32)
-        self.neg_idx = np.array(transposed_data[4:-1], dtype=np.int32).T
         self.event_idx = np.array(transposed_data[-1], dtype=np.int32)
 
     # custom memory pinning method on custom type
@@ -119,124 +117,21 @@ class SimpleCustomBatch:
         self.src_idx = self.src_idx.pin_memory()
         self.rel_idx = self.rel_idx.pin_memory()
         self.target_idx = self.target_idx.pin_memory()
-        self.neg_idx = self.neg_idx.pin_memory()
         self.ts = self.ts.pin_memory()
         self.event_idx = self.event_idx.pin_memory()
 
         return self
+
+    def __str__(self):
+        return "Batch Information:\nsrc_idx: {}\nrel_idx: {}\ntarget_idx: {}\nts: {}".format(self.src_idx, self.rel_idx, self.target_idx, self.ts)
 
 
 def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def segment_topk(t, segment_idx, k, sorted=False):
-    """
-    compute topk along segments of a tensor
-    params:
-        t: Tensor, 1d, dtype=torch.float32
-        segment_idx: numpy.array, 1d, dtype=numpy.int32, sorted
-        k: k largest values
-    return:
-        values[i]: Tensor of topk of segment i
-        indices[i]: numpy.array of position of topk elements of segment i in original Tensor t
-    """
-    mask = segment_idx[1:] != segment_idx[:-1]
-    key_idx = np.concatenate([np.array([0], dtype=np.int32),
-                              np.arange(1, len(segment_idx))[mask],
-                              np.array([len(segment_idx)])])
-    values = []
-    indices = []
-    for s, e in zip(key_idx[:-1], key_idx[1:]):
-        if e - s < k:
-            if sorted:
-                sorted_value, sorted_indices = torch.sort(t[s:e], descending=True)
-                values.append(sorted_value)
-                indices.append(s + sorted_indices.cpu().numpy())
-            else:
-                values.append(t[s:e])
-                indices.append(np.arange(s, e))
-        else:
-            segment_values, segment_indices = torch.topk(t[s:e], k, sorted=sorted)
-            values.append(segment_values)
-            indices.append(s + segment_indices.cpu().numpy())
-    return values, indices
-
-
-def segment_rank(t, entities, target_idx_l):
-    """
-    compute rank of ground truth (target_idx_l) in prediction according to score, i.e. t
-    :param t: prediction score
-    :param entities: 2-d numpy array, (segment_idx, entity_idx)
-    :param target_idx_l: 1-d numpy array, (batch_size, )
-    :return:
-    """
-    mask = entities[1:, 0] != entities[:-1, 0]
-    key_idx = np.concatenate([np.array([0], dtype=np.int32),
-                              np.arange(1, len(entities))[mask],
-                              np.array([len(entities)])])
-    rank = []
-    found_mask = []
-    for i, (s, e) in enumerate(zip(key_idx[:-1], key_idx[1:])):
-        arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
-        if arg_target.size > 0:
-            found_mask.append(True)
-            rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
-        else:
-            found_mask.append(False)
-            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
-    return np.array(rank), found_mask
-
-
-def segment_rank_fil(t, entities, target_idx_l, sp2o, queries_sub, queries_pre, spt2o):
-    """
-    compute rank of ground truth (target_idx_l) in prediction according to score, i.e. t
-    :param queries_pre: 1d numpy array of query predicate
-    :param queries_sub: 1d numpy array of query subject
-    :param sp2o:
-    :param t: prediction score
-    :param entities: 2-d numpy array, (segment_idx, entity_idx)
-    :param target_idx_l: 1-d numpy array, (batch_size, )
-    :return:
-    """
-    mask = entities[1:, 0] != entities[:-1, 0]
-    key_idx = np.concatenate([np.array([0], dtype=np.int32),
-                              np.arange(1, len(entities))[mask],
-                              np.array([len(entities)])])
-    rank = []
-    rank_fil = []
-    rank_fil_t = []
-    found_mask = []
-    for i, (s, e) in enumerate(zip(key_idx[:-1], key_idx[1:])):
-        arg_target = np.nonzero(entities[s:e, 1] == target_idx_l[i])[0]
-        if arg_target.size > 0:
-            found_mask.append(True)
-            sub, pre = queries_sub[i], queries_pre[i]
-            obj_exist = sp2o[(sub, pre)]
-            obj_exist_t = spt2o[(sub, pre)]
-            rank_pred_com1 = torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item()
-            rank_pred_com2 = torch.sum(t[s:e] == t[s:e][torch.from_numpy(arg_target)]).item()
-            rank.append(rank_pred_com1 + ((rank_pred_com2 - 1) / 2) + 1)
-            fil = [ent not in obj_exist for ent in entities[s:e, 1]]
-            fil_t = [ent not in obj_exist_t for ent in entities[s:e, 1]]
-            rank_pred_com1_fil = torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item()
-            rank_pred_com2_fil = torch.sum(t[s:e][fil] == t[s:e][torch.from_numpy(arg_target)]).item()
-            rank_fil.append(rank_pred_com1_fil + ((rank_pred_com2_fil - 1) / 2) + 1)
-            rank_pred_com1_fil_t = torch.sum(t[s:e][fil_t] > t[s:e][torch.from_numpy(arg_target)]).item()
-            rank_pred_com2_fil_t = torch.sum(t[s:e][fil_t] == t[s:e][torch.from_numpy(arg_target)]).item()
-            rank_fil_t.append(rank_pred_com1_fil_t + ((rank_pred_com2_fil_t - 1) / 2) + 1)
-        else:
-            found_mask.append(False)
-            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
-            rank_fil.append(1e9)
-    return np.array(rank), found_mask, np.array(rank_fil), np.array([rank_fil_t])
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
-parser.add_argument('--num_neg_sampling', type=int, default=5,
-                    help="number of negative sampling of objects for each event")
-parser.add_argument('--tgan_num_layers', type=int, default=2, help='number of TGAN layers')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--emb_dim', type=int, default=128, help='dimension of embedding for node, realtion and time')
 parser.add_argument('--emb_dim_sm', type=int, default=32, help='smaller dimension of embedding, '
@@ -244,26 +139,23 @@ parser.add_argument('--emb_dim_sm', type=int, default=32, help='smaller dimensio
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--tgan_num_neighbors', type=int, default=40,
-                    help='how many neighbors to aggregate information from, '
-                         'check paper Inductive Representation Learning '
-                         'for Temporal Graph for detail')
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--sampling', type=int, default=2,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
 parser.add_argument('--DP_steps', type=int, default=2, help='number of DP steps')
 parser.add_argument('--DP_num_neighbors', type=int, default=20, help='number of neighbors sampled for sampling horizon')
-parser.add_argument('--max_attended_nodes', type=int, default=20, help='max number of nodes in attending from horizon')
+parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of nodes in attending from horizon')
 parser.add_argument('--add_reverse', action='store_true', default=False, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
-parser.add_argument('--use_TGAN', action='store_true', default=None, help='use hidden representation of TGAN')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--weight_factor', type=float, default=1, help='sampling 3, scale weight')
 parser.add_argument('--emb_static_ratio', type=float, default=2, help='ratio of static embedding to time(temporal) embeddings')
 parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
 parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
+parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False, help='in attention module, whether re-calculate attention score after pruning')
+parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean'])
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -278,7 +170,8 @@ if __name__ == "__main__":
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
         task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                    'DP_num_neighbors', 'max_attended_nodes', 'add_reverse', 'git_hash', 'diac_embed', 'simpl_att', 'emb_static_ratio')
+                    'DP_num_neighbors', 'max_attended_edges', 'add_reverse', 'recalculate_att_after_prun',
+                    'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'git_hash')
         sql_create_tasks_table = """
         CREATE TABLE IF NOT EXISTS tasks (
         checkpoint_dir text PRIMARY KEY,
@@ -290,8 +183,10 @@ if __name__ == "__main__":
         sampling integer NOT NULL,
         DP_steps integer NOT NULL,
         DP_num_neighbors integer NOT NULL,
-        max_attended_nodes integer NOT NULL,
+        max_attended_edges integer NOT NULL,
         add_reverse integer NOT NULL,
+        recalculate_att_after_prun integer NOT NULL,
+        node_score_aggregation text NOT NULL,
         diac_embed integer NOT NULL,
         simpl_att integer NOT NULL,
         emb_static_ratio real NOT NULL,
@@ -301,7 +196,7 @@ if __name__ == "__main__":
             'checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
             'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
         sql_create_loggings_table = """ CREATE TABLE IF NOT EXISTS logging (
-        checkpoint_dir text NOT NULL, 
+        checkpoint_dir text NOT NULL,
         epoch integer NOT NULL,
         training_loss real,
         validation_loss real,
@@ -349,9 +244,10 @@ if __name__ == "__main__":
 
         if args.sqlite:
             args_dict = vars(args)
-            git_hash = get_git_version_short_hash()
+            git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
             args_dict['checkpoint_dir'] = checkpoint_dir
             args_dict['git_hash'] = git_hash
+            args_dict['recalculate_att_after_prun'] = int(args_dict['recalculate_att_after_prun'])
             args_dict['add_reverse'] = int(args_dict['add_reverse'])
             args_dict['diac_embed'] = int(args_dict['diac_embed'])
             args_dict['simpl_att'] = int(args_dict['simpl_att'])
@@ -383,13 +279,13 @@ if __name__ == "__main__":
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-                   DP_num_neighbors=args.DP_num_neighbors, tgan_num_neighbors=args.tgan_num_neighbors, device=device,
-                   use_TGAN=args.use_TGAN, s_t_ratio = args.emb_static_ratio, ent_spec_time_embed = args.diac_embed,
-                   simpl_att = args.simpl_att)
+                   DP_num_neighbors=args.DP_num_neighbors, max_attended_edges = args.max_attended_edges,
+                   recalculate_att_after_prun=args.recalculate_att_after_prun, node_score_aggregation=args.node_score_aggregation,
+                   device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
-    model.TGAN.node_raw_embed.cpu()
-    model.TGAN.edge_raw_embed.cpu()
+    model.entity_raw_embed.cpu()
+    model.relation_raw_embed.cpu()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     start_epoch = 0
@@ -402,8 +298,7 @@ if __name__ == "__main__":
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
         # load data
-        train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
-                                      start_time=args.warm_start_time, tc=time_cost)
+        train_inputs = prepare_inputs(contents, start_time=args.warm_start_time, tc=time_cost)
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                        pin_memory=False, shuffle=True)
 
@@ -416,24 +311,28 @@ if __name__ == "__main__":
 
             src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
             model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
-            query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = \
+            # attended_nodes tensor: batch_size x 4 (eg_idx, v_i, ts, node_idx)
+            query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = \
                 model.initialize()
 
             # query_time_emb.to(device)
             # query_src_emb.to(device)
             # query_rel_emb.to(device)
             # attending_node_attention.to(device)
+#            print("queries: ", sample)
 
             for step in range(args.DP_steps):
-                # print("{}-th DP step".format(step))
-                attending_nodes, attending_node_attention, memorized_embedding, _ = \
-                    model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+#                print("{}-th DP step".format(step))
+                attended_nodes, attended_node_attention, memorized_embedding = \
+                    model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
                                query_rel_emb, query_time_emb, tc=time_cost)
-            entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes,
+            entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes,
                                                                      tc=time_cost)
+#            print("entities:", entities)
+#            print("entity score:", entity_att_score)
 
             # l1 norm on entity attention
-            entity_att_score = segment_norm_l1(entity_att_score, entities[:, 0])
+            entity_att_score = segment_norm_l1(entity_att_score+1e-9, entities[:, 0])
 
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
@@ -499,7 +398,7 @@ if __name__ == "__main__":
             mean_degree = 0
             mean_degree_found = 0
 
-            val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid', tc=time_cost)
+            val_inputs = prepare_inputs(contents, dataset='valid', tc=time_cost)
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                          pin_memory=False, shuffle=True)
 
@@ -513,12 +412,12 @@ if __name__ == "__main__":
                 mean_degree += sum(degree_batch)
 
                 model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
-                query_src_emb, query_rel_emb, query_time_emb, attending_nodes, attending_node_attention, memorized_embedding = model.initialize()
+                query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
-                    attending_nodes, attending_node_attention, memorized_embedding, _ = \
-                        model.flow(attending_nodes, attending_node_attention, memorized_embedding, query_src_emb,
+                    attended_nodes, attended_node_attention, memorized_embedding = \
+                        model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
                                    query_rel_emb, query_time_emb)
-                entity_att_score, entities = model.get_entity_attn_score(attending_node_attention, attending_nodes)
+                entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes)
 
                 one_hot_label = torch.from_numpy(
                     np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
@@ -533,19 +432,21 @@ if __name__ == "__main__":
                 #     hit_10 += target in top10[:, 1]
                 target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score,
                                                                                                      entities,
-                                                                                                     target_idx_l, sp2o,
+                                                                                                     target_idx_l,
+                                                                                                     sp2o,
+                                                                                                     val_spt2o,
                                                                                                      src_idx_l,
                                                                                                      rel_idx_l,
-                                                                                                     val_spt2o)
+                                                                                                     cut_time_l)
                 # print(target_rank_l)
                 mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
                 hit_3 += np.sum(target_rank_l <= 3)
                 hit_10 += np.sum(target_rank_l <= 10)
-                hit_1_fil += np.sum(target_rank_fil_l == 1)
+                hit_1_fil += np.sum(target_rank_fil_l <= 1) # unique entity with largest node score
                 hit_3_fil += np.sum(target_rank_fil_l <= 3)
                 hit_10_fil += np.sum(target_rank_fil_l <= 10)
-                hit_1_fil_t += np.sum(target_rank_fil_t_l == 1)
+                hit_1_fil_t += np.sum(target_rank_fil_t_l <= 1) # unique entity with largest node score
                 hit_3_fil_t += np.sum(target_rank_fil_t_l <= 3)
                 hit_10_fil_t += np.sum(target_rank_fil_t_l <= 10)
                 found_cnt += np.sum(found_mask)
