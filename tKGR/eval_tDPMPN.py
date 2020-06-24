@@ -209,6 +209,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--no_pruning', action='store_true', default=None)
 parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False)
+parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean'])
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -244,12 +245,13 @@ if __name__ == "__main__":
     if args.no_pruning:
         pruning = False
     else:
-        pruning  = True
+        pruning = True
 
     # construct model
     model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
                    DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-                   recalculate_att_after_prun=args.recalculate_att_after_prun, device=device)
+                   recalculate_att_after_prun=args.recalculate_att_after_prun, node_score_aggregation=args.node_score_aggregation,
+                   device=device)
     # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
     model.to(device)
     model.entity_raw_embed.cpu()
