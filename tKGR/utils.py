@@ -220,6 +220,7 @@ class NeighborFinder:
         Params
         ------
         adj: list or dict, if list: adj[i] is the list of all (o,p,t) for entity i, if dict: adj[i] is the list of all (o,p,t)
+        sampling: sample strategy from neighborhood: -1: whole neighbor, 0: uniform, 1: first N, 2: last N, 3: time difference weighted sampling
         node_idx_l: List[int]
         node_ts_l: List[int]
         off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i][:,0]
@@ -480,7 +481,10 @@ class NeighborFinder:
                     out_ngh_node_batch[i, num_neighbors - len(sampled_idx):] = ngh_idx[sampled_idx]
                     out_ngh_t_batch[i, num_neighbors - len(sampled_idx):] = ngh_ts[sampled_idx]
                     out_ngh_eidx_batch[i, num_neighbors - len(sampled_idx):] = ngh_eidx[sampled_idx]
-
+                elif self.sampling == -1: # use whole neighborhood
+                    out_ngh_node_batch[i, :] = ngh_idx
+                    out_ngh_t_batch[i, :] = ngh_ts
+                    out_ngh_eidx_batch[i, :] = ngh_eidx
                 else:
                     raise ValueError("invalid input for sampling")
 

@@ -439,6 +439,8 @@ class tDPMPN(torch.nn.Module):
             device {str} -- [description] (default: {'cpu'})
         """
         super(tDPMPN, self).__init__()
+        if ngh_finder.sampling == -1:
+            assert recalculate_att_after_prun
         self.DP_num_neighbors = DP_num_neighbors
         self.ngh_finder = ngh_finder
 
