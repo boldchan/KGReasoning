@@ -2,7 +2,7 @@ import os
 import sys
 import time
 import pdb
-from collections import Counter
+from collections import Counter, defaultdict
 
 import numpy as np
 import torch
@@ -11,7 +11,7 @@ from torch import nn
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from segment import segment_softmax_op_v2
+from segment import segment_softmax_op_v2, segment_topk
 
 
 def _aggregate_op_entity(logits, nodes):
@@ -319,28 +319,40 @@ class AttentionFlow(nn.Module):
         else:
             transition_logits_pruned_softmax = transition_logits_softmax[orig_indices]
 
-
         num_nodes = len(memorized_embedding)
-        sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(self.device)
-        trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
+        if self.node_score_aggregation == 'max':
+            target_att = transition_logits_pruned_softmax * pruned_att
+            max_dict = dict()
+            for i in range(len(pruned_edges)):
+                score_i = target_att[i].cpu().detach().numpy()
+                if score_i > max_dict.get(pruned_edges[i, -1], (0,0))[1]:
+                    max_dict[pruned_edges[i, -1]] = (i, score_i)
+
+            # biggest score from all edges (some edges may have the same subject)
+            sparse_index = torch.LongTensor(np.stack([np.array(list(max_dict.keys())), np.array([_[0] for _ in max_dict.values()])])).to(self.device)
+            trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, torch.ones(len(max_dict)).to(self.device), torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
+            attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
+        elif self.node_score_aggregation in ['mean', 'sum']:
+            sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(self.device)
+            trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
                                                        torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
-        # expand node attention:
-#        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
-#                                                         node_attention)
-#        print("expanded node attention", node_attention)
-        # ATTENTION: node_attention[i] must be attention of node with node_idx==i
-        attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
+            # expand node attention:
+    #        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
+    #                                                         node_attention)
+    #        print("expanded node attention", node_attention)
+            # ATTENTION: node_attention[i] must be attention of node with node_idx==i
+            attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
 
-#        print("edges for message passing:")
-#        print(pruned_edges[:, [-2, -1]])
+    #        print("edges for message passing:")
+    #        print(pruned_edges[:, [-2, -1]])
 
-        # node score aggregation: average rather than sum, comment to use summation of node score from different path
-        if self.node_score_aggregation == 'mean':
-            c = Counter(pruned_edges[:, -1])
-            target_node_cnt = torch.tensor([c[_] for _ in pruned_edges[:, -1]]).to(self.device)
-            transition_logits_pruned_softmax = torch.div(transition_logits_pruned_softmax, target_node_cnt)
+            # node score aggregation
+            if self.node_score_aggregation == 'mean':
+                c = Counter(pruned_edges[:, -1])
+                target_node_cnt = torch.tensor([c[_] for _ in pruned_edges[:, -1]]).to(self.device)
+                transition_logits_pruned_softmax = torch.div(transition_logits_pruned_softmax, target_node_cnt)
         elif self.node_score_aggregation != 'sum':
-            raise ValueError("node score_aggregate can only be mean or sum")
+            raise ValueError("node score_aggregate can only be mean, sum or max")
 
         sparse_index_rep = torch.from_numpy(pruned_edges[:, [-2, -1]]).to(torch.int64).to(self.device)
         sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), pruned_edges[:, -2])).unsqueeze(1).repeat(1,2).to(self.device)
