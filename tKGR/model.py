@@ -1,3 +1,5 @@
+import os
+import sys
 import time
 import pdb
 from collections import Counter
@@ -6,7 +8,9 @@ import numpy as np
 import torch
 from torch import nn
 
-from utils import get_segment_ids
+PackageDir = os.path.dirname(__file__)
+sys.path.insert(1, PackageDir)
+
 from segment import segment_softmax_op_v2
 
 
