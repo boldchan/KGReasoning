@@ -26,7 +26,7 @@ from tqdm import tqdm
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit
+from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit, load_checkpoint
 from model import tDPMPN
 import config
 import local_config

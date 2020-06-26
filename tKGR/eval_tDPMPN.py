@@ -26,7 +26,7 @@ from tqdm import tqdm
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure, save_config
+from utils import Data, NeighborFinder, Measure, save_config, load_checkpoint
 from model import tDPMPN
 import config
 import local_config
@@ -41,20 +41,6 @@ torch.manual_seed(0)
 np.random.seed(0)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-
-
-def load_checkpoint(model, optimizer, checkpoint_dir, device='cpu'):
-    if os.path.isfile(checkpoint_dir):
-        print("=> loading checkpoint '{}'".format(checkpoint_dir))
-        checkpoint = torch.load(checkpoint_dir, map_location=torch.device(device))
-        start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print("=> loaded checkpoint '{}' (epoch {})".format(checkpoint_dir, checkpoint['epoch']))
-    else:
-        raise IOError("=> no checkpoint found at '{}'".format(checkpoint_dir))
-
-    return model, optimizer, start_epoch
 
 
 def reset_time_cost():
@@ -225,44 +211,19 @@ if __name__ == "__main__":
     if args.timer:
         time_cost = reset_time_cost()
 
-    # save configuration
-    start_time = time.time()
-    struct_time = time.gmtime(start_time)
-
     # construct NeighborFinder
-    if args.timer:
-        t_start = time.time()
-    contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
-
-    sp2o = contents.get_sp2o()
-    test_spt2o = contents.get_spt2o('test')
-
-    adj = contents.get_adj_dict()
-    max_time = max(contents.data[:, 3])
-    nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
-    if args.timer:
-        time_cost['data']['ngh'] = time.time() - t_start
     if args.no_pruning:
         pruning = False
     else:
         pruning = True
 
-    # construct model
-    model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-                   DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-                   recalculate_att_after_prun=args.recalculate_att_after_prun, node_score_aggregation=args.node_score_aggregation,
-                   device=device)
-    # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
-    model.to(device)
-    model.entity_raw_embed.cpu()
-    model.relation_raw_embed.cpu()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-
 
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
     else:
-        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
+        model, optimizer, start_epoch, contents = load_checkpoint(os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
+        sp2o = contents.get_sp2o()
+        test_spt2o = contents.get_spt2o('test')
 
     hit_1 = hit_3 = hit_10 = 0
     hit_1_fil = hit_3_fil = hit_10_fil = 0
