@@ -148,10 +148,6 @@ if __name__ == "__main__":
     print(args)
     # sys.settrace(gpu_profile)
     # check cuda
-    if torch.cuda.is_available():
-        device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
-    else:
-        device = 'cpu'
 
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
@@ -265,17 +261,19 @@ if __name__ == "__main__":
         model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        recalculate_att_after_prun=args.recalculate_att_after_prun,
-                       node_score_aggregation=args.node_score_aggregation,
-                       device=device)
+                       node_score_aggregation=args.node_score_aggregation, DP_steps=args.DP_steps)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
-        model.to(device)
-        model.entity_raw_embed.cpu()
-        model.relation_raw_embed.cpu()
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         start_epoch = 0
 
     sp2o = contents.get_sp2o()
     val_spt2o = contents.get_spt2o('valid')
+
+    device = torch.device("cuda:0")
+    #model.entity_raw_embed.cpu()
+    #model.relation_raw_embed.cpu()
+    net = torch.nn.DataParallel(model, device_ids=[0,1,2])
+    net.to(device)
 
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
@@ -288,46 +286,15 @@ if __name__ == "__main__":
 
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
             optimizer.zero_grad()
-            model.zero_grad()
-            model.train()
+            net.zero_grad()
+            net.train()
 
-            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
-            # attended_nodes tensor: batch_size x 4 (eg_idx, v_i, ts, node_idx)
-            query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = \
-                model.initialize()
+            loss = net(sample)
+            loss = torch.sum(loss)
 
-            # query_time_emb.to(device)
-            # query_src_emb.to(device)
-            # query_rel_emb.to(device)
-            # attending_node_attention.to(device)
-#            print("queries: ", sample)
-
-            for step in range(args.DP_steps):
-#                print("{}-th DP step".format(step))
-                attended_nodes, attended_node_attention, memorized_embedding = \
-                    model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
-                               query_rel_emb, query_time_emb, tc=time_cost)
-            entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes,
-                                                                     tc=time_cost)
-#            print("entities:", entities)
-#            print("entity score:", entity_att_score)
-
-            # l1 norm on entity attention
-            entity_att_score = segment_norm_l1(entity_att_score+1e-9, entities[:, 0])
-
-            one_hot_label = torch.from_numpy(
-                np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-            try:
-                loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
-            except:
-                print(entity_att_score)
-                entity_att_score_np = entity_att_score.detach().numpy()
-                print("all entity score smaller than 1:", all(entity_att_score_np < 1))
-                print("all entity score greater than 0:", all(entity_att_score_np > 0))
-                raise ValueError("Check if entity score in (0,1)")
             if args.timer:
                 t_start = time.time()
+            loss /= len(sample.src_idx)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
             if args.timer:
@@ -356,7 +323,7 @@ if __name__ == "__main__":
             #         pass
         running_loss /= batch_ndx + 1
 
-        model.eval()
+        net.eval()
         if not args.debug:
             torch.save({
                 'epoch': epoch,
@@ -387,23 +354,11 @@ if __name__ == "__main__":
 
             val_running_loss = 0
             for batch_ndx, sample in enumerate(val_data_loader):
-                model.eval()
+                net.eval()
 
-                src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-                num_query += len(src_idx_l)
-                degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
-                mean_degree += sum(degree_batch)
-
-                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
-                query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = model.initialize()
-                for step in range(args.DP_steps):
-                    attended_nodes, attended_node_attention, memorized_embedding = \
-                        model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
-                                   query_rel_emb, query_time_emb)
-                entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes)
-
+                entity_att_score, entities = net()
                 one_hot_label = torch.from_numpy(
-                    np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
+                    np.array([int(v == sample.target_idx[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
                 loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
                 val_running_loss += loss.item()
 
