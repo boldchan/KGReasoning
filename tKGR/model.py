@@ -173,12 +173,12 @@ class AttentionFlow(nn.Module):
         super(AttentionFlow, self).__init__()
 
         self.proj = nn.Linear(n_dims, n_dims_sm)
-        self.satic_embed_dims_sm = static_embed_dim * int(n_dims_sm / n_dims)
-        self.temporal_embed_dims_sm = temporal_embed_dim * int(n_dims_sm / n_dims)
-        self.proj_static_embed = nn.Linear(static_embed_dim, self.satic_embed_dims_sm)
+        self.static_embed_dims_sm = int(static_embed_dim * n_dims_sm / n_dims)
+        self.temporal_embed_dims_sm = int(temporal_embed_dim * n_dims_sm / n_dims)
+        self.proj_static_embed = nn.Linear(static_embed_dim, self.static_embed_dims_sm)
         self.proj_temporal_embed = nn.Linear(temporal_embed_dim, self.temporal_embed_dims_sm)
-        self.transition_fn = G(3 * n_dims_sm + self.satic_embed_dims_sm + self.temporal_embed_dims_sm, 3 * n_dims_sm + \
-                               self.satic_embed_dims_sm + self.temporal_embed_dims_sm, n_dims_sm)
+        self.transition_fn = G(3 * n_dims_sm + self.static_embed_dims_sm + self.temporal_embed_dims_sm, 3 * n_dims_sm + \
+                               self.static_embed_dims_sm + self.temporal_embed_dims_sm, n_dims_sm)
         # self.linears = nn.ModuleList([nn.Linear(n_dims, n_dims) for i in range(DP_steps)])
         self.linear = nn.Linear(n_dims, n_dims)  # use shared Linear for representation update  #TODO what we mentioned right?
         self.recalculate_att_after_prun = recalculate_att_after_prun

@@ -266,7 +266,7 @@ if __name__ == "__main__":
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        recalculate_att_after_prun=args.recalculate_att_after_prun,
                        node_score_aggregation=args.node_score_aggregation,
-                       device=device, ent_spec_time_embed = args.diac_embed, s_t_ratio = args.diac_embed)
+                       device=device, ent_spec_time_embed = args.diac_embed, s_t_ratio = args.emb_static_ratio)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
