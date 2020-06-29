@@ -163,7 +163,7 @@ class G(torch.nn.Module):
 
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims, n_dims_sm, recalculate_att_after_prun, node_score_aggregation='sum', device='cpu'):
+    def __init__(self, n_dims, n_dims_sm, recalculate_att_after_prun, static_embed_dim, temporal_embed_dim, node_score_aggregation='sum', device='cpu'):
         """[summary]
 
         Arguments:
@@ -172,10 +172,15 @@ class AttentionFlow(nn.Module):
         """
         super(AttentionFlow, self).__init__()
 
-        self.proj = nn.Linear(n_dims, n_dims_sm) #?TODO
-        self.transition_fn = G(5 * n_dims_sm, 5 * n_dims_sm, n_dims_sm)
+        self.proj = nn.Linear(n_dims, n_dims_sm)
+        self.satic_embed_dims_sm = static_embed_dim * int(n_dims_sm / n_dims)
+        self.temporal_embed_dims_sm = temporal_embed_dim * int(n_dims_sm / n_dims)
+        self.proj_static_embed = nn.Linear(static_embed_dim, self.satic_embed_dims_sm)
+        self.proj_temporal_embed = nn.Linear(temporal_embed_dim, self.temporal_embed_dims_sm)
+        self.transition_fn = G(3 * n_dims_sm + self.satic_embed_dims_sm + self.temporal_embed_dims_sm, 3 * n_dims_sm + \
+                               self.satic_embed_dims_sm + self.temporal_embed_dims_sm, n_dims_sm)
         # self.linears = nn.ModuleList([nn.Linear(n_dims, n_dims) for i in range(DP_steps)])
-        self.linear = nn.Linear(n_dims, n_dims)  # use shared Linear for representation update
+        self.linear = nn.Linear(n_dims, n_dims)  # use shared Linear for representation update  #TODO what we mentioned right?
         self.recalculate_att_after_prun = recalculate_att_after_prun
         self.node_score_aggregation = node_score_aggregation
 
@@ -260,9 +265,9 @@ class AttentionFlow(nn.Module):
         """
         if tc:
             t_start = time.time()
-        query_src_vec = self.proj(query_src_emb)  # batch_size x n_dims_sm #TODO
+        query_src_vec = self.proj_static_embed(query_src_emb)  # batch_size x n_dims_sm #TODO
         query_rel_vec = self.proj(query_rel_emb)  # batch_size x n_dims_sm
-        query_time_vec = self.proj(query_time_emb)  # batch_size x n_dims_sm
+        query_time_vec = self.proj_temporal_embed(query_time_emb)  # batch_size x n_dims_sm
 
         rel_emb = self.proj(rel_emb_l[-1])
 
@@ -453,6 +458,7 @@ class tDPMPN(torch.nn.Module):
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
         self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, recalculate_att_after_prun=recalculate_att_after_prun,
+                                      static_embed_dim = self.static_embed_dim, temporal_embed_dim = self.temporal_embed_dim,
                                       node_score_aggregation=node_score_aggregation, device=device)
         self.max_attended_edges = max_attended_edges
 
