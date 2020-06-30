@@ -142,6 +142,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
+parser.add_argument('--loss_fn', type=str, default='BCE', choice=['BCE', 'CE'])
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -319,7 +320,10 @@ if __name__ == "__main__":
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             try:
-                loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                if args.loss_fn == 'BCE':
+                    loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                else:
+                    loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
             except:
                 print(entity_att_score)
                 entity_att_score_np = entity_att_score.detach().numpy()
