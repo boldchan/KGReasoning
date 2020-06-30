@@ -408,7 +408,10 @@ if __name__ == "__main__":
 
                 one_hot_label = torch.from_numpy(
                     np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-                loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                if args.loss_fn == 'BCE':
+                    loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                else:
+                    loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
                 val_running_loss += loss.item()
 
                 # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
