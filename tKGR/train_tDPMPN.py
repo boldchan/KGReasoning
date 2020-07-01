@@ -142,6 +142,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
+parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -319,7 +320,12 @@ if __name__ == "__main__":
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             try:
-                loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                assert args.gradient_iters_per_update > 0
+                if args.gradient_iters_per_update == 1:
+                    loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                else:
+                    loss = torch.nn.BCELoss(reduction='sum')(entity_att_score, one_hot_label)
+                    loss /= args.gradient_iters_per_update * args.batch_size
             except:
                 print(entity_att_score)
                 entity_att_score_np = entity_att_score.detach().numpy()
@@ -335,7 +341,9 @@ if __name__ == "__main__":
 
             if args.timer:
                 t_start = time.time()
-            optimizer.step()
+            if (batch_ndx+1) % args.gradient_iters_per_update == 0:
+                optimizer.step()
+                model.zero_grad()
             if args.timer:
                 time_cost['grad']['apply'] += time.time() - t_start
 
