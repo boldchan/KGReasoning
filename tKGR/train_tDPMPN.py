@@ -156,9 +156,9 @@ if __name__ == "__main__":
 
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-        task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+        task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
                     'DP_num_neighbors', 'max_attended_edges', 'add_reverse', 'recalculate_att_after_prun',
-                    'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'git_hash')
+                    'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
 
         if sqlite_conn is not None:
             create_task_table(sqlite_conn, task_col, args, table_name='tasks')
