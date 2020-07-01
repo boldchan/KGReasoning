@@ -31,7 +31,7 @@ from model import tDPMPN
 import config
 import local_config
 from segment import *
-from database_op import create_connection, create_table
+from database_op import create_connection, create_task_table, create_logging_table, insert_into_logging_table, insert_into_task_table
 
 # from gpu_profile import gpu_profile
 
@@ -142,7 +142,11 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
+<<<<<<< HEAD
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
+=======
+parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
+>>>>>>> f19037e32e17ebdf68020588995daceef6503b09
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -156,52 +160,13 @@ if __name__ == "__main__":
 
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-        task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+        task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
                     'DP_num_neighbors', 'max_attended_edges', 'add_reverse', 'recalculate_att_after_prun',
-                    'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'git_hash')
-        sql_create_tasks_table = """
-        CREATE TABLE IF NOT EXISTS tasks (
-        checkpoint_dir text PRIMARY KEY,
-        dataset text NOT NULL,
-        emb_dim integer NOT NULL,
-        emb_dim_sm integer NOT NULL,
-        lr real NOT NULL,
-        batch_size integer NOT NULL,
-        sampling integer NOT NULL,
-        DP_steps integer NOT NULL,
-        DP_num_neighbors integer NOT NULL,
-        max_attended_edges integer NOT NULL,
-        add_reverse integer NOT NULL,
-        recalculate_att_after_prun integer NOT NULL,
-        node_score_aggregation text NOT NULL,
-        diac_embed integer NOT NULL,
-        simpl_att integer NOT NULL,
-        emb_static_ratio real NOT NULL,
-        git_hash text NOT NULL);
-        """
-        logging_col = (
-            'checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
-            'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
-        sql_create_loggings_table = """ CREATE TABLE IF NOT EXISTS logging (
-        checkpoint_dir text NOT NULL,
-        epoch integer NOT NULL,
-        training_loss real,
-        validation_loss real,
-        HITS_1_raw real,
-        HITS_3_raw real,
-        HITS_10_raw real,
-        HITS_INF real,
-        MRR_raw real,
-        HITS_1_fil real,
-        HITS_3_fil real,
-        HITS_10_fil real,
-        MRR_fil real,
-        PRIMARY KEY (checkpoint_dir, epoch),
-        FOREIGN KEY (checkpoint_dir) REFERENCES tasks (checkpoint_dir)
-        );"""
+                    'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
+
         if sqlite_conn is not None:
-            create_table(sqlite_conn, sql_create_tasks_table)
-            create_table(sqlite_conn, sql_create_loggings_table)
+            create_task_table(sqlite_conn, task_col, args, table_name='tasks')
+            create_logging_table(sqlite_conn, table_name='logging')
         else:
             print("Error! cannot create the database connection.")
 
@@ -230,20 +195,9 @@ if __name__ == "__main__":
             CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
 
         if args.sqlite:
-            args_dict = vars(args)
+            # args_dict = vars(args)
             git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
-            args_dict['checkpoint_dir'] = checkpoint_dir
-            args_dict['git_hash'] = git_hash
-            args_dict['recalculate_att_after_prun'] = int(args_dict['recalculate_att_after_prun'])
-            args_dict['add_reverse'] = int(args_dict['add_reverse'])
-            args_dict['diac_embed'] = int(args_dict['diac_embed'])
-            args_dict['simpl_att'] = int(args_dict['simpl_att'])
-            with sqlite_conn:
-                placeholders = ', '.join('?' * len(task_col))
-                sql_hp = 'INSERT OR IGNORE INTO tasks({}) VALUES ({})'.format(', '.join(task_col), placeholders)
-                cur = sqlite_conn.cursor()
-                cur.execute(sql_hp, [args_dict[col] for col in task_col])
-                task_id = cur.lastrowid
+            task_id = insert_into_task_table(sqlite_conn, task_col, args, checkpoint_dir, git_hash, table_name="tasks")
             print("Log configuration to SQLite under {}".format(os.path.join(save_dir, 'tKGR.db')))
         else:
             print("Save checkpoints under {}".format(CHECKPOINT_PATH))
@@ -267,7 +221,7 @@ if __name__ == "__main__":
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        recalculate_att_after_prun=args.recalculate_att_after_prun,
                        node_score_aggregation=args.node_score_aggregation,
-                       device=device)
+                       device=device, ent_spec_time_embed = args.diac_embed, s_t_ratio = args.emb_static_ratio)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
@@ -321,11 +275,18 @@ if __name__ == "__main__":
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             try:
                 assert args.gradient_iters_per_update > 0
-                if args.gradient_iters_per_update == 1:
-                    loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                if args.loss_fn == 'BCE':
+                    if args.gradient_iters_per_update == 1:
+                        loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                    else:
+                        loss = torch.nn.BCELoss(reduction='sum')(entity_att_score, one_hot_label)
+                        loss /= args.gradient_iters_per_update * args.batch_size
                 else:
-                    loss = torch.nn.BCELoss(reduction='sum')(entity_att_score, one_hot_label)
-                    loss /= args.gradient_iters_per_update * args.batch_size
+                    if args.gradient_iters_per_update == 1:
+                        loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
+                    else:
+                        loss = torch.nn.NLLoss(reduction='sum')(entity_att_score, one_hot_label)
+                        loss /= args.gradient_iters_per_update * args.batch_size
             except:
                 print(entity_att_score)
                 entity_att_score_np = entity_att_score.detach().numpy()
@@ -412,7 +373,10 @@ if __name__ == "__main__":
 
                 one_hot_label = torch.from_numpy(
                     np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-                loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                if args.loss_fn == 'BCE':
+                    loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                else:
+                    loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
                 val_running_loss += loss.item()
 
                 # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
@@ -482,16 +446,12 @@ if __name__ == "__main__":
                 print('No subgraph found the ground truth!!')
             if args.sqlite:
                 sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-                with sqlite_conn:
-                    placeholders = ', '.join('?' * len(logging_col))
-                    sql_logging = 'INSERT INTO logging({}) VALUES ({})'.format(', '.join(logging_col), placeholders)
-                    logging_epoch = (
-                        checkpoint_dir, epoch, running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
+                performance = [running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
                         hit_3 / num_query,
                         hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
-                        hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query)
-                    cur = sqlite_conn.cursor()
-                    cur.execute(sql_logging, logging_epoch)
+                        hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
+                insert_into_logging_table(sqlite_conn, checkpoint_dir, epoch, performance)
+
 
 print("finished Training")
 #     os.umask(oldmask)
