@@ -142,9 +142,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
-<<<<<<< HEAD
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
-=======
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 >>>>>>> f19037e32e17ebdf68020588995daceef6503b09
 args = parser.parse_args()
