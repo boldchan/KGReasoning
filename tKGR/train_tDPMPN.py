@@ -144,7 +144,6 @@ parser.add_argument('--sqlite', action='store_true', default=None, help='save in
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
->>>>>>> f19037e32e17ebdf68020588995daceef6503b09
 args = parser.parse_args()
 
 if __name__ == "__main__":
