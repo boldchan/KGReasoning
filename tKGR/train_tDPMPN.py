@@ -142,6 +142,7 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
+parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 args = parser.parse_args()
 
@@ -156,9 +157,9 @@ if __name__ == "__main__":
 
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-        task_col = ('checkpoint_dir', 'dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+        task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
                     'DP_num_neighbors', 'max_attended_edges', 'add_reverse', 'recalculate_att_after_prun',
-                    'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'git_hash')
+                    'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
 
         if sqlite_conn is not None:
             create_task_table(sqlite_conn, task_col, args, table_name='tasks')
@@ -270,13 +271,23 @@ if __name__ == "__main__":
             one_hot_label = torch.from_numpy(
                 np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
             try:
+                assert args.gradient_iters_per_update > 0
                 if args.loss_fn == 'BCE':
-                    loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                    if args.gradient_iters_per_update == 1:
+                        loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                    else:
+                        loss = torch.nn.BCELoss(reduction='sum')(entity_att_score, one_hot_label)
+                        loss /= args.gradient_iters_per_update * args.batch_size
                 else:
-                    loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
+                    # CE has problems
+                    if args.gradient_iters_per_update == 1:
+                        loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
+                    else:
+                        loss = torch.nn.NLLLoss(reduction='sum')(entity_att_score, one_hot_label)
+                        loss /= args.gradient_iters_per_update * args.batch_size
             except:
                 print(entity_att_score)
-                entity_att_score_np = entity_att_score.detach().numpy()
+                entity_att_score_np = entity_att_score.cpu().detach().numpy()
                 print("all entity score smaller than 1:", all(entity_att_score_np < 1))
                 print("all entity score greater than 0:", all(entity_att_score_np > 0))
                 raise ValueError("Check if entity score in (0,1)")
@@ -289,7 +300,9 @@ if __name__ == "__main__":
 
             if args.timer:
                 t_start = time.time()
-            optimizer.step()
+            if (batch_ndx+1) % args.gradient_iters_per_update == 0:
+                optimizer.step()
+                model.zero_grad()
             if args.timer:
                 time_cost['grad']['apply'] += time.time() - t_start
 

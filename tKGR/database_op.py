@@ -104,7 +104,7 @@ def insert_into_task_table(conn, hyperparameters, args, checkpoint_dir, git_hash
             except:
                 raise AttributeError("'Namespace' object has no attribute "+hp)
         cur.execute(sql_hp, sql_hp_val)
-        task_id = cur.lastrow_id
+        task_id = cur.lastrowid
         return task_id
 
 
