@@ -244,7 +244,7 @@ if __name__ == "__main__":
             model.train()
 
             src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, epoch)
+            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l)
             # attended_nodes tensor: batch_size x 4 (eg_idx, v_i, ts, node_idx)
             query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = \
                 model.initialize()
