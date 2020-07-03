@@ -137,7 +137,7 @@ parser.add_argument('--node_score_aggregation', type=str, default='sum', choices
 parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
 parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
 parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
-parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False, help='in attention module, whether re-calculate attention score after pruning')
+parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False, help='in attention module, whether re-calculate attention score after pruning, not helpful, remove later')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
