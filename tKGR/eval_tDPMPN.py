@@ -177,25 +177,31 @@ def segment_rank(t, entities, target_idx_l):
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
-parser.add_argument('--emb_dim', type=int, default=128, help='dimension of embedding for node, realtion and time')
-parser.add_argument('--emb_dim_sm', type=int, default=32, help='smaller dimension of embedding, '
+parser.add_argument('--emb_dim', type=int, default=256, help='dimension of embedding for node, realtion and time')
+parser.add_argument('--emb_dim_sm', type=int, default=48, help='smaller dimension of embedding, '
                                                                'ease the computation of attention for attending from horizon')
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
-parser.add_argument('--batch_size', type=int, default=16)
+parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
-parser.add_argument('--sampling', type=int, default=2,
+parser.add_argument('--sampling', type=int, default=3,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
-parser.add_argument('--DP_steps', type=int, default=2, help='number of DP steps')
-parser.add_argument('--DP_num_neighbors', type=int, default=20, help='number of neighbors sampled for sampling horizon')
+parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
+parser.add_argument('--DP_num_neighbors', type=int, default=40, help='number of neighbors sampled for sampling horizon')
 parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of nodes in attending from horizon')
-parser.add_argument('--add_reverse', action='store_true', default=None, help='add reverse relation into data set')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
+parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight')
+parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
+parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
+parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
+parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
+parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False, help='in attention module, whether re-calculate attention score after pruning')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
-parser.add_argument('--no_pruning', action='store_true', default=None)
-parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False)
-parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean'])
+parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
+parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
+parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
+parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -251,7 +257,7 @@ if __name__ == "__main__":
         degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
         mean_degree += sum(degree_batch)
 
-        model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
+        model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l)
         query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = model.initialize()
         for step in range(args.DP_steps):
             attended_nodes, attended_node_attention, memorized_embedding = \

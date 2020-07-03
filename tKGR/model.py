@@ -417,7 +417,7 @@ class AttentionFlow(nn.Module):
 #             trans_matrix_sparse_rep = torch.sparse.FloatTensor(sparse_index_rep.t(), sparse_value,
 #                                                                torch.Size([num_nodes, num_nodes])).to(self.device)
 #             updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse_rep, memorized_embedding)
-            updated_memorized_embedding = self._update_node_representation_along_edges(selected_edges, memorized_embedding, transition_logits_softmax, num_nodes)
+            updated_memorized_embedding = self._update_node_representation_along_edges(selected_edges, updated_memorized_embedding, transition_logits_softmax, num_nodes)
         # new_node_attention = segment_softmax_op_v2(attending_node_attention, selected_node[:, 0], tc=tc) #?
         if tc:
             t_softmax = time.time()
