@@ -361,7 +361,7 @@ if __name__ == "__main__":
                 degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
                 mean_degree += sum(degree_batch)
 
-                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l, batch_ndx + 1, 0)
+                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l)
                 query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = model.initialize()
                 for step in range(args.DP_steps):
                     attended_nodes, attended_node_attention, memorized_embedding = \
