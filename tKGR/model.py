@@ -416,11 +416,11 @@ class AttentionFlow(nn.Module):
 
 
 class tDPMPN(torch.nn.Module):
-    def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
+    def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim=None, emb_dim_sm=None,
                  attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
                  null_idx=0, drop_out=0.1, seq_len=None, recalculate_att_after_prun=True,
-                 s_t_ratio=1, ent_spec_time_embed=False,
-                 node_score_aggregation='sum', max_attended_edges=20, device='cpu'):
+                 emb_static_ratio=1, diac_embed=False,
+                 node_score_aggregation='sum', max_attended_edges=20, device='cpu', **kwargs):
         """[summary]
 
         Arguments:
@@ -430,8 +430,8 @@ class tDPMPN(torch.nn.Module):
         Keyword Arguments:
             num_entity {[type]} -- [description] (default: {None})
             num_rel {[type]} -- [description] (default: {None})
-            embed_dim {[type]} -- [dimension of DPMPN embedding] (default: {None})
-            embed_dim_sm {[type]} -- [smaller dimension of DPMPN embedding] (default: {None})
+            emb_dim {[type]} -- [dimension of DPMPN embedding] (default: {None})
+            emb_dim_sm {[type]} -- [smaller dimension of DPMPN embedding] (default: {None})
             attn_mode {str} -- [currently only prod is supported] (default: {'prod'})
             use_time {str} -- [use time embedding] (default: {'time'})
             agg_method {str} -- [description] (default: {'attn'})
@@ -449,22 +449,22 @@ class tDPMPN(torch.nn.Module):
         self.DP_num_neighbors = DP_num_neighbors
         self.ngh_finder = ngh_finder
 
-        self.temporal_embed_dim = int(embed_dim * 2 / (1 + s_t_ratio))
-        self.static_embed_dim = embed_dim * 2 - self.temporal_embed_dim
+        self.temporal_embed_dim = int(emb_dim * 2 / (1 + emb_static_ratio))
+        self.static_embed_dim = emb_dim * 2 - self.temporal_embed_dim
 
         self.entity_raw_embed = torch.nn.Embedding(num_entity, self.static_embed_dim).cpu()
         nn.init.xavier_normal_(self.entity_raw_embed.weight)
-        self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, embed_dim).cpu()
+        self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, emb_dim).cpu()
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
-        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, recalculate_att_after_prun=recalculate_att_after_prun,
+        self.att_flow = AttentionFlow(emb_dim, emb_dim_sm, recalculate_att_after_prun=recalculate_att_after_prun,
                                       static_embed_dim = self.static_embed_dim, temporal_embed_dim = self.temporal_embed_dim,
                                       node_score_aggregation=node_score_aggregation, device=device)
         self.max_attended_edges = max_attended_edges
 
-        self.time_encoder = TimeEncode(expand_dim=self.temporal_embed_dim, entity_specific=ent_spec_time_embed, num_entities=num_entity, device=device)
-        self.ent_spec_time_embed = ent_spec_time_embed
-        self.hidden_node_proj = torch.nn.Linear(2 * embed_dim, embed_dim) # project (entity_emb; time_emb) to hidden node embedding
+        self.time_encoder = TimeEncode(expand_dim=self.temporal_embed_dim, entity_specific=diac_embed, num_entities=num_entity, device=device)
+        self.ent_spec_time_embed = diac_embed
+        self.hidden_node_proj = torch.nn.Linear(2 * emb_dim, emb_dim) # project (entity_emb; time_emb) to hidden node embedding
 
         self.memorized_embedding = dict()
         self.device = device

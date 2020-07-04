@@ -618,7 +618,10 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
 
         if 'args' in checkpoint.keys():
             # earlier checkpoint doesn't contain hyperparameters, i.e. 'args'
-            args = checkpoint['args']
+            loaded_args = checkpoint['args']
+            if args and set(vars(args).keys()) != set(vars(loaded_args).keys()):
+                print("ATTENTION!!Mismatch between current arguments and saved arguments in checkpoint")
+            args = loaded_args
             print("use args in checkpoint:", args)
         else:
             assert args is not None
@@ -629,11 +632,14 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
         max_time = max(contents.data[:, 3])
         nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity),
                             weight_factor=args.weight_factor)
-        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-                       DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-                       recalculate_att_after_prun=args.recalculate_att_after_prun,
-                       node_score_aggregation=args.node_score_aggregation,
-                       device=device)
+#        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
+#                       DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
+#                       recalculate_att_after_prun=args.recalculate_att_after_prun,
+#                       node_score_aggregation=args.node_score_aggregation,
+#                       device=device)
+        kwargs= vars(args)
+        kwargs['device'] = device
+        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), **kwargs)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
