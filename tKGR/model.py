@@ -265,7 +265,7 @@ class AttentionFlow(nn.Module):
         hidden_vi_orig = memorized_embedding[edges[:, -2]]
         hidden_vj_orig = memorized_embedding[edges[:, -1]]
 
-        return self.cal_attention_score(edges[:, 0], hidden_vi_orig, hidden_vj_orig,rel_emb, query_src_vec, query_rel_vec, query_time_vec)
+        return self.cal_attention_score(edges[:, 0], hidden_vi_orig, hidden_vj_orig, rel_emb, query_src_vec, query_rel_vec, query_time_vec)
 
     def cal_attention_score(self, query_idx, hidden_vi_orig, hidden_vj_orig, rel_emb, query_src_vec=None, query_rel_vec=None, query_time_vec=None):
         """
@@ -685,9 +685,11 @@ class tDPMPN(torch.nn.Module):
 
                         att_scores = self.att_flow.cal_attention_score(np.ones(len(src_ngh_nodes))*attended_nodes[i, 0], src_node_embed, ngh_node_embed, rel_emb, query_src_vec, query_rel_vec, query_time_vec)
                         _, indices = torch.topk(att_scores, num_neighbors)
-                        selected_src_ngh_node_batch.append(src_ngh_nodes[indices])
-                        selected_src_ngh_eidx_batch.append(src_ngh_eidx[indices])
-                        selected_src_ngh_t_batch.append(src_ngh_t[indices])
+                        indices = indices.cpu().numpy()
+                        indices_sorted_by_timestamp = sorted(indices, key=lambda x: (src_ngh_t[x], src_ngh_nodes[x], src_ngh_eidx[x]))
+                        selected_src_ngh_node_batch.append(src_ngh_nodes[indices_sorted_by_timestamp])
+                        selected_src_ngh_eidx_batch.append(src_ngh_eidx[indices_sorted_by_timestamp])
+                        selected_src_ngh_t_batch.append(src_ngh_t[indices_sorted_by_timestamp])
                     else:
                         selected_src_ngh_node_batch.append(src_ngh_nodes[-num_neighbors:])
                         selected_src_ngh_eidx_batch.append(src_ngh_eidx_batch[i][-num_neighbors:])

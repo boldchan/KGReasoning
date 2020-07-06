@@ -496,7 +496,7 @@ class NeighborFinder:
         if self.sampling == -1:
             max_num_neighbors = max(map(len, full_ngh_edge))
             out_ngh_node_batch = -np.ones((len(src_idx_l), max_num_neighbors)).astype(np.int32)
-            out_ngh_t_batch = -np.zeros((len(src_idx_l), max_num_neighbors)).astype(np.int32)
+            out_ngh_t_batch = np.zeros((len(src_idx_l), max_num_neighbors)).astype(np.int32)
             out_ngh_eidx_batch = -np.ones((len(src_idx_l), max_num_neighbors)).astype(np.int32)
             for i in range(len(full_ngh_node)):
                 out_ngh_node_batch[i, max_num_neighbors-len(full_ngh_node[i]):] = full_ngh_node[i]
