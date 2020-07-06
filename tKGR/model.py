@@ -657,7 +657,6 @@ class tDPMPN(torch.nn.Module):
             src_idx_l,
             cut_time_l,
             num_neighbors=num_neighbors)
-        print(len(src_ngh_node_batch))
 
         if self.ngh_finder.sampling == -1: # full neighborhood, select neighbors with largest attention score
             assert query_src_emb is not None
