@@ -396,16 +396,11 @@ class AttentionFlow(nn.Module):
 
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
             transition_logits = self._cal_attention_score(selected_edges, updated_memorized_embedding, rel_emb, query_src_vec, query_rel_vec, query_time_vec)
-
-#            print("edges for messaage passing:")
-#            print(selected_edges[:, [6, 7]])
-            sparse_index_rep = torch.from_numpy(selected_edges[:, [-2, -1]]).to(torch.int64).to(self.device)
-            sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), selected_edges[:, -2])).unsqueeze(1).repeat(1, 2).to(self.device)
-            sparse_index_rep = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
-            sparse_value = torch.cat([transition_logits, torch.ones(len(sparse_index_identical)).to(self.device)])
-            trans_matrix_sparse_rep = torch.sparse.FloatTensor(sparse_index_rep.t(), sparse_value,
-                                                               torch.Size([num_nodes, num_nodes])).to(self.device)
-            updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse_rep, updated_memorized_embedding)
+            transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
+            updated_memorized_embedding = self._update_node_representation_along_edges(selected_edges,
+                                                                                       updated_memorized_embedding,
+                                                                                       transition_logits_softmax,
+                                                                                       num_nodes)
 
         # # new_node_attention = segment_softmax_op_v2(attending_node_attention, selected_node[:, 0], tc=tc) #?
         # if tc:
