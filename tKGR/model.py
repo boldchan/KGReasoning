@@ -443,8 +443,7 @@ class AttentionFlow(nn.Module):
 
 class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
-                 attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
-                 null_idx=0, drop_out=0.1, seq_len=None,
+                 DP_num_neighbors=40, DP_steps=3,
                  s_t_ratio=1, ent_spec_time_embed=False,
                  node_score_aggregation='sum', max_attended_edges=20, device='cpu'):
         """[summary]
@@ -472,6 +471,7 @@ class tDPMPN(torch.nn.Module):
         super(tDPMPN, self).__init__()
 
         self.DP_num_neighbors = DP_num_neighbors
+        self.DP_steps = DP_steps
         self.ngh_finder = ngh_finder
 
         self.temporal_embed_dim = int(embed_dim * 2 / (1 + s_t_ratio))
@@ -497,10 +497,9 @@ class tDPMPN(torch.nn.Module):
         self.src_idx_l, self.rel_idx_l = None, None
         self.num_existing_nodes = 0
 
-    def set_init(self, src_idx_l, rel_idx_l, target_idx_l, cut_time_l):
+    def set_init(self, src_idx_l, rel_idx_l, cut_time_l):
         self.src_idx_l = src_idx_l
         self.rel_idx_l = rel_idx_l
-        self.target_idx_l = target_idx_l
         self.cut_time_l = cut_time_l
         self.sampled_edges_l = []
         self.rel_emb_l = []
