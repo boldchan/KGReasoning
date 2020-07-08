@@ -173,10 +173,13 @@ class AttentionFlow(nn.Module):
         super(AttentionFlow, self).__init__()
 
         self.proj = nn.Linear(n_dims, n_dims_sm)
+        torch.nn.init.xavier_normal_(self.proj)
         self.static_embed_dims_sm = int(static_embed_dim * n_dims_sm / n_dims)
         self.temporal_embed_dims_sm = int(temporal_embed_dim * n_dims_sm / n_dims)
         self.proj_static_embed = nn.Linear(static_embed_dim, self.static_embed_dims_sm)
+        torch.nn.init.xavier_normal_(self.proj_static_embed)
         self.proj_temporal_embed = nn.Linear(temporal_embed_dim, self.temporal_embed_dims_sm)
+        torch.nn.init.xavier_normal_(self.proj_temporal_embed)
         self.transition_fn = G(3 * n_dims_sm + self.static_embed_dims_sm + self.temporal_embed_dims_sm, 3 * n_dims_sm + \
                                self.static_embed_dims_sm + self.temporal_embed_dims_sm, n_dims_sm)
         # dense layer between steps
@@ -377,21 +380,6 @@ class AttentionFlow(nn.Module):
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
 
-        # # update representation of nodes with neighbors
-        # # 1. message passing and aggregation
-        # sparse_index_rep = torch.from_numpy(pruned_edges[:, [-2, -1]]).to(torch.int64).to(self.device)
-        # sparse_value_rep = transition_logits_pruned_softmax
-        # trans_matrix_sparse_rep = torch.sparse.FloatTensor(sparse_index_rep.t(), sparse_value_rep, torch.Size([num_nodes, num_nodes])).to(self.device)
-        # updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse_rep, memorized_embedding)
-        # # 2. linear
-        # updated_memorized_embedding = self.act_between_steps(self.linear_between_steps(updated_memorized_embedding))
-        # # 3. pass representation of nodes without neighbors, i.e. not updated
-        # sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), pruned_edges[:, -2])).unsqueeze(
-        #     1).repeat(1, 2).to(self.device)
-        # sparse_value_identical = torch.ones(len(sparse_index_identical)).to(self.device)
-        # trans_matrix_sparse_identical = torch.sparse.FloatTensor(sparse_index_identical.t(), sparse_value_identical, torch.Size([num_nodes, num_nodes])).to(self.device)
-        # not_updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse_identical, memorized_embedding)
-        # updated_memorized_embedding = updated_memorized_embedding + updated_memorized_embedding
         updated_memorized_embedding = self._update_node_representation_along_edges(pruned_edges, memorized_embedding, transition_logits_pruned_softmax, num_nodes)
 
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
@@ -405,7 +393,7 @@ class AttentionFlow(nn.Module):
             sparse_value = torch.cat([transition_logits, torch.ones(len(sparse_index_identical)).to(self.device)])
             trans_matrix_sparse_rep = torch.sparse.FloatTensor(sparse_index_rep.t(), sparse_value,
                                                                torch.Size([num_nodes, num_nodes])).to(self.device)
-            updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse_rep, memorized_embedding)
+            updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse_rep, updated_memorized_embedding)
 
         # # new_node_attention = segment_softmax_op_v2(attending_node_attention, selected_node[:, 0], tc=tc) #?
         # if tc:
@@ -491,7 +479,6 @@ class tDPMPN(torch.nn.Module):
         self.ent_spec_time_embed = ent_spec_time_embed
         self.hidden_node_proj = torch.nn.Linear(2 * embed_dim, embed_dim) # project (entity_emb; time_emb) to hidden node embedding
 
-        self.memorized_embedding = dict()
         self.device = device
 
         self.src_idx_l, self.rel_idx_l = None, None
