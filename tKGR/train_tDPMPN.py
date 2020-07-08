@@ -137,7 +137,6 @@ parser.add_argument('--node_score_aggregation', type=str, default='sum', choices
 parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
 parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
 parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
-parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False, help='in attention module, whether re-calculate attention score after pruning, not helpful, remove later')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
@@ -158,7 +157,7 @@ if __name__ == "__main__":
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
         task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                    'DP_num_neighbors', 'max_attended_edges', 'add_reverse', 'recalculate_att_after_prun',
+                    'DP_num_neighbors', 'max_attended_edges', 'add_reverse',
                     'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
 
         if sqlite_conn is not None:
@@ -216,7 +215,6 @@ if __name__ == "__main__":
         # construct model
         model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-                       recalculate_att_after_prun=args.recalculate_att_after_prun,
                        node_score_aggregation=args.node_score_aggregation,
                        device=device, ent_spec_time_embed = args.diac_embed, s_t_ratio = args.emb_static_ratio)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
