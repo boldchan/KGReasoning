@@ -487,9 +487,9 @@ class NeighborFinder:
                     out_ngh_t_batch[i, num_neighbors - len(sampled_idx):] = ngh_ts[sampled_idx]
                     out_ngh_eidx_batch[i, num_neighbors - len(sampled_idx):] = ngh_eidx[sampled_idx]
                 elif self.sampling == -1: # use whole neighborhood
-                    full_ngh_node.append(ngh_idx)
-                    full_ngh_t.append(ngh_ts)
-                    full_ngh_edge.append(ngh_eidx)
+                    full_ngh_node.append(ngh_idx[-300:])
+                    full_ngh_t.append(ngh_ts[-300:])
+                    full_ngh_edge.append(ngh_eidx[-300:])
                 else:
                     raise ValueError("invalid input for sampling")
 

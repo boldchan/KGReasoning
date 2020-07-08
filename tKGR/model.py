@@ -163,7 +163,7 @@ class G(torch.nn.Module):
 
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims, n_dims_sm, recalculate_att_after_prun, static_embed_dim, temporal_embed_dim, node_score_aggregation='sum', device='cpu'):
+    def __init__(self, n_dims, n_dims_sm, static_embed_dim, temporal_embed_dim, node_score_aggregation='sum', device='cpu'):
         """[summary]
 
         Arguments:
@@ -189,7 +189,6 @@ class AttentionFlow(nn.Module):
         #     m.bias.data.zero_()
         # self.Linear_between_steps.apply(weight_init)
 
-        self.recalculate_att_after_prun = recalculate_att_after_prun
         self.node_score_aggregation = node_score_aggregation
 
         self.device = device
@@ -445,7 +444,7 @@ class AttentionFlow(nn.Module):
 class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=None, embed_dim_sm=None,
                  attn_mode='prod', use_time='time', agg_method='attn', DP_num_neighbors=40,
-                 null_idx=0, drop_out=0.1, seq_len=None, recalculate_att_after_prun=True,
+                 null_idx=0, drop_out=0.1, seq_len=None,
                  s_t_ratio=1, ent_spec_time_embed=False,
                  node_score_aggregation='sum', max_attended_edges=20, device='cpu'):
         """[summary]
@@ -471,8 +470,6 @@ class tDPMPN(torch.nn.Module):
             device {str} -- [description] (default: {'cpu'})
         """
         super(tDPMPN, self).__init__()
-        if ngh_finder.sampling == -1:
-            assert recalculate_att_after_prun
 
         self.DP_num_neighbors = DP_num_neighbors
         self.ngh_finder = ngh_finder
@@ -485,7 +482,7 @@ class tDPMPN(torch.nn.Module):
         self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, embed_dim).cpu()
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
-        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm, recalculate_att_after_prun=recalculate_att_after_prun,
+        self.att_flow = AttentionFlow(embed_dim, embed_dim_sm,
                                       static_embed_dim = self.static_embed_dim, temporal_embed_dim = self.temporal_embed_dim,
                                       node_score_aggregation=node_score_aggregation, device=device)
         self.max_attended_edges = max_attended_edges
