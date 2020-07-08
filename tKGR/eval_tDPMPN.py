@@ -257,15 +257,10 @@ if __name__ == "__main__":
         degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
         mean_degree += sum(degree_batch)
 
-        model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l)
-        query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = model.initialize()
-        for step in range(args.DP_steps):
-            attended_nodes, attended_node_attention, memorized_embedding = \
-                model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
-                           query_rel_emb, query_time_emb)
+        entity_att_score, entities = model(sample)
 
-        entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]],
-                                                                 attended_nodes)
+        loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
+                          args.gradient_iters_per_update, args.loss_fn)
 
         # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
         # for i, target in enumerate(target_idx_l):

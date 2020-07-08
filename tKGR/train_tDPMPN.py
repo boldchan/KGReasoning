@@ -241,54 +241,10 @@ if __name__ == "__main__":
             model.zero_grad()
             model.train()
 
-            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-            model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l)
-            # attended_nodes tensor: batch_size x 4 (eg_idx, v_i, ts, node_idx)
-            query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = \
-                model.initialize()
+            entity_att_score, entities = model(sample)
+            target_idx_l = sample.target_idx
 
-            # query_time_emb.to(device)
-            # query_src_emb.to(device)
-            # query_rel_emb.to(device)
-            # attending_node_attention.to(device)
-#            print("queries: ", sample)
-
-            for step in range(args.DP_steps):
-#                print("{}-th DP step".format(step))
-                attended_nodes, attended_node_attention, memorized_embedding = \
-                    model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
-                               query_rel_emb, query_time_emb, tc=time_cost)
-            entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes,
-                                                                     tc=time_cost)
-#            print("entities:", entities)
-#            print("entity score:", entity_att_score)
-
-            # l1 norm on entity attention
-            entity_att_score = segment_norm_l1(entity_att_score+1e-9, entities[:, 0])
-
-            one_hot_label = torch.from_numpy(
-                np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-            try:
-                assert args.gradient_iters_per_update > 0
-                if args.loss_fn == 'BCE':
-                    if args.gradient_iters_per_update == 1:
-                        loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
-                    else:
-                        loss = torch.nn.BCELoss(reduction='sum')(entity_att_score, one_hot_label)
-                        loss /= args.gradient_iters_per_update * args.batch_size
-                else:
-                    # CE has problems
-                    if args.gradient_iters_per_update == 1:
-                        loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
-                    else:
-                        loss = torch.nn.NLLLoss(reduction='sum')(entity_att_score, one_hot_label)
-                        loss /= args.gradient_iters_per_update * args.batch_size
-            except:
-                print(entity_att_score)
-                entity_att_score_np = entity_att_score.cpu().detach().numpy()
-                print("all entity score smaller than 1:", all(entity_att_score_np < 1))
-                print("all entity score greater than 0:", all(entity_att_score_np > 0))
-                raise ValueError("Check if entity score in (0,1)")
+            loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size, args.gradient_iters_per_update, args.loss_fn)
             if args.timer:
                 t_start = time.time()
             loss.backward()
@@ -359,20 +315,11 @@ if __name__ == "__main__":
                 degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
                 mean_degree += sum(degree_batch)
 
-                model.set_init(src_idx_l, rel_idx_l, target_idx_l, cut_time_l)
-                query_src_emb, query_rel_emb, query_time_emb, attended_nodes, attended_node_attention, memorized_embedding = model.initialize()
-                for step in range(args.DP_steps):
-                    attended_nodes, attended_node_attention, memorized_embedding = \
-                        model.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
-                                   query_rel_emb, query_time_emb)
-                entity_att_score, entities = model.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes)
+                entity_att_score, entities = model(sample)
 
-                one_hot_label = torch.from_numpy(
-                    np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(device)
-                if args.loss_fn == 'BCE':
-                    loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
-                else:
-                    loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
+                loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
+                                  args.gradient_iters_per_update, args.loss_fn)
+
                 val_running_loss += loss.item()
 
                 # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
