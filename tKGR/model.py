@@ -558,7 +558,7 @@ class tDPMPN(torch.nn.Module):
                 self.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_emb,
                            query_rel_emb, query_time_emb)
         entity_att_score, entities = self.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes)
-        return entity_att_score,  entities
+        return entity_att_score, entities
 
     def flow(self, attended_nodes, attended_node_attention, memorized_embedding, query_src_emb, query_rel_emb,
              query_time_emb, tc=None):
@@ -662,6 +662,32 @@ class tDPMPN(torch.nn.Module):
 #        print('node attention:', new_node_attention)
 
         return pruned_nodes, new_node_attention, updated_memorized_embedding
+
+    def loss(self, entity_att_score, entities, target_idx_l, batch_size, gradient_iters_per_update=1, loss_fn='BCE'):
+        one_hot_label = torch.from_numpy(
+                np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(self.device)
+        try:
+            assert gradient_iters_per_update > 0
+            if loss_fn == 'BCE':
+                if gradient_iters_per_update == 1:
+                    loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
+                else:
+                    loss = torch.nn.BCELoss(reduction='sum')(entity_att_score, one_hot_label)
+                    loss /= gradient_iters_per_update * batch_size
+            else:
+                # CE has problems
+                if gradient_iters_per_update == 1:
+                    loss = torch.nn.NLLLoss()(entity_att_score, one_hot_label)
+                else:
+                    loss = torch.nn.NLLLoss(reduction='sum')(entity_att_score, one_hot_label)
+                    loss /= gradient_iters_per_update * batch_size
+        except:
+            print(entity_att_score)
+            entity_att_score_np = entity_att_score.cpu().detach().numpy()
+            print("all entity score smaller than 1:", all(entity_att_score_np < 1))
+            print("all entity score greater than 0:", all(entity_att_score_np > 0))
+            raise ValueError("Check if entity score in (0,1)")
+        return loss
 
     def get_node_emb(self, src_idx_l, cut_time_l):
         hidden_node = self.get_ent_emb(src_idx_l, self.device)
