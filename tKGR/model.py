@@ -492,10 +492,10 @@ class tDPMPN(torch.nn.Module):
         self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, embed_dim).cpu()
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
-        self.att_flow_list = [AttentionFlow(embed_dim, embed_dim_sm,
+        self.att_flow_list = nn.ModuleList([AttentionFlow(embed_dim, embed_dim_sm,
                                       static_embed_dim = self.static_embed_dim, temporal_embed_dim = self.temporal_embed_dim,
-                                      node_score_aggregation=node_score_aggregation, device=device) for _ in range(DP_steps)]
-        self.linear_list = [nn.Linear(embed_dim, embed_dim) for _ in range(DP_steps)]
+                                      node_score_aggregation=node_score_aggregation, device=device) for _ in range(DP_steps)])
+        self.linear_list = nn.ModuleList([nn.Linear(embed_dim, embed_dim) for _ in range(DP_steps)])
         self.max_attended_edges = max_attended_edges
 
         self.time_encoder = TimeEncode(expand_dim=self.temporal_embed_dim, entity_specific=ent_spec_time_embed, num_entities=num_entity, device=device)
