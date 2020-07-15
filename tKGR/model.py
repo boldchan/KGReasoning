@@ -180,7 +180,7 @@ class AttentionFlow(nn.Module):
         torch.nn.init.xavier_normal_(self.proj_static_embed.weight)
         self.proj_temporal_embed = nn.Linear(temporal_embed_dim, self.temporal_embed_dims_sm)
         torch.nn.init.xavier_normal_(self.proj_temporal_embed.weight)
-        self.transition_fn = G(3 * n_dims_sm + self.static_embed_dims_sm + self.temporal_embed_dims_sm, 3 * n_dims_sm + \
+        self.transition_fn = G(2 * n_dims_sm + self.static_embed_dims_sm + self.temporal_embed_dims_sm, 2 * n_dims_sm + \
                                self.static_embed_dims_sm + self.temporal_embed_dims_sm, n_dims_sm)
         # dense layer between steps
         self.linear_between_steps = nn.Linear(n_dims, n_dims)  # use shared Linear for representation update  #TODO what we mentioned right?
@@ -197,18 +197,16 @@ class AttentionFlow(nn.Module):
         # local information
         self.sampled_edges = None
         self.rel_emb = None
-        self.query_src_emb = None
+        self.query_src_ts_emb = None
         self.query_rel_emb = None
-        self.query_time_emb = None
 
         self.device = device
 
     def reset(self):
         self.sampled_edges = None
         self.rel_emb = None
-        self.query_src_emb = None
+        self.query_src_ts_emb = None
         self.query_rel_emb = None
-        self.query_time_emb = None
 
     def set_locality(self, sampled_edges, rel_emb):
         """
@@ -220,8 +218,9 @@ class AttentionFlow(nn.Module):
         self.sampled_edges = sampled_edges
         self.rel_emb = rel_emb
 
-    def set_query_emb(self, query_src_emb, query_rel_emb, query_time_emb):
-        self.query_src_emb, self.query_rel_emb, self.query_time_emb = query_src_emb, query_rel_emb, query_time_emb
+    def set_query_emb(self, query_src_ts_emb, query_rel_emb):
+
+        self.query_src_ts_emb, self.query_rel_emb = query_src_ts_emb, query_rel_emb
 
 
     def _topk_att_score(self, edges, logits, k: int, tc=None):
@@ -303,19 +302,16 @@ class AttentionFlow(nn.Module):
         # i.e. hidden_vi[i] and hidden_vj[i] is representation of node vi, vj that lie in subgraph corresponding to the query,
         # whose src, rel, time embedding is [embedding]_repeat[i]
         # [embedding] is one of query_src, query_rel, query_time
-        query_src_emb_repeat = torch.index_select(self.query_src_emb, dim=0,
+        query_src_ts_emb_repeat = torch.index_select(self.query_src_ts_emb, dim=0,
                                                   index=torch.from_numpy(query_idx).long().to(
                                                       self.device))
         query_rel_emb_repeat = torch.index_select(self.query_rel_emb, dim=0,
                                                   index=torch.from_numpy(query_idx).long().to(
                                                       self.device))
-        query_time_emb_repeat = torch.index_select(self.query_time_emb, dim=0,
-                                                   index=torch.from_numpy(query_idx).long().to(
-                                                       self.device))
 
         transition_logits = self.transition_fn(
-            ((hidden_vi, rel_emb, query_src_emb_repeat, query_rel_emb_repeat, query_time_emb_repeat),
-             (hidden_vj, rel_emb, query_src_emb_repeat, query_rel_emb_repeat, query_time_emb_repeat)))
+            ((hidden_vi, rel_emb, query_src_ts_emb_repeat, query_rel_emb_repeat),
+             (hidden_vj, rel_emb, query_src_ts_emb_repeat, query_rel_emb_repeat)))
         return transition_logits
 
     def forward(self, attended_nodes, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
@@ -691,10 +687,9 @@ class tDPMPN(torch.nn.Module):
         :param query_time_emb:
         :return:
         """
-        query_src_vec = self.proj(query_src_emb)  # batch_size x n_dims_sm #TODO
+        query_src_ts_vec = self.proj(self.hidden_node_proj(torch.cat([query_src_emb, query_time_emb], axis=1)))
         query_rel_vec = self.proj(query_rel_emb)  # batch_size x n_dims_sm
-        query_time_vec = self.proj(query_time_emb)  # batch_size x n_dims_sm
-        return query_src_vec, query_rel_vec, query_time_vec
+        return query_src_ts_vec, query_rel_vec
 
     def _get_sampled_edges(self, attended_nodes, num_neighbors: int = 20, step=None, tc=None):
         """[summary]
