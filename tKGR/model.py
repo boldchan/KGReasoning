@@ -572,7 +572,7 @@ class tDPMPN(torch.nn.Module):
         self.set_init(src_idx_l, rel_idx_l, cut_time_l)
         attended_nodes, attended_node_score, memorized_embedding = self.initialize()
         for step in range(self.DP_steps):
-            print("{}-th DP step".format(step))
+#            print("{}-th DP step".format(step))
             attended_nodes, attended_node_score, memorized_embedding = \
                 self.flow(attended_nodes, attended_node_score, memorized_embedding, step)
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
