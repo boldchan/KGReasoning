@@ -530,6 +530,7 @@ class tDPMPN(torch.nn.Module):
             attended_nodes, attended_node_attention, memorized_embedding = \
                 self.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_ts_emb,
                            query_rel_emb)
+            query_src_ts_emb = self.att_flow.linear_between_steps(query_src_ts_emb)
         entity_att_score, entities = self.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes)
         return entity_att_score, entities
 
