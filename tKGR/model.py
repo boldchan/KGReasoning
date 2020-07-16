@@ -313,12 +313,10 @@ class AttentionFlow(nn.Module):
                                                   index=torch.from_numpy(query_idx).long().to(
                                                       self.device))
 
-        try:
-            transition_logits = self.transition_fn(
-                ((hidden_vi, rel_emb, query_src_ts_emb_repeat, query_rel_emb_repeat),
-                 (hidden_vj, rel_emb, query_src_ts_emb_repeat, query_rel_emb_repeat)))
-        except RuntimeError:
-            pdb.set_trace()
+        transition_logits = self.transition_fn(
+            ((hidden_vi, rel_emb, query_src_ts_emb_repeat, query_rel_emb_repeat),
+             (hidden_vj, rel_emb, query_src_ts_emb_repeat, query_rel_emb_repeat)))
+
         return transition_logits
 
     def forward(self, attended_nodes, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
@@ -388,16 +386,24 @@ class AttentionFlow(nn.Module):
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
 
-        updated_memorized_embedding = self._update_node_representation_along_edges(pruned_edges, memorized_embedding, transition_logits_pruned_softmax)
+        # only message passing and aggregation, apply dense and act layer
+        updated_memorized_embedding = self._update_node_representation_along_edges(pruned_edges, memorized_embedding,
+                                                                                   transition_logits_pruned_softmax,
+                                                                                   linear_act=False)
 
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
-            pdb.set_trace()
+            # pdb.set_trace()
             transition_logits = self._cal_attention_score(selected_edges, updated_memorized_embedding, rel_emb)# bug!!, updated_memorized_embedding, rel_emb dimension mismatch
             # possible solution, use updated rel_emb, but dimension mismatch between update along older edge and along latest edge, since we apply linear on updated node representation
             transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
+            # only message passing and aggregation, apply dense and act layer
             updated_memorized_embedding = self._update_node_representation_along_edges(selected_edges,
                                                                                        updated_memorized_embedding,
-                                                                                       transition_logits_softmax)
+                                                                                       transition_logits_softmax,
+                                                                                       linear_act=False)
+
+        # the function's name is confusing, but it's just apply dense layer and activation on updated_memorized_embedding
+        updated_memorized_embedding = self.bypass_forward(updated_memorized_embedding)
 
         # # new_node_attention = segment_softmax_op_v2(attending_node_attention, selected_node[:, 0], tc=tc) #?
         # if tc:
@@ -432,7 +438,15 @@ class AttentionFlow(nn.Module):
         updated_memorized_embedding = updated_memorized_embedding + identical_memorized_embedding
         return updated_memorized_embedding
 
-    def _update_node_representation_along_edges(self, edges, memorized_embedding, transition_logits):
+    def _update_node_representation_along_edges(self, edges, memorized_embedding, transition_logits, linear_act=True):
+        """
+
+        :param edges:
+        :param memorized_embedding:
+        :param transition_logits:
+        :param linear_act: whether apply linear and activation layer after message aggregation
+        :return:
+        """
         num_nodes = len(memorized_embedding)
         sparse_index_rep = torch.from_numpy(edges[:, [-2, -1]]).to(torch.int64).to(self.device)
         sparse_value_rep = transition_logits
@@ -444,7 +458,8 @@ class AttentionFlow(nn.Module):
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index.t(), sparse_value,
                                                                  torch.Size([num_nodes, num_nodes])).to(self.device)
         updated_memorized_embedding = torch.sparse.mm(trans_matrix_sparse, memorized_embedding)
-        updated_memorized_embedding = self.act_between_steps(self.linear_between_steps(updated_memorized_embedding))
+        if linear_act:
+            updated_memorized_embedding = self.act_between_steps(self.linear_between_steps(updated_memorized_embedding))
 
         return updated_memorized_embedding
 
@@ -605,6 +620,10 @@ class tDPMPN(torch.nn.Module):
         rel_emb = self.get_rel_emb(sampled_edges[:, 5], self.device)
         for i in range(step):
             rel_emb = self.att_flow_list[i].bypass_forward(rel_emb)
+        # update relation representation of edges sampled from previous steps
+        for j in range(step):
+            # pdb.set_trace()
+            self.rel_emb_l[j] = self.att_flow_list[step-1].bypass_forward(self.rel_emb_l[j])
         self.rel_emb_l.append(rel_emb)
 
         self.att_flow_list[step].set_locality(sampled_edges, rel_emb)
