@@ -62,7 +62,10 @@ def create_task_table(conn, hyperparameters: List[str], args, table_name = "task
                     arg_type = "REAL"
                 elif isinstance(arg, bool):
                     arg_type = "INTEGER"
-                    arg = int(arg)
+                    # arg = int(arg)
+                elif isinstance(arg, list):
+                    arg_type = 'TEXT'
+                    # arg = ','.join([str(_) for _ in arg])
                 elif isinstance(arg, str):
                     arg_type = "TEXT"
                 else:
@@ -99,6 +102,8 @@ def insert_into_task_table(conn, hyperparameters, args, checkpoint_dir, git_hash
                 arg = getattr(args, hp)
                 if isinstance(arg, bool):
                     arg = int(arg)
+                elif isinstance(arg, list):
+                    arg = ','.join([str(_) for _ in arg])
                 sql_hp_val.append(arg)
 
             except:

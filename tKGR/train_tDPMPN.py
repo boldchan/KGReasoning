@@ -119,9 +119,7 @@ def collate_wrapper(batch):
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
-parser.add_argument('--emb_dim', type=int, default=256, help='dimension of embedding for node, realtion and time')
-parser.add_argument('--emb_dim_sm', type=int, default=48, help='smaller dimension of embedding, '
-                                                               'ease the computation of attention for attending from horizon')
+parser.add_argument('--emb_dim', type=int, default=[256, 128, 64, 32], nargs='+', help='dimension of embedding for node, realtion and time')
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=128)
@@ -156,7 +154,7 @@ if __name__ == "__main__":
 
     if args.sqlite and not args.debug:
         sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-        task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+        task_col = ('dataset', 'emb_dim', 'lr', 'batch_size', 'sampling', 'DP_steps',
                     'DP_num_neighbors', 'max_attended_edges', 'add_reverse',
                     'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
 
@@ -213,7 +211,7 @@ if __name__ == "__main__":
         nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity),
                             weight_factor=args.weight_factor)
         # construct model
-        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
+        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation,
                        device=device, ent_spec_time_embed = args.diac_embed, s_t_ratio = args.emb_static_ratio)
