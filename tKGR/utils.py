@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import subprocess
+import pdb
 
 from collections import defaultdict
 import numpy as np
@@ -405,7 +406,7 @@ class NeighborFinder:
         ------
         src_idx_l: List[int]
         cut_time_l: List[float],
-        num_neighbors: int
+        num_neighbors: int, ignored if sampling==-1,
         return:
         out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch: sorted by out_ngh_t_batch
         """
@@ -415,6 +416,10 @@ class NeighborFinder:
         out_ngh_t_batch = np.zeros((len(src_idx_l), num_neighbors)).astype(np.int32)
         out_ngh_eidx_batch = -np.ones((len(src_idx_l), num_neighbors)).astype(np.int32)
 
+        if self.sampling == -1:
+            full_ngh_node = []
+            full_ngh_t = []
+            full_ngh_edge = []
         for i, (src_idx, cut_time) in enumerate(zip(src_idx_l, cut_time_l)):
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
@@ -482,11 +487,21 @@ class NeighborFinder:
                     out_ngh_t_batch[i, num_neighbors - len(sampled_idx):] = ngh_ts[sampled_idx]
                     out_ngh_eidx_batch[i, num_neighbors - len(sampled_idx):] = ngh_eidx[sampled_idx]
                 elif self.sampling == -1: # use whole neighborhood
-                    out_ngh_node_batch[i, :] = ngh_idx
-                    out_ngh_t_batch[i, :] = ngh_ts
-                    out_ngh_eidx_batch[i, :] = ngh_eidx
+                    full_ngh_node.append(ngh_idx[-300:])
+                    full_ngh_t.append(ngh_ts[-300:])
+                    full_ngh_edge.append(ngh_eidx[-300:])
                 else:
                     raise ValueError("invalid input for sampling")
+
+        if self.sampling == -1:
+            max_num_neighbors = max(map(len, full_ngh_edge))
+            out_ngh_node_batch = -np.ones((len(src_idx_l), max_num_neighbors)).astype(np.int32)
+            out_ngh_t_batch = np.zeros((len(src_idx_l), max_num_neighbors)).astype(np.int32)
+            out_ngh_eidx_batch = -np.ones((len(src_idx_l), max_num_neighbors)).astype(np.int32)
+            for i in range(len(full_ngh_node)):
+                out_ngh_node_batch[i, max_num_neighbors-len(full_ngh_node[i]):] = full_ngh_node[i]
+                out_ngh_eidx_batch[i, max_num_neighbors-len(full_ngh_edge[i]):] = full_ngh_edge[i]
+                out_ngh_t_batch[i, max_num_neighbors-len(full_ngh_t[i]):] = full_ngh_t[i]
 
         return out_ngh_node_batch, out_ngh_eidx_batch, out_ngh_t_batch
 
