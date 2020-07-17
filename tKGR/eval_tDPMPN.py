@@ -217,12 +217,6 @@ if __name__ == "__main__":
     if args.timer:
         time_cost = reset_time_cost()
 
-    # construct NeighborFinder
-    if args.no_pruning:
-        pruning = False
-    else:
-        pruning = True
-
 
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
