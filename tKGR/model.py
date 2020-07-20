@@ -495,11 +495,11 @@ class tDPMPN(torch.nn.Module):
         query_rel_emb = self.get_rel_emb(self.rel_idx_l, self.device)
         if self.ent_spec_time_embed:
             query_ts_emb = self.time_encoder(
-                torch.from_numpy(self.cut_time_l[:, np.newaxis]).to(torch.float32).to(self.device),
+                torch.zeros(len(self.cut_time_l), 1).to(torch.float32).to(self.device),
                 entities=self.src_idx_l)
         else:
             query_ts_emb = self.time_encoder(
-            torch.from_numpy(self.cut_time_l[:, np.newaxis]).to(torch.float32).to(self.device))
+            torch.zeros(len(self.cut_time_l), 1).to(torch.float32).to(self.device))
         query_ts_emb = torch.squeeze(query_ts_emb, 1)
         query_src_ts_emb = self.hidden_node_proj(torch.cat([query_src_emb, query_ts_emb], axis=-1))
 
@@ -747,7 +747,8 @@ class tDPMPN(torch.nn.Module):
             [src_ngh_eidx_batch, np.array([[self.selfloop] for _ in range(len(attended_nodes))], dtype=np.int32)],
             axis=1)
         src_ngh_t_batch = np.concatenate([src_ngh_t_batch, cut_time_l[:, np.newaxis]], axis=1)
-        # removed padded neighbors, with node idx == rel idx == -1 t == 0
+        src_ngh_t_batch = src_ngh_t_batch - cut_time_l[:, np.newaxis] # use relative time
+        # removed padded neighbors, with node idx == rel idx == -1
         src_ngh_node_batch_flatten = src_ngh_node_batch.flatten()
         src_ngh_eidx_batch_flatten = src_ngh_eidx_batch.flatten()
         src_ngh_t_batch_faltten = src_ngh_t_batch.flatten()
