@@ -563,7 +563,7 @@ class tDPMPN(torch.nn.Module):
 #         new_sampled_nodes_mask = sampled_nodes[:,3]>max(attended_nodes[:, 3])
 # #        print("{} new sampled nodes".format(sum(new_sampled_nodes_mask)))
 #         new_sampled_nodes = sampled_nodes[new_sampled_nodes_mask]
-        new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2])
+        new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2], eg_idx=new_sampled_nodes[:, 0])
         new_memorized_embedding = torch.cat([memorized_embedding, new_sampled_nodes_emb], axis=0)
 #        pdb.set_trace()
         if len(new_sampled_nodes) == 0:
@@ -660,8 +660,11 @@ class tDPMPN(torch.nn.Module):
             raise ValueError("Check if entity score in (0,1)")
         return loss
 
-    def get_node_emb(self, src_idx_l, cut_time_l):
+    def get_node_emb(self, src_idx_l, cut_time_l, eg_idx=None):
+
         hidden_node = self.get_ent_emb(src_idx_l, self.device)
+        if eg_idx is not None:# use relative time
+            cut_time_l = cut_time_l - self.cut_time_l[eg_idx]
         if self.ent_spec_time_embed:
             hidden_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device), entities=src_idx_l)
         else:
@@ -720,8 +723,9 @@ class tDPMPN(torch.nn.Module):
                         src_ngh_eidx = src_ngh_eidx_batch[i][mask]
                         src_ngh_t = src_ngh_t_batch[i][mask]
                         src_node_embed = self.get_node_emb(np.array([src_idx_l[i]]*len(src_ngh_nodes)),
-                                                           np.array([cut_time_l[i]]*len(src_ngh_nodes)))
-                        ngh_node_embed = self.get_node_emb(src_ngh_nodes, src_ngh_t)
+                                                           np.array([cut_time_l[i]]*len(src_ngh_nodes)),
+                                                           np.array([attended_nodes[i, 0]*len(src_ngh_nodes)]))
+                        ngh_node_embed = self.get_node_emb(src_ngh_nodes, src_ngh_t, np.array([attended_nodes[i, 0]*len(src_ngh_nodes)]))
                         rel_emb = self.get_rel_emb(src_ngh_eidx, self.device)
                         query_src_vec, query_rel_vec, query_time_vec = self.att_flow.context_dim_red(query_src_ts_emb,
                                                                                                      query_rel_emb)
@@ -747,7 +751,6 @@ class tDPMPN(torch.nn.Module):
             [src_ngh_eidx_batch, np.array([[self.selfloop] for _ in range(len(attended_nodes))], dtype=np.int32)],
             axis=1)
         src_ngh_t_batch = np.concatenate([src_ngh_t_batch, cut_time_l[:, np.newaxis]], axis=1)
-        src_ngh_t_batch = src_ngh_t_batch - cut_time_l[:, np.newaxis] # use relative time
         # removed padded neighbors, with node idx == rel idx == -1
         src_ngh_node_batch_flatten = src_ngh_node_batch.flatten()
         src_ngh_eidx_batch_flatten = src_ngh_eidx_batch.flatten()
