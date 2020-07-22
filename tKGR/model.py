@@ -660,11 +660,10 @@ class tDPMPN(torch.nn.Module):
             raise ValueError("Check if entity score in (0,1)")
         return loss
 
-    def get_node_emb(self, src_idx_l, cut_time_l, eg_idx=None):
+    def get_node_emb(self, src_idx_l, cut_time_l, eg_idx):
 
         hidden_node = self.get_ent_emb(src_idx_l, self.device)
-        if eg_idx is not None:# use relative time
-            cut_time_l = cut_time_l - self.cut_time_l[eg_idx]
+        cut_time_l = cut_time_l - self.cut_time_l[eg_idx]
         if self.ent_spec_time_embed:
             hidden_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device), entities=src_idx_l)
         else:
