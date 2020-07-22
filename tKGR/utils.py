@@ -474,7 +474,7 @@ class NeighborFinder:
                     # weights = ngh_ts / sum(ngh_ts)
 
                     delta_t = (ngh_ts - cut_time)/(24*self.weight_factor)
-                    weights = np.exp(delta_t)
+                    weights = np.exp(delta_t) + 1e-9
                     weights = weights / sum(weights)
 
                     if len(ngh_idx) >= num_neighbors:
