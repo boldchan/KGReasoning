@@ -304,7 +304,7 @@ class AttentionFlow(nn.Module):
              (hidden_vj, rel_emb, query_src_ts_vec_repeat, query_rel_vec_repeat)))
         return transition_logits
 
-    def forward(self, attended_nodes, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
+    def forward(self, attended_nodes, node_score, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
                 query_src_ts_emb=None, query_rel_emb=None, max_edges=10, analysis=False, tc=None):
         """calculate attention score
 
@@ -320,7 +320,7 @@ class AttentionFlow(nn.Module):
             query_rel_emb {[type]} -- [description] (default: {None})
             training {[type]} -- [description] (default: {None})
         return:
-            new_node_attention: Tensor, shape: n_new_node
+            new_node_score: Tensor, shape: n_new_node
         """
         query_src_ts_vec, query_rel_vec = self.context_dim_red(query_src_ts_emb, query_rel_emb)
 
@@ -330,7 +330,7 @@ class AttentionFlow(nn.Module):
 
         # prune edges whose target node attention score is small
         # get source attention score
-        src_att = node_attention[selected_edges_l[-1][:, -2]]
+        src_att = node_score[selected_edges_l[-1][:, -2]]
         # target_att = transition_logits*src_att
         transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges_l[-1][:, -2], tc=tc)
         all_transition_logits.append(transition_logits_softmax)
@@ -355,26 +355,23 @@ class AttentionFlow(nn.Module):
             # biggest score from all edges (some edges may have the same subject)
             sparse_index = torch.LongTensor(np.stack([np.array(list(max_dict.keys())), np.array([_[0] for _ in max_dict.values()])])).to(self.device)
             trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, torch.ones(len(max_dict)).to(self.device), torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
-            attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
+            updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
         elif self.node_score_aggregation in ['mean', 'sum']:
             sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(self.device)
-            trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
-                                                       torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
-            # expand node attention:
-    #        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
-    #                                                         node_attention)
-    #        print("expanded node attention", node_attention)
-            # ATTENTION: node_attention[i] must be attention of node with node_idx==i
-            attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
-
-    #        print("edges for message passing:")
-    #        print(pruned_edges[:, [-2, -1]])
 
             # node score aggregation
             if self.node_score_aggregation == 'mean':
                 c = Counter(pruned_edges[:, -1])
                 target_node_cnt = torch.tensor([c[_] for _ in pruned_edges[:, -1]]).to(self.device)
                 transition_logits_pruned_softmax = torch.div(transition_logits_pruned_softmax, target_node_cnt)
+
+            trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
+                                                       torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
+            # ATTENTION: updated_node_score[i] must be node score of node with node_idx==i
+            updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
+
+    #        print("edges for message passing:")
+    #        print(pruned_edges[:, [-2, -1]])
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
 
@@ -402,9 +399,9 @@ class AttentionFlow(nn.Module):
         #     tc['model']['DP_attn_query'] += t_query - t_proj
 
         if analysis:
-            return attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices, all_transition_logits[::-1]
+            return updated_node_score, updated_memorized_embedding, pruned_edges, orig_indices, all_transition_logits[::-1]
         else:
-            return attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices
+            return updated_node_score, updated_memorized_embedding, pruned_edges, orig_indices
 
     def _update_node_representation_along_edges(self, edges, memorized_embedding, transition_logits, num_nodes):
         # update representation of nodes with neighbors
@@ -548,22 +545,23 @@ class tDPMPN(torch.nn.Module):
             if self.analysis:
                 for i in range(batch_size):
                     mask = attended_nodes[:, 0] == i
-                    tracking[i][step] = {"source_nodes": attended_nodes[mask], "source_nodes_score": attended_node_score.cpu().detach().numpy()[mask]}
+                    tracking[i][step] = {"source_nodes": attended_nodes[mask].tolist(),
+                                         "source_nodes_score": attended_node_score.cpu().detach().numpy()[mask].tolist()}
                 attended_nodes, attended_node_score, memorized_embedding, sampled_edges, new_sampled_nodes, edge_att = self.flow(
                     attended_nodes, attended_node_score, memorized_embedding, query_src_ts_emb, query_rel_emb, analysis=True)
                 raw_sampled_edges_l.append(sampled_edges)
                 for i in range(batch_size):
                     mask = sampled_edges[:, 0] == i
-                    tracking[i][step]["sampled_edges"] = sampled_edges[mask]
+                    tracking[i][step]["sampled_edges"] = sampled_edges[mask].tolist()
                     for st, (selected_edges, selected_edge_att) in enumerate(zip(raw_sampled_edges_l, edge_att)):
-                        pdb.set_trace()
                         mask = selected_edges[:, 0] == i
-                        tracking[i][st].get("selected_edges", []).append(selected_edges[mask])
-                        tracking[i][st].get("selected_edges_atttention", []).append(selected_edge_att.cpu().detach().numpy()[mask])
-                    tracking[i][step]["new_sampled_nodes"] = new_sampled_nodes[new_sampled_nodes[:, 0]==i]
+                        tracking[i][st].get("selected_edges", []).append(selected_edges[mask].tolist())
+                        tracking[i][st].get("selected_edges_atttention", []).append(selected_edge_att.cpu().detach().numpy()[mask].tolist())
+                    tracking[i][step]["new_sampled_nodes"] = new_sampled_nodes[new_sampled_nodes[:, 0]==i].tolist()
                     mask = attended_nodes[:, 0] == i
-                    tracking[i][step]["new_source_nodes"] = attended_nodes[mask]
-                    tracking[i][step]["new_source_nodes_score"] = attended_node_score.cpu().detach().numpy()[mask]
+                    attended_nodes_i = attended_nodes[mask]
+                    tracking[i][step]["new_source_nodes"] = attended_nodes_i.tolist()
+                    tracking[i][step]["new_source_nodes_score"] = attended_node_score.cpu().detach().numpy()[attended_nodes_i[:, 3]].tolist()
             else:
                 attended_nodes, attended_node_score, memorized_embedding = \
                     self.flow(attended_nodes, attended_node_score, memorized_embedding, query_src_ts_emb,
@@ -572,8 +570,8 @@ class tDPMPN(torch.nn.Module):
         entity_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
         for i in range(batch_size):
             mask = entities[:, 0]==i
-            tracking[i]['entity_score'] = entity_score.cpu().detach().numpy()[mask]
-            tracking[i]['entity_candidate'] = entities[mask]
+            tracking[i]['entity_score'] = entity_score.cpu().detach().numpy()[mask].tolist()
+            tracking[i]['entity_candidate'] = entities[mask].tolist()
         for i in range(batch_size):
             self.mongodb['analysis'].update_one({"_id": self.mongo_id[i]}, {"$set": tracking[i]})
         return entity_score, entities
