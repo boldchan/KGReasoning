@@ -321,7 +321,7 @@ class AttentionFlow(nn.Module):
 
         # prune edges whose target node attention score is small
         # get source attention score
-        src_att = node_attention[selected_edges_l[-1][:, -2]]
+        src_att = node_score[selected_edges_l[-1][:, -2]]
         # target_att = transition_logits*src_att
         transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges_l[-1][:, -2], tc=tc)
         target_att = transition_logits_softmax*src_att
@@ -345,7 +345,7 @@ class AttentionFlow(nn.Module):
             # biggest score from all edges (some edges may have the same subject)
             sparse_index = torch.LongTensor(np.stack([np.array(list(max_dict.keys())), np.array([_[0] for _ in max_dict.values()])])).to(self.device)
             trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, torch.ones(len(max_dict)).to(self.device), torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
-            attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
+            updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
         elif self.node_score_aggregation in ['mean', 'sum']:
             sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(
                 self.device)
@@ -397,7 +397,7 @@ class AttentionFlow(nn.Module):
         #     tc['model']['DP_attn_proj'] += t_proj - t_start
         #     tc['model']['DP_attn_query'] += t_query - t_proj
 
-        return attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices
+        return updated_node_score, updated_memorized_embedding, pruned_edges, orig_indices
 
     def _update_node_representation_along_edges_old(self, edges, memorized_embedding, transition_logits):
         num_nodes = len(memorized_embedding)
