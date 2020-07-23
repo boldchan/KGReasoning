@@ -301,7 +301,7 @@ class AttentionFlow(nn.Module):
 
         return transition_logits
 
-    def forward(self, attended_nodes, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
+        def forward(self, attended_nodes, node_score, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
                 max_edges=10, tc=None):
         """calculate attention score
 
@@ -314,14 +314,15 @@ class AttentionFlow(nn.Module):
             contain selfloop
             memorized_embedding torch.Tensor,
         return:
-            attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices
-            updated_memorized_embedding: only updated along new sampled edges
+            pruned_edges, orig_indices
+            updated_memorized_embedding:
+            updated_node_score: Tensor, shape: n_new_node
         """
         transition_logits = self._cal_attention_score(selected_edges_l[-1], memorized_embedding, rel_emb_l[-1])
 
         # prune edges whose target node attention score is small
         # get source attention score
-        src_att = node_attention[selected_edges_l[-1][:, -2]]
+        src_att = node_score[selected_edges_l[-1][:, -2]]
         # target_att = transition_logits*src_att
         transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges_l[-1][:, -2], tc=tc)
         target_att = transition_logits_softmax*src_att
@@ -345,7 +346,7 @@ class AttentionFlow(nn.Module):
             # biggest score from all edges (some edges may have the same subject)
             sparse_index = torch.LongTensor(np.stack([np.array(list(max_dict.keys())), np.array([_[0] for _ in max_dict.values()])])).to(self.device)
             trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, torch.ones(len(max_dict)).to(self.device), torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
-            attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
+            updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
         elif self.node_score_aggregation in ['mean', 'sum']:
             sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(
                 self.device)
@@ -397,7 +398,7 @@ class AttentionFlow(nn.Module):
         #     tc['model']['DP_attn_proj'] += t_proj - t_start
         #     tc['model']['DP_attn_query'] += t_query - t_proj
 
-        return attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices
+        return updated_node_score, updated_memorized_embedding, pruned_edges, orig_indices
 
     def _update_node_representation_along_edges_old(self, edges, memorized_embedding, transition_logits):
         num_nodes = len(memorized_embedding)
@@ -556,7 +557,11 @@ class tDPMPN(torch.nn.Module):
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
         return entity_att_score, entities
 
+<<<<<<< HEAD
     def flow(self, attended_nodes, attended_node_score, memorized_embedding, step, tc=None):
+=======
+    def flow(self, attended_nodes, attended_node_score, memorized_embedding, query_src_ts_emb, query_rel_emb, tc=None):
+>>>>>>> master
         """[summary]
 
         Arguments:
@@ -604,6 +609,7 @@ class tDPMPN(torch.nn.Module):
             self.rel_emb_l[j] = self.att_flow_list[step-1].bypass_forward(self.rel_emb_l[j])
         self.rel_emb_l.append(rel_emb)
 
+<<<<<<< HEAD
         self.att_flow_list[step].set_locality(sampled_edges, rel_emb)
 
         new_node_score, updated_memorized_embedding, pruned_edges, orig_indices = \
@@ -613,6 +619,15 @@ class tDPMPN(torch.nn.Module):
                                      memorized_embedding=new_memorized_embedding,
                                      rel_emb_l=self.rel_emb_l,
                                      max_edges=self.max_attended_edges, tc=tc)
+=======
+        new_node_score, updated_memorized_embedding, pruned_edges, orig_indices = self.att_flow(attended_nodes, attended_node_score,
+                                                                        selected_edges_l=self.sampled_edges_l,
+                                                                        memorized_embedding=new_memorized_embedding,
+                                                                        rel_emb_l=self.rel_emb_l,
+                                                                        query_src_ts_emb=query_src_ts_emb,
+                                                                        query_rel_emb=query_rel_emb,
+                                                                        max_edges=self.max_attended_edges, tc=tc)
+>>>>>>> master
 
         assert len(pruned_edges) == len(orig_indices)
 #        print("# pruned_edges {}".format(len(pruned_edges)))
