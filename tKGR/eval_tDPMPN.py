@@ -31,6 +31,7 @@ from model import tDPMPN
 import config
 import local_config
 from segment import *
+from database_op import create_mongo_connection
 
 # from gpu_profile import gpu_profile
 
@@ -199,6 +200,7 @@ parser.add_argument('--recalculate_att_after_prun', action='store_true', default
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
+parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
@@ -217,19 +219,16 @@ if __name__ == "__main__":
     if args.timer:
         time_cost = reset_time_cost()
 
-    # construct NeighborFinder
-    if args.no_pruning:
-        pruning = False
-    else:
-        pruning = True
-
-
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
     else:
         model, optimizer, start_epoch, contents = load_checkpoint(os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
         sp2o = contents.get_sp2o()
         test_spt2o = contents.get_spt2o('test')
+
+    model.analysis = True
+    mongodb = create_mongo_connection("54.93.203.11", "analysis")
+    model.mongodb = mongodb
 
     hit_1 = hit_3 = hit_10 = 0
     hit_1_fil = hit_3_fil = hit_10_fil = 0
@@ -250,6 +249,7 @@ if __name__ == "__main__":
                                  pin_memory=False, shuffle=True)
 
     for batch_ndx, sample in enumerate(test_data_loader):
+        print("Start Evaluation")
         model.eval()
 
         src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts

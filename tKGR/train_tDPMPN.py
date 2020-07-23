@@ -31,7 +31,8 @@ from model import tDPMPN
 import config
 import local_config
 from segment import *
-from database_op import create_connection, create_task_table, create_logging_table, insert_into_logging_table, insert_into_task_table
+from database_op import create_connection, create_task_table, create_logging_table, insert_into_logging_table, \
+    insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo
 
 # from gpu_profile import gpu_profile
 
@@ -138,6 +139,7 @@ parser.add_argument('--simpl_att', action='store_true', help = 'use simplified a
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
+parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
@@ -152,18 +154,20 @@ if __name__ == "__main__":
     else:
         device = 'cpu'
 
-    if args.sqlite and not args.debug:
-        sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-        task_col = ('dataset', 'emb_dim', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                    'DP_num_neighbors', 'max_attended_edges', 'add_reverse',
-                    'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
+    if not args.debug:
+        if args.sqlite:
+            sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
+            task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+                        'DP_num_neighbors', 'max_attended_edges', 'add_reverse',
+                        'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
 
-        if sqlite_conn is not None:
-            create_task_table(sqlite_conn, task_col, args, table_name='tasks')
-            create_logging_table(sqlite_conn, table_name='logging')
-        else:
-            print("Error! cannot create the database connection.")
-
+            if sqlite_conn is not None:
+                create_task_table(sqlite_conn, task_col, args, table_name='tasks')
+                create_logging_table(sqlite_conn, table_name='logging')
+            else:
+                print("Error! cannot create the database connection.")
+        if args.mongo:
+            mongodb = create_mongo_connection("54.93.203.11", "tKGR")
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
@@ -193,6 +197,10 @@ if __name__ == "__main__":
             git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
             task_id = insert_into_task_table(sqlite_conn, task_col, args, checkpoint_dir, git_hash, table_name="tasks")
             print("Log configuration to SQLite under {}".format(os.path.join(save_dir, 'tKGR.db')))
+        elif args.mongo:
+            git_hash = get_git_version_short_hash()
+            git_comment = get_git_description_last_commit()
+            task_id = insert_a_task_mongo(mongodb, args, checkpoint_dir, git_hash, git_comment, local_config.AWS_device)
         else:
             print("Save checkpoints under {}".format(CHECKPOINT_PATH))
             save_config(args, CHECKPOINT_PATH)
@@ -214,7 +222,7 @@ if __name__ == "__main__":
         model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation,
-                       device=device, ent_spec_time_embed = args.diac_embed, s_t_ratio = args.emb_static_ratio)
+                       device=device, diac_embed = args.diac_embed, emb_static_ratio = args.emb_static_ratio)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
@@ -385,14 +393,18 @@ if __name__ == "__main__":
                     mean_degree_found / found_cnt))
             else:
                 print('No subgraph found the ground truth!!')
+
+            performance = [running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
+                           hit_3 / num_query,
+                           hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
+                           hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
             if args.sqlite:
                 sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-                performance = [running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
-                        hit_3 / num_query,
-                        hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
-                        hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
                 insert_into_logging_table(sqlite_conn, checkpoint_dir, epoch, performance)
+            if args.mongo:
+                insert_a_evaluation_mongo(mongodb, checkpoint_dir, epoch, performance)
 
 
-print("finished Training")
+    mongodb.close()
+    print("finished Training")
 #     os.umask(oldmask)
