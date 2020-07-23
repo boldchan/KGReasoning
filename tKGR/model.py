@@ -302,7 +302,7 @@ class AttentionFlow(nn.Module):
              (hidden_vj, rel_emb, query_src_ts_vec_repeat, query_rel_vec_repeat)))
         return transition_logits
 
-    def forward(self, attended_nodes, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
+    def forward(self, attended_nodes, node_score, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
                 query_src_ts_emb=None, query_rel_emb=None, max_edges=10, tc=None):
         """calculate attention score
 
@@ -318,7 +318,7 @@ class AttentionFlow(nn.Module):
             query_rel_emb {[type]} -- [description] (default: {None})
             training {[type]} -- [description] (default: {None})
         return:
-            new_node_attention: Tensor, shape: n_new_node
+            updated_node_score: Tensor, shape: n_new_node
         """
         query_src_ts_vec, query_rel_vec = self.context_dim_red(query_src_ts_emb, query_rel_emb)
 
@@ -326,7 +326,7 @@ class AttentionFlow(nn.Module):
 
         # prune edges whose target node attention score is small
         # get source attention score
-        src_att = node_attention[selected_edges_l[-1][:, -2]]
+        src_att = node_score[selected_edges_l[-1][:, -2]]
         # target_att = transition_logits*src_att
         transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges_l[-1][:, -2], tc=tc)
         target_att = transition_logits_softmax*src_att
@@ -350,7 +350,7 @@ class AttentionFlow(nn.Module):
             # biggest score from all edges (some edges may have the same subject)
             sparse_index = torch.LongTensor(np.stack([np.array(list(max_dict.keys())), np.array([_[0] for _ in max_dict.values()])])).to(self.device)
             trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, torch.ones(len(max_dict)).to(self.device), torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
-            attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
+            updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
         elif self.node_score_aggregation in ['mean', 'sum']:
             sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(
                 self.device)
@@ -393,7 +393,7 @@ class AttentionFlow(nn.Module):
         #     tc['model']['DP_attn_proj'] += t_proj - t_start
         #     tc['model']['DP_attn_query'] += t_query - t_proj
 
-        return attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices
+        return updated_node_score, updated_memorized_embedding, pruned_edges, orig_indices
 
     def _update_node_representation_along_edges(self, edges, memorized_embedding, transition_logits, num_nodes):
         # update representation of nodes with neighbors
@@ -532,7 +532,7 @@ class tDPMPN(torch.nn.Module):
         entity_att_score, entities = self.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes)
         return entity_att_score, entities
 
-    def flow(self, attended_nodes, attended_node_attention, memorized_embedding, query_src_ts_emb, query_rel_emb, tc=None):
+    def flow(self, attended_nodes, attended_node_score, memorized_embedding, query_src_ts_emb, query_rel_emb, tc=None):
         """[summary]
 
         Arguments:
@@ -597,7 +597,7 @@ class tDPMPN(torch.nn.Module):
         rel_emb = self.get_rel_emb(sampled_edges[:, 5], self.device)
         self.rel_emb_l.append(rel_emb)
 
-        new_node_attention, updated_memorized_embedding, pruned_edges, orig_indices = self.att_flow(attended_nodes, attended_node_attention,
+        new_node_score, updated_memorized_embedding, pruned_edges, orig_indices = self.att_flow(attended_nodes, attended_node_score,
                                                                         selected_edges_l=self.sampled_edges_l,
                                                                         memorized_embedding=new_memorized_embedding,
                                                                         rel_emb_l=self.rel_emb_l,
@@ -630,7 +630,7 @@ class tDPMPN(torch.nn.Module):
 #        print("pruned nodes {}".format(pruned_nodes))
 #        print('node attention:', new_node_attention)
 
-        return pruned_nodes, new_node_attention, updated_memorized_embedding
+        return pruned_nodes, new_node_score, updated_memorized_embedding
 
     def loss(self, entity_att_score, entities, target_idx_l, batch_size, gradient_iters_per_update=1, loss_fn='BCE'):
         one_hot_label = torch.from_numpy(
