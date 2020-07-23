@@ -320,7 +320,7 @@ class AttentionFlow(nn.Module):
             query_rel_emb {[type]} -- [description] (default: {None})
             training {[type]} -- [description] (default: {None})
         return:
-            new_node_score: Tensor, shape: n_new_node
+            updated_node_score: Tensor, shape: n_new_node
         """
         query_src_ts_vec, query_rel_vec = self.context_dim_red(query_src_ts_emb, query_rel_emb)
 
@@ -357,7 +357,8 @@ class AttentionFlow(nn.Module):
             trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, torch.ones(len(max_dict)).to(self.device), torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
             updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
         elif self.node_score_aggregation in ['mean', 'sum']:
-            sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(self.device)
+            sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(
+                self.device)
 
             # node score aggregation
             if self.node_score_aggregation == 'mean':
@@ -366,12 +367,12 @@ class AttentionFlow(nn.Module):
                 transition_logits_pruned_softmax = torch.div(transition_logits_pruned_softmax, target_node_cnt)
 
             trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
-                                                       torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
+                                                           torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
             # ATTENTION: updated_node_score[i] must be node score of node with node_idx==i
             updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
 
-    #        print("edges for message passing:")
-    #        print(pruned_edges[:, [-2, -1]])
+        #        print("edges for message passing:")
+        #        print(pruned_edges[:, [-2, -1]])
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
 
@@ -554,6 +555,7 @@ class tDPMPN(torch.nn.Module):
                     mask = sampled_edges[:, 0] == i
                     tracking[i][step]["sampled_edges"] = sampled_edges[mask].tolist()
                     for st, (selected_edges, selected_edge_att) in enumerate(zip(raw_sampled_edges_l, edge_att)):
+                        pdb.set_trace()
                         mask = selected_edges[:, 0] == i
                         tracking[i][st].get("selected_edges", []).append(selected_edges[mask].tolist())
                         tracking[i][st].get("selected_edges_atttention", []).append(selected_edge_att.cpu().detach().numpy()[mask].tolist())
