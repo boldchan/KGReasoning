@@ -3,6 +3,38 @@ import os
 from typing import List
 import sqlite3
 from sqlite3 import Error
+import pymongo
+
+def create_mongo_connection(IP_ADDRESS, DATABASE='tKGR', USER='peng', PASSWORD='siemens'):
+    client = pymongo.MongoClient("mongodb://{}:{}@{}/{}".format(USER, PASSWORD, IP_ADDRESS, DATABASE))
+    db = getattr(client, DATABASE)
+    print("Connection to {}/{} established".format(IP_ADDRESS, DATABASE))
+    return db
+
+def register_query_mongo(db, src_idx_l: List[int], rel_idx_l: List[int], cut_time_l: List[int], experiment_info: dict) -> List[int]:
+    for src, rel, ts in zip(src_idx_l, rel_idx_l, cut_time_l):
+        query = {'subject': int(src), 'relation': int(rel), 'timestamp': int(ts), 'experiment_info': experiment_info}
+        return db['analysis'].insert_one(query).inserted_id
+
+def insert_a_task_mongo(db, args, checkpoint_dir, git_hash, git_comment, device):
+    task = vars(args)
+    task['git_hash'] = git_hash
+    task['git_comment'] = git_comment
+    task['checkpoint_dir'] = checkpoint_dir
+    task['aws_device'] = device
+    return db['tasks'].insert_one(task).inserted_id
+
+def insert_a_evaluation_mongo(db, checkpoint_dir, epoch, performance):
+    log = {'checkpoint_dir': checkpoint_dir, 'epoch':{}}
+    performance_key = ['training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
+                       'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil']
+    performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
+    checkpoint_id = db['logging'].find_one({'checkpoint_dir':checkpoint_dir})
+    if checkpoint_id:
+        db['logging'].update_one({"_id": checkpoint_id}, {"$set":{"epoch":{epoch: performance_dict}}})
+    else:
+        log = {'checkpoint_dir': checkpoint_dir, 'epoch': {epoch:performance_dict}}
+        db['logging'].insert_one(log)
 
 def create_connection(db_file):
     """ create a database connection to the SQLite database
