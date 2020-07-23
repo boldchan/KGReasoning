@@ -352,24 +352,22 @@ class AttentionFlow(nn.Module):
             trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, torch.ones(len(max_dict)).to(self.device), torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
             attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, target_att.unsqueeze(1)))
         elif self.node_score_aggregation in ['mean', 'sum']:
-            sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(self.device)
-            trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
-                                                       torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
-            # expand node attention:
-    #        node_attention = torch.zeros(num_nodes).to(self.device).scatter_(0, torch.from_numpy(attended_nodes[:, -1]).to(self.device),
-    #                                                         node_attention)
-    #        print("expanded node attention", node_attention)
-            # ATTENTION: node_attention[i] must be attention of node with node_idx==i
-            attending_node_attention = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
-
-    #        print("edges for message passing:")
-    #        print(pruned_edges[:, [-2, -1]])
+            sparse_index = torch.LongTensor(np.stack([pruned_edges[:, 7], np.arange(len(pruned_edges))])).to(
+                self.device)
 
             # node score aggregation
             if self.node_score_aggregation == 'mean':
                 c = Counter(pruned_edges[:, -1])
                 target_node_cnt = torch.tensor([c[_] for _ in pruned_edges[:, -1]]).to(self.device)
                 transition_logits_pruned_softmax = torch.div(transition_logits_pruned_softmax, target_node_cnt)
+
+            trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, transition_logits_pruned_softmax,
+                                                           torch.Size([num_nodes, len(pruned_edges)])).to(self.device)
+            # ATTENTION: updated_node_score[i] must be node score of node with node_idx==i
+            updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
+
+        #        print("edges for message passing:")
+        #        print(pruned_edges[:, [-2, -1]])
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
 
