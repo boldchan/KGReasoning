@@ -474,7 +474,7 @@ class NeighborFinder:
                     # weights = ngh_ts / sum(ngh_ts)
 
                     delta_t = (ngh_ts - cut_time)/(24*self.weight_factor)
-                    weights = np.exp(delta_t)
+                    weights = np.exp(delta_t) + 1e-9
                     weights = weights / sum(weights)
 
                     if len(ngh_idx) >= num_neighbors:
@@ -654,7 +654,7 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
 #                       device=device)
         kwargs= vars(args)
         kwargs['device'] = device
-        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), **kwargs)
+        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), experiment_info=kwargs, **kwargs)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()

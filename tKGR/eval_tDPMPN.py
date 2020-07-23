@@ -227,7 +227,7 @@ if __name__ == "__main__":
         test_spt2o = contents.get_spt2o('test')
 
     model.analysis = True
-    mongodb = create_mongo_connection("54.93.203.11", "analysis")
+    mongodb = create_mongo_connection("54.93.203.11", "tKGR")
     model.mongodb = mongodb
 
     hit_1 = hit_3 = hit_10 = 0
