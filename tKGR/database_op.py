@@ -15,8 +15,7 @@ def create_mongo_connection(IP_ADDRESS, DATABASE='tKGR', USER='peng', PASSWORD='
 
 def register_query_mongo(db, src_idx_l: List[int], rel_idx_l: List[int], cut_time_l: List[int], experiment_info: dict) -> List[int]:
     for src, rel, ts in zip(src_idx_l, rel_idx_l, cut_time_l):
-        query = {'subject': int(src), 'relation': int(rel), 'timestamp': int(ts)}
-        query.update(experiment_info)
+        query = {'subject': int(src), 'relation': int(rel), 'timestamp': int(ts), 'experiment_info': experiment_info}
         return db['analysis'].insert_one(query).inserted_id
 
 def insert_a_task_mongo(db, args, checkpoint_dir, git_hash, git_comment, device):
