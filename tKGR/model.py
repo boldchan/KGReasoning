@@ -301,7 +301,7 @@ class AttentionFlow(nn.Module):
 
         return transition_logits
 
-    def forward(self, attended_nodes, node_attention, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
+    def forward(self, attended_nodes, node_score, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
                 max_edges=10, tc=None):
         """calculate attention score
 
@@ -603,8 +603,6 @@ class tDPMPN(torch.nn.Module):
             # pdb.set_trace()
             self.rel_emb_l[j] = self.att_flow_list[step-1].bypass_forward(self.rel_emb_l[j])
         self.rel_emb_l.append(rel_emb)
-
-        self.att_flow_list[step].set_locality(sampled_edges, rel_emb)
 
         new_node_score, updated_memorized_embedding, pruned_edges, orig_indices = \
             self.att_flow_list[step](attended_nodes,
