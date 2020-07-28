@@ -157,7 +157,7 @@ if __name__ == "__main__":
     if not args.debug:
         if args.sqlite:
             sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-            task_col = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
+            task_col = ('dataset', 'emb_dim', 'lr', 'batch_size', 'sampling', 'DP_steps',
                         'DP_num_neighbors', 'max_attended_edges', 'add_reverse',
                         'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
 
