@@ -301,7 +301,8 @@ class AttentionFlow(nn.Module):
 
         return transition_logits
 
-        def forward(self, attended_nodes, node_score, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
+
+    def forward(self, attended_nodes, node_score, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
                 max_edges=10, tc=None):
         """calculate attention score
 
@@ -557,11 +558,7 @@ class tDPMPN(torch.nn.Module):
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
         return entity_att_score, entities
 
-<<<<<<< HEAD
     def flow(self, attended_nodes, attended_node_score, memorized_embedding, step, tc=None):
-=======
-    def flow(self, attended_nodes, attended_node_score, memorized_embedding, query_src_ts_emb, query_rel_emb, tc=None):
->>>>>>> master
         """[summary]
 
         Arguments:
@@ -609,9 +606,6 @@ class tDPMPN(torch.nn.Module):
             self.rel_emb_l[j] = self.att_flow_list[step-1].bypass_forward(self.rel_emb_l[j])
         self.rel_emb_l.append(rel_emb)
 
-<<<<<<< HEAD
-        self.att_flow_list[step].set_locality(sampled_edges, rel_emb)
-
         new_node_score, updated_memorized_embedding, pruned_edges, orig_indices = \
             self.att_flow_list[step](attended_nodes,
                                      attended_node_score,
@@ -619,15 +613,6 @@ class tDPMPN(torch.nn.Module):
                                      memorized_embedding=new_memorized_embedding,
                                      rel_emb_l=self.rel_emb_l,
                                      max_edges=self.max_attended_edges, tc=tc)
-=======
-        new_node_score, updated_memorized_embedding, pruned_edges, orig_indices = self.att_flow(attended_nodes, attended_node_score,
-                                                                        selected_edges_l=self.sampled_edges_l,
-                                                                        memorized_embedding=new_memorized_embedding,
-                                                                        rel_emb_l=self.rel_emb_l,
-                                                                        query_src_ts_emb=query_src_ts_emb,
-                                                                        query_rel_emb=query_rel_emb,
-                                                                        max_edges=self.max_attended_edges, tc=tc)
->>>>>>> master
 
         assert len(pruned_edges) == len(orig_indices)
 #        print("# pruned_edges {}".format(len(pruned_edges)))
