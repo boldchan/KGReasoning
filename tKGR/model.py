@@ -685,7 +685,7 @@ class tDPMPN(torch.nn.Module):
             tc['model']['entity_attn'] = time.time() - t_start
         return entity_attn_score, entities
 
-    def _get_sampled_edges(self, attended_nodes, num_neighbors: int = 20, step=None, tc=None):
+    def _get_sampled_edges(self, attended_nodes, num_neighbors: int = 20, step=None, add_self_loop=True, tc=None):
         """[summary]
         sample neighbors for attended_nodes from all events happen before attended_nodes
         with strategy specified by ngh_finder, selfloop is added
@@ -749,11 +749,12 @@ class tDPMPN(torch.nn.Module):
                 src_ngh_t_batch = np.stack(selected_src_ngh_t_batch)
 
         # add selfloop
-        src_ngh_node_batch = np.concatenate([src_ngh_node_batch, src_idx_l[:, np.newaxis]], axis=1)
-        src_ngh_eidx_batch = np.concatenate(
-            [src_ngh_eidx_batch, np.array([[self.selfloop] for _ in range(len(attended_nodes))], dtype=np.int32)],
-            axis=1)
-        src_ngh_t_batch = np.concatenate([src_ngh_t_batch, cut_time_l[:, np.newaxis]], axis=1)
+        if add_self_loop:
+            src_ngh_node_batch = np.concatenate([src_ngh_node_batch, src_idx_l[:, np.newaxis]], axis=1)
+            src_ngh_eidx_batch = np.concatenate(
+                [src_ngh_eidx_batch, np.array([[self.selfloop] for _ in range(len(attended_nodes))], dtype=np.int32)],
+                axis=1)
+            src_ngh_t_batch = np.concatenate([src_ngh_t_batch, cut_time_l[:, np.newaxis]], axis=1)
         # removed padded neighbors, with node idx == rel idx == -1
         src_ngh_node_batch_flatten = src_ngh_node_batch.flatten()
         src_ngh_eidx_batch_flatten = src_ngh_eidx_batch.flatten()
