@@ -219,6 +219,7 @@ if __name__ == "__main__":
         time_cost = reset_time_cost()
 
     checkpoint = args.load_checkpoint
+    mongodb_analysis_collection_name = 'analysis_'+checkpoint
 
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
@@ -254,7 +255,7 @@ if __name__ == "__main__":
         model.eval()
 
         src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-        mongo_id = register_query_mongo(mongodb['analysis2'], src_idx_l, rel_idx_l, cut_time_l, target_idx_l, vars(args), contents.id2entity, contents.id2relation)
+        mongo_id = register_query_mongo(mongodb[mongodb_analysis_collection_name], src_idx_l, rel_idx_l, cut_time_l, target_idx_l, vars(args), contents.id2entity, contents.id2relation)
 
         num_query += len(src_idx_l)
         degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
@@ -275,7 +276,7 @@ if __name__ == "__main__":
                 tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in tracking[i][str(step)]["new_sampled_nodes"]]
                 tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in tracking[i][str(step)]["new_source_nodes"]]
             tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in tracking[i]['entity_candidate']]
-            mongodb['analysis'].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
+            mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
 
         loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
                           args.gradient_iters_per_update, args.loss_fn)
@@ -295,7 +296,7 @@ if __name__ == "__main__":
                                                                                              rel_idx_l,
                                                                                              cut_time_l)
         for i in range(args.batch_size):
-            mongodb['analysis2'].updatee_one({"_id":mongo_id[i]}, {"$set": target_rank_l[i]})
+            mongodb[mongodb_analysis_collection_name].update_one({"_id":mongo_id[i]}, {"$set": {"prediction_rank": target_rank_l[i]}})
         # print(target_rank_l)
         mean_degree_found += sum(degree_batch[found_mask])
         hit_1 += np.sum(target_rank_l == 1)
@@ -355,6 +356,6 @@ if __name__ == "__main__":
                         hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
                         hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
-    mongodb['analysis2'].insert(performance_dict)
+    mongodb[mongodb_analysis_collection_name].insert(performance_dict)
 
 

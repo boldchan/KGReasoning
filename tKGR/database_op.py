@@ -40,9 +40,9 @@ def insert_a_evaluation_mongo(db, checkpoint_dir, epoch, performance):
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
     checkpoint_id = db['logging'].find_one({'checkpoint_dir':checkpoint_dir})
     if checkpoint_id:
-        db['logging'].update_one({"_id": checkpoint_id}, {"$set":{"epoch":{epoch: performance_dict}}})
+        db['logging'].update_one({"_id": checkpoint_id}, {"$set": {"epoch":{str(epoch): performance_dict}}})
     else:
-        log = {'checkpoint_dir': checkpoint_dir, 'epoch': {epoch:performance_dict}}
+        log = {'checkpoint_dir': checkpoint_dir, 'epoch': {str(epoch): performance_dict}}
         db['logging'].insert_one(log)
 
 def create_connection(db_file):
