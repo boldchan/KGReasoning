@@ -575,7 +575,7 @@ class tDPMPN(torch.nn.Module):
         # sampled_edges: (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj)
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
-        sampled_edges, new_sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, step=step, tc=tc)
+        sampled_edges, new_sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, step=step, add_self_loop=(step!=0), tc=tc)
 #        print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
 #        print("sampled edge:")
 #        print(sampled_edges)
