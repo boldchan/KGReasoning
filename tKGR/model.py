@@ -575,7 +575,7 @@ class tDPMPN(torch.nn.Module):
         # sampled_edges: (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj)
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
-        sampled_edges, new_sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, step=step, add_self_loop=(step!=0), tc=tc)
+        sampled_edges, new_sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, step=step, add_self_loop=False, tc=tc)
 #        print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
 #        print("sampled edge:")
 #        print(sampled_edges)
@@ -759,13 +759,13 @@ class tDPMPN(torch.nn.Module):
         src_ngh_node_batch_flatten = src_ngh_node_batch.flatten()
         src_ngh_eidx_batch_flatten = src_ngh_eidx_batch.flatten()
         src_ngh_t_batch_faltten = src_ngh_t_batch.flatten()
-        eg_idx = np.repeat(attended_nodes[:, 0], num_neighbors + 1)
+        eg_idx = np.repeat(attended_nodes[:, 0], num_neighbors + int(add_self_loop))
         mask = src_ngh_node_batch_flatten != -1
 
         sampled_edges = np.stack([eg_idx,
-                                  np.repeat(src_idx_l, num_neighbors + 1), np.repeat(cut_time_l, num_neighbors + 1), \
+                                  np.repeat(src_idx_l, num_neighbors + int(add_self_loop)), np.repeat(cut_time_l, num_neighbors + int(add_self_loop)), \
                                   src_ngh_node_batch_flatten, src_ngh_t_batch_faltten, \
-                                  src_ngh_eidx_batch_flatten, np.repeat(node_idx_l, num_neighbors + 1)], axis=1)[mask]
+                                  src_ngh_eidx_batch_flatten, np.repeat(node_idx_l, num_neighbors + int(add_self_loop))], axis=1)[mask]
 
         # index new selected nodes
         target_nodes_index = []
