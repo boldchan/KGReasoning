@@ -301,6 +301,7 @@ class AttentionFlow(nn.Module):
 
         return transition_logits
 
+
     def forward(self, attended_nodes, node_score, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
                 max_edges=10, tc=None):
         """calculate attention score
@@ -314,8 +315,9 @@ class AttentionFlow(nn.Module):
             contain selfloop
             memorized_embedding torch.Tensor,
         return:
-            attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices
-            updated_memorized_embedding: only updated along new sampled edges
+            pruned_edges, orig_indices
+            updated_memorized_embedding:
+            updated_node_score: Tensor, shape: n_new_node
         """
         transition_logits = self._cal_attention_score(selected_edges_l[-1], memorized_embedding, rel_emb_l[-1])
 
@@ -573,7 +575,7 @@ class tDPMPN(torch.nn.Module):
         # sampled_edges: (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj)
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
-        sampled_edges, new_sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, step=step, tc=tc)
+        sampled_edges, new_sampled_nodes = self._get_sampled_edges(attended_nodes, num_neighbors=self.DP_num_neighbors, step=step, add_self_loop=(step!=0), tc=tc)
 #        print("sampled {} edges, sampled {} nodes".format(len(sampled_edges), len(sampled_nodes)))
 #        print("sampled edge:")
 #        print(sampled_edges)
@@ -683,7 +685,7 @@ class tDPMPN(torch.nn.Module):
             tc['model']['entity_attn'] = time.time() - t_start
         return entity_attn_score, entities
 
-    def _get_sampled_edges(self, attended_nodes, num_neighbors: int = 20, step=None, tc=None):
+    def _get_sampled_edges(self, attended_nodes, num_neighbors: int = 20, step=None, add_self_loop=True, tc=None):
         """[summary]
         sample neighbors for attended_nodes from all events happen before attended_nodes
         with strategy specified by ngh_finder, selfloop is added
@@ -747,11 +749,12 @@ class tDPMPN(torch.nn.Module):
                 src_ngh_t_batch = np.stack(selected_src_ngh_t_batch)
 
         # add selfloop
-        src_ngh_node_batch = np.concatenate([src_ngh_node_batch, src_idx_l[:, np.newaxis]], axis=1)
-        src_ngh_eidx_batch = np.concatenate(
-            [src_ngh_eidx_batch, np.array([[self.selfloop] for _ in range(len(attended_nodes))], dtype=np.int32)],
-            axis=1)
-        src_ngh_t_batch = np.concatenate([src_ngh_t_batch, cut_time_l[:, np.newaxis]], axis=1)
+        if add_self_loop:
+            src_ngh_node_batch = np.concatenate([src_ngh_node_batch, src_idx_l[:, np.newaxis]], axis=1)
+            src_ngh_eidx_batch = np.concatenate(
+                [src_ngh_eidx_batch, np.array([[self.selfloop] for _ in range(len(attended_nodes))], dtype=np.int32)],
+                axis=1)
+            src_ngh_t_batch = np.concatenate([src_ngh_t_batch, cut_time_l[:, np.newaxis]], axis=1)
         # removed padded neighbors, with node idx == rel idx == -1
         src_ngh_node_batch_flatten = src_ngh_node_batch.flatten()
         src_ngh_eidx_batch_flatten = src_ngh_eidx_batch.flatten()
