@@ -31,7 +31,7 @@ from model import tDPMPN
 import config
 import local_config
 from segment import *
-from database_op import create_mongo_connection, MongoServer, register_query_mongo
+from database_op import create_mongo_connection, register_query_mongo
 
 # from gpu_profile import gpu_profile
 
@@ -230,7 +230,7 @@ if __name__ == "__main__":
         test_spt2o = contents.get_spt2o('test')
 
     model.analysis = True
-    mongodb = create_mongo_connection(MongoServer, "tKGR")
+    mongodb = create_mongo_connection(config.MongoServer, "tKGR")
 
     hit_1 = hit_3 = hit_10 = 0
     hit_1_fil = hit_3_fil = hit_10_fil = 0
