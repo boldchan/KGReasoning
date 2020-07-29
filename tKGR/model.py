@@ -450,7 +450,7 @@ class AttentionFlow(nn.Module):
 
 
 class tDPMPN(torch.nn.Module):
-    def __init__(self, ngh_finder, num_entity=None, num_rel=None, embed_dim=List[int],
+    def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim:List[int]=None,
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
                  node_score_aggregation='sum', max_attended_edges=20, device='cpu', **kwargs):
@@ -476,24 +476,24 @@ class tDPMPN(torch.nn.Module):
             device {str} -- [description] (default: {'cpu'})
         """
         super(tDPMPN, self).__init__()
-        assert len(embed_dim) == DP_steps + 1
+        assert len(emb_dim) == DP_steps + 1
 
         self.DP_num_neighbors = DP_num_neighbors
         self.DP_steps = DP_steps
         self.ngh_finder = ngh_finder
 
-        self.temporal_embed_dim = [int(embed_dim[_] * 2 / (1 + emb_static_ratio)) for _ in range(DP_steps)]
-        self.static_embed_dim = [embed_dim[_] * 2 - self.temporal_embed_dim[_] for _ in range(DP_steps)]
+        self.temporal_embed_dim = [int(emb_dim[_] * 2 / (1 + emb_static_ratio)) for _ in range(DP_steps)]
+        self.static_embed_dim = [emb_dim[_] * 2 - self.temporal_embed_dim[_] for _ in range(DP_steps)]
 
         self.entity_raw_embed = torch.nn.Embedding(num_entity, self.static_embed_dim[0]).cpu()
         nn.init.xavier_normal_(self.entity_raw_embed.weight)
-        self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, embed_dim[0]).cpu()
+        self.relation_raw_embed = torch.nn.Embedding(num_rel + 1, emb_dim[0]).cpu()
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop"
-        self.att_flow_list = nn.ModuleList([AttentionFlow(embed_dim[_], embed_dim[_+1],
+        self.att_flow_list = nn.ModuleList([AttentionFlow(emb_dim[_], emb_dim[_+1],
                                       static_embed_dim = self.static_embed_dim[_], temporal_embed_dim = self.temporal_embed_dim[_],
                                       node_score_aggregation=node_score_aggregation, device=device) for _ in range(DP_steps)])
-        self.node_emb_proj = nn.Linear(2*embed_dim[0], embed_dim[0])
+        self.node_emb_proj = nn.Linear(2*emb_dim[0], emb_dim[0])
         nn.init.xavier_normal_(self.node_emb_proj.weight)
         self.max_attended_edges = max_attended_edges
 
