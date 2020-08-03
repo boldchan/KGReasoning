@@ -32,7 +32,7 @@ import config
 import local_config
 from segment import *
 from database_op import create_connection, create_task_table, create_logging_table, insert_into_logging_table, \
-    insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo, MongoServer
+    insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo, register_query_mongo
 
 # from gpu_profile import gpu_profile
 
@@ -145,6 +145,7 @@ parser.add_argument('--mongo', action='store_true', default=None, help='save inf
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
+parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -155,6 +156,8 @@ if __name__ == "__main__":
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
     else:
         device = 'cpu'
+
+    checkpoint = args.checkpoint
 
     if not args.debug:
         if args.sqlite:
@@ -169,7 +172,7 @@ if __name__ == "__main__":
             else:
                 print("Error! cannot create the database connection.")
         if args.mongo:
-            mongodb = create_mongo_connection(MongoServer, "tKGR")
+            mongodb = create_mongo_connection(local_config.MongoServer, "tKGR")
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
@@ -194,15 +197,16 @@ if __name__ == "__main__":
             checkpoint_dir = os.path.dirname(args.load_checkpoint)
             CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
 
-        if args.sqlite:
-            # args_dict = vars(args)
-            git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
-            task_id = insert_into_task_table(sqlite_conn, task_col, args, checkpoint_dir, git_hash, table_name="tasks")
-            print("Log configuration to SQLite under {}".format(os.path.join(save_dir, 'tKGR.db')))
-        elif args.mongo:
-            git_hash = get_git_version_short_hash()
-            git_comment = get_git_description_last_commit()
-            task_id = insert_a_task_mongo(mongodb, args, checkpoint_dir, git_hash, git_comment, local_config.AWS_device)
+        if args.sqlite or args.mongo:
+            if args.sqlite:
+                # args_dict = vars(args)
+                git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
+                task_id = insert_into_task_table(sqlite_conn, task_col, args, checkpoint_dir, git_hash, table_name="tasks")
+                print("Log configuration to SQLite under {}".format(os.path.join(save_dir, 'tKGR.db')))
+            if args.mongo:
+                git_hash = get_git_version_short_hash()
+                git_comment = get_git_description_last_commit()
+                task_id = insert_a_task_mongo(mongodb, args, checkpoint_dir, git_hash, git_comment, local_config.AWS_device)
         else:
             print("Save checkpoints under {}".format(CHECKPOINT_PATH))
             save_config(args, CHECKPOINT_PATH)
@@ -234,11 +238,45 @@ if __name__ == "__main__":
 
     sp2o = contents.get_sp2o()
     val_spt2o = contents.get_spt2o('valid')
+    train_inputs = prepare_inputs(contents, start_time=args.warm_start_time, tc=time_cost)
+    val_inputs = prepare_inputs(contents, dataset='valid', tc=time_cost)
+    analysis_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                 pin_memory=False, shuffle=True)
+    anslysis_batch = next(iter(analysis_data_loader))
 
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
+        if args.explainability_analysis:
+            assert args.mongo
+            mongodb_analysis_collection_name = 'analysis_' + checkpoint
+            mongo_id = register_query_mongo(mongodb[mongodb_analysis_collection_name], src_idx_l, rel_idx_l, cut_time_l,
+                                            target_idx_l, vars(args), contents.id2entity, contents.id2relation)
+            entity_att_score, entities, tracking = model(sample)
+            for i in range(args.batch_size):
+                for step in range(args.DP_steps):
+                    tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                         tracking[i][str(step)]["source_nodes"]]
+                    tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                           contents.id2entity[edge[3]], str(edge[4]),
+                                                                           contents.id2relation[edge[5]]]
+                                                                          for edge in
+                                                                          tracking[i][str(step)]["sampled_edges"]]
+                    tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                            contents.id2entity[edge[3]], str(edge[4]),
+                                                                            contents.id2relation[edge[5]]]
+                                                                           for edge in
+                                                                           tracking[i][str(step)]["selected_edges"]]
+                    tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for
+                                                                              n in tracking[i][str(step)][
+                                                                                  "new_sampled_nodes"]]
+                    tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n
+                                                                             in
+                                                                             tracking[i][str(step)]["new_source_nodes"]]
+                tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
+                                                              tracking[i]['entity_candidate']]
+                tracking[i]['epoch'] = epoch
+                mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
         # load data
-        train_inputs = prepare_inputs(contents, start_time=args.warm_start_time, tc=time_cost)
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                        pin_memory=False, shuffle=True)
 
@@ -310,7 +348,6 @@ if __name__ == "__main__":
             mean_degree = 0
             mean_degree_found = 0
 
-            val_inputs = prepare_inputs(contents, dataset='valid', tc=time_cost)
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                          pin_memory=False, shuffle=True)
 

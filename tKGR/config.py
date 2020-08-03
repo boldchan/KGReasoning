@@ -1,7 +1,5 @@
 import argparse
 
-MongoServer = '18.195.20.1'
-
 def get_ICEWS14_config(parser):
     parser.add_argument('--dataset', type=str, default='ICEWS14_forecasting', help='specify data set')
     parser.add_argument('--num_neg_sampling', type=int, default=5,
