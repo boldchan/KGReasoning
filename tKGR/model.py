@@ -330,7 +330,7 @@ class AttentionFlow(nn.Module):
         :param tc:
         :return:
         updated_node_score:
-        updated_visied_node_representation:
+        updated_visited_node_representation:
         topk_edges: edges with topk target node prediction score
         orig_indices: indices of topk_edges before pruning
         """
@@ -383,9 +383,6 @@ class AttentionFlow(nn.Module):
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
 
-        # normalize node score, since we lost score in pruning
-        updated_node_score = segment_norm_l1(updated_node_score, topk_edges[:, 0])
-
         updated_visited_node_representation = self._update_node_representation_along_edges(topk_edges, visited_node_representation, transition_logits_pruned_softmax, num_nodes)
 
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
@@ -414,7 +411,7 @@ class AttentionFlow(nn.Module):
                 :param tc:
                 :return:
                 updated_node_score:
-                updated_visied_node_representation:
+                updated_visited_node_representation:
                 topk_edges: edges with topk target node prediction score
                 orig_indices: indices of topk_edges before pruning
                 """
@@ -473,24 +470,21 @@ class AttentionFlow(nn.Module):
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
 
-        # normalize node score, since we lost score in pruning
-        updated_node_score = segment_norm_l1(updated_node_score, topk_edges[:, 0])
-
-        updated_visied_node_representation = self._update_node_representation_along_edges(topk_edges,
+        updated_visited_node_representation = self._update_node_representation_along_edges(topk_edges,
                                                                                           visited_node_representation,
                                                                                           transition_logits_pruned_softmax,
                                                                                           num_nodes)
 
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
-            transition_logits = self._cal_attention_score(selected_edges, updated_visied_node_representation, rel_emb,
+            transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation, rel_emb,
                                                           query_src_ts_vec, query_rel_vec)
             transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2])
             updated_edge_attention.append(transition_logits_softmax)
-            updated_visied_node_representation = self._update_node_representation_along_edges(selected_edges,
-                                                                                              updated_visied_node_representation,
+            updated_visited_node_representation = self._update_node_representation_along_edges(selected_edges,
+                                                                                              updated_visited_node_representation,
                                                                                               transition_logits_softmax,
                                                                                               num_nodes)
-        return updated_node_score, updated_visied_node_representation, topk_edges, orig_indices, \
+        return updated_node_score, updated_visited_node_representation, topk_edges, orig_indices, \
                edge_attn_before_pruning, updated_edge_attention[::-1]
 
     def _update_node_representation_along_edges(self, edges, memorized_embedding, transition_logits, num_nodes):
@@ -625,15 +619,19 @@ class tDPMPN(torch.nn.Module):
     def _forward(self, sample):
         src_idx_l, rel_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.ts
         self.set_init(src_idx_l, rel_idx_l, cut_time_l)
-        query_src_ts_emb, query_rel_emb, attended_nodes, attended_node_attention, memorized_embedding = \
+        query_src_ts_emb, query_rel_emb, attended_nodes, attended_node_score, memorized_embedding = \
             self.initialize()
         for step in range(self.DP_steps):
             #                print("{}-th DP step".format(step))
-            attended_nodes, attended_node_attention, memorized_embedding = \
-                self.flow(attended_nodes, attended_node_attention, memorized_embedding, query_src_ts_emb,
+            attended_nodes, attended_node_score, memorized_embedding = \
+                self.flow(attended_nodes, attended_node_score, memorized_embedding, query_src_ts_emb,
                            query_rel_emb)
             query_src_ts_emb = self.att_flow.linear_between_steps(query_src_ts_emb)
-        entity_att_score, entities = self.get_entity_attn_score(attended_node_attention[attended_nodes[:, -1]], attended_nodes)
+            # normalize node prediction score of attended_nodes
+            attended_node_score = segment_norm_l1(attended_node_score[attended_nodes[:, -1]], attended_nodes[:, 0])
+
+        # only use node prediction score of last attended_node
+        entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
         return entity_att_score, entities
 
     def _analyse_forward(self, sample):
@@ -670,7 +668,10 @@ class tDPMPN(torch.nn.Module):
                 tracking[i][str(step)]["new_source_nodes_score"] = attended_node_score.cpu().detach().numpy()[
                     attended_nodes_i[:, 3]].tolist()
             query_src_ts_emb = self.att_flow.linear_between_steps(query_src_ts_emb)
+            # normalize node prediction score of attended_nodes
+            attended_node_score = segment_norm_l1(attended_node_score[attended_nodes[:, -1]], attended_nodes[:, 0])
 
+        # only use node prediction score of last attended_node
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]],
                                                                 attended_nodes)
         for i in range(batch_size):
@@ -778,6 +779,9 @@ class tDPMPN(torch.nn.Module):
 #        print("pruned nodes {}".format(pruned_nodes))
 #        print('node attention:', new_node_attention)
 
+        # normalize node prediction score, since we lose node prediction score in pruning
+        new_node_score = segment_norm_l1(new_node_score, pruned_nodes[:, 0])
+
         return pruned_nodes, new_node_score, updated_memorized_embedding
 
     def analyse_flow(self, attended_nodes, attended_node_score, memorized_embedding, query_src_ts_emb, query_rel_emb, tc=None):
@@ -818,6 +822,9 @@ class tDPMPN(torch.nn.Module):
         _, indices = np.unique(pruned_edges[:, [0,4,3]], return_index=True, axis=0)
         # pruned_nodes.view('i8,i8,i8,i8').sort(order=['f0', 'f2', 'f1'], axis=0)
         pruned_nodes = pruned_nodes[indices]
+
+        # normalize node prediction score, since we lose node prediction score in pruning
+        new_node_score = segment_norm_l1(new_node_score, pruned_nodes[:, 0])
 
         return pruned_nodes, new_node_score, updated_memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, edge_att
 
