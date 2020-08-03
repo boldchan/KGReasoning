@@ -225,7 +225,7 @@ if __name__ == "__main__":
         nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity),
                             weight_factor=args.weight_factor)
         # construct model
-        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
+        model = tDPMPN(nf, contents.num_entities, contents.num_relations, args.emb_dim, args.emb_dim_sm,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation,
                        device=device, diac_embed = args.diac_embed, emb_static_ratio = args.emb_static_ratio)

@@ -655,7 +655,7 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
 #                       device=device)
         kwargs= vars(args)
         kwargs['device'] = device
-        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), **kwargs)
+        model = tDPMPN(nf, contents.num_entities, contents.num_relations, **kwargs)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
