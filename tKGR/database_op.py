@@ -13,11 +13,19 @@ def create_mongo_connection(IP_ADDRESS, DATABASE='tKGR', USER='peng', PASSWORD='
     print("Connection to {}/{} established".format(IP_ADDRESS, DATABASE))
     return db
 
-def register_query_mongo(db, src_idx_l: List[int], rel_idx_l: List[int], cut_time_l: List[int], experiment_info: dict) -> List[int]:
-    for src, rel, ts in zip(src_idx_l, rel_idx_l, cut_time_l):
-        query = {'subject': int(src), 'relation': int(rel), 'timestamp': int(ts)}
-        query.update(experiment_info)
-        return db['analysis'].insert_one(query).inserted_id
+def register_query_mongo(collection, src_idx_l: List[int], rel_idx_l: List[int], cut_time_l: List[int], target_idx_l: List[int], experiment_info: dict, id2entity, id2relation) -> List[int]:
+    mongo_id = []
+    for src, rel, ts, target in zip(src_idx_l, rel_idx_l, cut_time_l, target_idx_l):
+        query = {'subject': int(src),
+                 'subject(semantic)':id2entity[src],
+                 'relation': int(rel),
+                 'relation(semantic)':id2relation[rel],
+                 'timestamp': int(ts),
+                 'object': int(target),
+                 'object(semantic)':id2entity[target],
+                 'experiment_info': experiment_info}
+        mongo_id.append(collection.insert_one(query).inserted_id)
+    return mongo_id
 
 def insert_a_task_mongo(db, args, checkpoint_dir, git_hash, git_comment, device):
     task = vars(args)
