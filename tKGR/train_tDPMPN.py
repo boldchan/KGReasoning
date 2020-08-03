@@ -32,7 +32,7 @@ import config
 import local_config
 from segment import *
 from database_op import create_connection, create_task_table, create_logging_table, insert_into_logging_table, \
-    insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo
+    insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo, MongoServer
 
 # from gpu_profile import gpu_profile
 
@@ -169,7 +169,7 @@ if __name__ == "__main__":
             else:
                 print("Error! cannot create the database connection.")
         if args.mongo:
-            mongodb = create_mongo_connection("54.93.203.11", "tKGR")
+            mongodb = create_mongo_connection(MongoServer, "tKGR")
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()

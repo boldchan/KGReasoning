@@ -35,6 +35,7 @@ class Data:
         else:
             self.num_relations = num_relations
         self.num_entities = len(self.id2entity)
+        self.id2relation[self.num_relations] = 'selfloop'
 
         self.train_data = self._load_data(os.path.join(DataDir, dataset), "train")
         self.valid_data = self._load_data(os.path.join(DataDir, dataset), "valid")
