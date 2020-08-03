@@ -11,7 +11,7 @@ from torch import nn
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from segment import segment_softmax_op_v2, segment_topk
+from segment import segment_softmax_op_v2, segment_topk, segment_norm_l1
 
 
 def _aggregate_op_entity(logits, nodes):
@@ -383,6 +383,9 @@ class AttentionFlow(nn.Module):
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
 
+        # normalize node score, since we lost score in pruning
+        updated_node_score = segment_norm_l1(updated_node_score, topk_edges[:, 0])
+
         updated_visited_node_representation = self._update_node_representation_along_edges(topk_edges, visited_node_representation, transition_logits_pruned_softmax, num_nodes)
 
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
@@ -467,9 +470,11 @@ class AttentionFlow(nn.Module):
                                                            torch.Size([num_nodes, len(topk_edges)])).to(self.device)
             # ATTENTION: updated_node_score[i] must be node score of node with node_idx==i
             updated_node_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, pruned_att.unsqueeze(1)))
-
         elif self.node_score_aggregation != 'sum':
             raise ValueError("node score aggregate can only be mean, sum or max")
+
+        # normalize node score, since we lost score in pruning
+        updated_node_score = segment_norm_l1(updated_node_score, topk_edges[:, 0])
 
         updated_visied_node_representation = self._update_node_representation_along_edges(topk_edges,
                                                                                           visited_node_representation,
