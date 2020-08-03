@@ -480,6 +480,7 @@ class AttentionFlow(nn.Module):
             transition_logits = self._cal_attention_score(selected_edges, updated_visied_node_representation, rel_emb,
                                                           query_src_ts_vec, query_rel_vec)
             transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2])
+            updated_edge_attention.append(transition_logits_softmax)
             updated_visied_node_representation = self._update_node_representation_along_edges(selected_edges,
                                                                                               updated_visied_node_representation,
                                                                                               transition_logits_softmax,

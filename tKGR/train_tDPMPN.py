@@ -157,7 +157,7 @@ if __name__ == "__main__":
     else:
         device = 'cpu'
 
-    checkpoint = args.checkpoint
+    checkpoint = args.load_checkpoint
 
     if not args.debug:
         if args.sqlite:
@@ -242,16 +242,19 @@ if __name__ == "__main__":
     val_inputs = prepare_inputs(contents, dataset='valid', tc=time_cost)
     analysis_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                  pin_memory=False, shuffle=True)
-    anslysis_batch = next(iter(analysis_data_loader))
+    analysis_batch = next(iter(analysis_data_loader))
+
 
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
         if args.explainability_analysis:
             assert args.mongo
-            mongodb_analysis_collection_name = 'analysis_' + checkpoint
+            mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
+            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
             mongo_id = register_query_mongo(mongodb[mongodb_analysis_collection_name], src_idx_l, rel_idx_l, cut_time_l,
                                             target_idx_l, vars(args), contents.id2entity, contents.id2relation)
-            entity_att_score, entities, tracking = model(sample)
+            model.eval()
+            entity_att_score, entities, tracking = model(analysis_batch, analysis=True)
             for i in range(args.batch_size):
                 for step in range(args.DP_steps):
                     tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
