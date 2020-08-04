@@ -864,6 +864,8 @@ class tDPMPN(torch.nn.Module):
         if tc:
             t_start = time.time()
         entity_attn_score, entities = _aggregate_op_entity(logits, nodes)
+        # normalize entity prediction score
+        entity_attn_score = segment_norm_l1(entity_attn_score, entities[:, 0])
         if tc:
             tc['model']['entity_attn'] = time.time() - t_start
         return entity_attn_score, entities
