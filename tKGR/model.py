@@ -11,7 +11,7 @@ from torch import nn
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from segment import segment_softmax_op_v2, segment_topk, segment_norm_l1
+from segment import segment_softmax_op_v2, segment_topk, segment_norm_l1, segment_norm_l1_part
 
 
 def _aggregate_op_entity(logits, nodes):
@@ -627,8 +627,6 @@ class tDPMPN(torch.nn.Module):
                 self.flow(attended_nodes, attended_node_score, memorized_embedding, query_src_ts_emb,
                            query_rel_emb)
             query_src_ts_emb = self.att_flow.linear_between_steps(query_src_ts_emb)
-            # normalize node prediction score of attended_nodes
-            attended_node_score = segment_norm_l1(attended_node_score[attended_nodes[:, -1]], attended_nodes[:, 0])
 
         # only use node prediction score of last attended_node
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
@@ -668,8 +666,6 @@ class tDPMPN(torch.nn.Module):
                 tracking[i][str(step)]["new_source_nodes_score"] = attended_node_score.cpu().detach().numpy()[
                     attended_nodes_i[:, 3]].tolist()
             query_src_ts_emb = self.att_flow.linear_between_steps(query_src_ts_emb)
-            # normalize node prediction score of attended_nodes
-            attended_node_score = segment_norm_l1(attended_node_score[attended_nodes[:, -1]], attended_nodes[:, 0])
 
         # only use node prediction score of last attended_node
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]],
@@ -780,7 +776,7 @@ class tDPMPN(torch.nn.Module):
 #        print('node attention:', new_node_attention)
 
         # normalize node prediction score, since we lose node prediction score in pruning
-        new_node_score = segment_norm_l1(new_node_score, pruned_nodes[:, 0])
+        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
 
         return pruned_nodes, new_node_score, updated_memorized_embedding
 
@@ -824,7 +820,7 @@ class tDPMPN(torch.nn.Module):
         pruned_nodes = pruned_nodes[indices]
 
         # normalize node prediction score, since we lose node prediction score in pruning
-        new_node_score = segment_norm_l1(new_node_score, pruned_nodes[:, 0])
+        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
 
         return pruned_nodes, new_node_score, updated_memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, edge_att
 
