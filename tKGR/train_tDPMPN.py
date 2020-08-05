@@ -169,7 +169,7 @@ if __name__ == "__main__":
             else:
                 print("Error! cannot create the database connection.")
         if args.mongo:
-            mongodb = create_mongo_connection(config.MongoServer, "tKGR")
+            mongodb = create_mongo_connection(local_config.MongoServer, "tKGR")
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
