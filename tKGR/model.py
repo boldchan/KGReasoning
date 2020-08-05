@@ -586,36 +586,32 @@ class tDPMPN(torch.nn.Module):
         tracking = {i: {} for i in range(batch_size)}
         for step in range(self.DP_steps):
 #            print("{}-th DP step".format(step))
-            if self.analysis:
-                for i in range(batch_size):
-                    mask = attended_nodes[:, 0] == i
-                    attended_nodes_i = attended_nodes[mask]
-                    tracking[i][str(step)] = {"source_nodes": attended_nodes_i.tolist(),
-                                         "source_nodes_score": attended_node_score.cpu().detach().numpy()[
-                                             attended_nodes_i[:, 3]].tolist()}
-                attended_nodes, attended_node_score, memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, updated_edge_attention = self._analyse_flow(
-                    attended_nodes, attended_node_score, memorized_embedding, step=step, analysis=True)
-                for i in range(batch_size):
-                    mask = sampled_edges[:, 0] == i
-                    tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist()
-                    tracking[i][str(step)]["sampled_edges_attention"] = edge_attn_before_pruning[mask].tolist()
-                    tracking[i][str(step)]["selected_edges"] = self.sampled_edges_l[-1][
-                        self.sampled_edges_l[-1][:, 0] == i].tolist()
-                    for st, (selected_edges, selected_edge_att) in enumerate(
-                            zip(self.sampled_edges_l, updated_edge_attention)):
-                        mask = selected_edges[:, 0] == i
-                        tracking[i][str(st)].setdefault("selected_edges_attention", []).append(
-                            selected_edge_att.cpu().detach().numpy()[mask].tolist())
-                    tracking[i][str(step)]["new_sampled_nodes"] = new_sampled_nodes[
-                        new_sampled_nodes[:, 0] == i].tolist()
-                    mask = attended_nodes[:, 0] == i
-                    attended_nodes_i = attended_nodes[mask]
-                    tracking[i][str(step)]["new_source_nodes"] = attended_nodes_i.tolist()
-                    tracking[i][str(step)]["new_source_nodes_score"] = attended_node_score.cpu().detach().numpy()[
-                        attended_nodes_i[:, 3]].tolist()
-            else:
-                attended_nodes, attended_node_score, memorized_embedding = \
-                    self.flow(attended_nodes, attended_node_score, memorized_embedding, step)
+            for i in range(batch_size):
+                mask = attended_nodes[:, 0] == i
+                attended_nodes_i = attended_nodes[mask]
+                tracking[i][str(step)] = {"source_nodes": attended_nodes_i.tolist(),
+                                     "source_nodes_score": attended_node_score.cpu().detach().numpy()[
+                                         attended_nodes_i[:, 3]].tolist()}
+            attended_nodes, attended_node_score, memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, updated_edge_attention = self._analyse_flow(
+                attended_nodes, attended_node_score, memorized_embedding, step=step, analysis=True)
+            for i in range(batch_size):
+                mask = sampled_edges[:, 0] == i
+                tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist()
+                tracking[i][str(step)]["sampled_edges_attention"] = edge_attn_before_pruning[mask].tolist()
+                tracking[i][str(step)]["selected_edges"] = self.sampled_edges_l[-1][
+                    self.sampled_edges_l[-1][:, 0] == i].tolist()
+                for st, (selected_edges, selected_edge_att) in enumerate(
+                        zip(self.sampled_edges_l, updated_edge_attention)):
+                    mask = selected_edges[:, 0] == i
+                    tracking[i][str(st)].setdefault("selected_edges_attention", []).append(
+                        selected_edge_att.cpu().detach().numpy()[mask].tolist())
+                tracking[i][str(step)]["new_sampled_nodes"] = new_sampled_nodes[
+                    new_sampled_nodes[:, 0] == i].tolist()
+                mask = attended_nodes[:, 0] == i
+                attended_nodes_i = attended_nodes[mask]
+                tracking[i][str(step)]["new_source_nodes"] = attended_nodes_i.tolist()
+                tracking[i][str(step)]["new_source_nodes_score"] = attended_node_score.cpu().detach().numpy()[
+                    attended_nodes_i[:, 3]].tolist()
 
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
         # normalize entity prediction score
