@@ -303,7 +303,7 @@ class AttentionFlow(nn.Module):
 
 
     def forward(self, attended_nodes, node_score, selected_edges_l=None, memorized_embedding=None, rel_emb_l=None,
-                max_edges=10, tc=None):
+                max_edges=10, analysis=False, tc=None):
         """calculate attention score
 
         Arguments:
@@ -319,6 +319,8 @@ class AttentionFlow(nn.Module):
             updated_memorized_embedding:
             updated_node_score: Tensor, shape: n_new_node
         """
+        updated_edge_attention = []
+
         transition_logits = self._cal_attention_score(selected_edges_l[-1], memorized_embedding, rel_emb_l[-1])
 
         # prune edges whose target node attention score is small
@@ -326,6 +328,7 @@ class AttentionFlow(nn.Module):
         src_att = node_score[selected_edges_l[-1][:, -2]]
         # target_att = transition_logits*src_att
         transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges_l[-1][:, -2], tc=tc)
+        edge_attn_before_pruning = transition_logits_softmax  # for analysis
         target_att = transition_logits_softmax*src_att
 #        print("target node score:")
 #        print(target_att)
@@ -334,6 +337,7 @@ class AttentionFlow(nn.Module):
 #        print(orig_indices)
 
         transition_logits_pruned_softmax = transition_logits_softmax[orig_indices]
+        updated_edge_attention.append(transition_logits_pruned_softmax)
 
         num_nodes = len(memorized_embedding)
         if self.node_score_aggregation == 'max':
@@ -378,6 +382,7 @@ class AttentionFlow(nn.Module):
             transition_logits = self._cal_attention_score(selected_edges, updated_memorized_embedding, rel_emb)
             # possible solution, use updated rel_emb, but dimension mismatch between update along older edge and along latest edge, since we apply linear on updated node representation
             transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
+            updated_edge_attention.append(transition_logits_softmax)
             # only message passing and aggregation, apply dense and act layer
             updated_memorized_embedding = self._update_node_representation_along_edges(selected_edges,
                                                                                        updated_memorized_embedding,
@@ -399,7 +404,10 @@ class AttentionFlow(nn.Module):
         #     tc['model']['DP_attn_proj'] += t_proj - t_start
         #     tc['model']['DP_attn_query'] += t_query - t_proj
 
-        return updated_node_score, updated_memorized_embedding, pruned_edges, orig_indices
+        if analysis:
+            return attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices, edge_attn_before_pruning, updated_edge_attention[::-1]
+        else:
+            return attending_node_attention, updated_memorized_embedding, pruned_edges, orig_indices
 
     def _update_node_representation_along_edges_old(self, edges, memorized_embedding, transition_logits):
         num_nodes = len(memorized_embedding)
@@ -453,7 +461,8 @@ class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim:List[int]=None,
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
-                 node_score_aggregation='sum', max_attended_edges=20, device='cpu', **kwargs):
+                 node_score_aggregation='sum', max_attended_edges=20,
+                 device='cpu', analysis=False, **kwargs):
         """[summary]
 
         Arguments:
@@ -501,6 +510,7 @@ class tDPMPN(torch.nn.Module):
         self.ent_spec_time_embed = diac_embed
 
         self.device = device
+        self.analysis = analysis
 
     def set_init(self, src_idx_l, rel_idx_l, cut_time_l):
         # save query information
@@ -549,16 +559,51 @@ class tDPMPN(torch.nn.Module):
 
     def forward(self, sample):
         src_idx_l, rel_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.ts
+        batch_size = len(src_idx_l)
         self.set_init(src_idx_l, rel_idx_l, cut_time_l)
         attended_nodes, attended_node_score, memorized_embedding = self.initialize()
+        tracking = {i: {} for i in range(batch_size)}
         for step in range(self.DP_steps):
 #            print("{}-th DP step".format(step))
-            attended_nodes, attended_node_score, memorized_embedding = \
-                self.flow(attended_nodes, attended_node_score, memorized_embedding, step)
-        entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
-        return entity_att_score, entities
+            if self.analysis:
+                for i in range(batch_size):
+                    mask = attended_nodes[:, 0] == i
+                    attended_nodes_i = attended_nodes[mask]
+                    tracking[i][str(step)] = {"source_nodes": attended_nodes_i.tolist(),
+                                         "source_nodes_score": attended_node_score.cpu().detach().numpy()[
+                                             attended_nodes_i[:, 3]].tolist()}
+                attended_nodes, attended_node_score, memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, updated_edge_attention = self.flow(
+                    attended_nodes, attended_node_score, memorized_embedding, step=step, analysis=True)
+                for i in range(batch_size):
+                    mask = sampled_edges[:, 0] == i
+                    tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist()
+                    tracking[i][str(step)]["sampled_edges_attention"] = edge_attn_before_pruning[mask].tolist()
+                    tracking[i][str(step)]["selected_edges"] = self.sampled_edges_l[-1][
+                        self.sampled_edges_l[-1][:, 0] == i].tolist()
+                    for st, (selected_edges, selected_edge_att) in enumerate(
+                            zip(self.sampled_edges_l, updated_edge_attention)):
+                        mask = selected_edges[:, 0] == i
+                        tracking[i][str(st)].setdefault("selected_edges_attention", []).append(
+                            selected_edge_att.cpu().detach().numpy()[mask].tolist())
+                    tracking[i][str(step)]["new_sampled_nodes"] = new_sampled_nodes[
+                        new_sampled_nodes[:, 0] == i].tolist()
+                    mask = attended_nodes[:, 0] == i
+                    attended_nodes_i = attended_nodes[mask]
+                    tracking[i][str(step)]["new_source_nodes"] = attended_nodes_i.tolist()
+                    tracking[i][str(step)]["new_source_nodes_score"] = attended_node_score.cpu().detach().numpy()[
+                        attended_nodes_i[:, 3]].tolist()
+            else:
+                attended_nodes, attended_node_score, memorized_embedding = \
+                    self.flow(attended_nodes, attended_node_score, memorized_embedding, step)
 
-    def flow(self, attended_nodes, attended_node_score, memorized_embedding, step, tc=None):
+        entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
+        for i in range(batch_size):
+            mask = entities[:, 0] == i
+            tracking[i]['entity_score'] = entity_att_score.cpu().detach().numpy()[mask].tolist()
+            tracking[i]['entity_candidate'] = entities[mask][:, 1].tolist()
+        return entity_att_score, entities, tracking
+
+    def flow(self, attended_nodes, attended_node_score, memorized_embedding, step, analysis=False, tc=None):
         """[summary]
 
         Arguments:
@@ -606,13 +651,22 @@ class tDPMPN(torch.nn.Module):
             self.rel_emb_l[j] = self.att_flow_list[step-1].bypass_forward(self.rel_emb_l[j])
         self.rel_emb_l.append(rel_emb)
 
-        new_node_score, updated_memorized_embedding, pruned_edges, orig_indices = \
-            self.att_flow_list[step](attended_nodes,
-                                     attended_node_score,
-                                     selected_edges_l=self.sampled_edges_l,
-                                     memorized_embedding=new_memorized_embedding,
-                                     rel_emb_l=self.rel_emb_l,
-                                     max_edges=self.max_attended_edges, tc=tc)
+        if analysis:
+            new_node_score, updated_memorized_embedding, pruned_edges, orig_indices, edge_attn_before_pruning, edge_att = self.att_flow(attended_nodes,
+                                                                        attended_node_score,
+                                                                        selected_edges_l=self.sampled_edges_l,
+                                                                        memorized_embedding=new_memorized_embedding,
+                                                                        rel_emb_l=self.rel_emb_l,
+                                                                        max_edges=self.max_attended_edges,
+                                                                        analysis=True, tc=tc)
+        else:
+            new_node_score, updated_memorized_embedding, pruned_edges, orig_indices = \
+                self.att_flow_list[step](attended_nodes,
+                                         attended_node_score,
+                                         selected_edges_l=self.sampled_edges_l,
+                                         memorized_embedding=new_memorized_embedding,
+                                         rel_emb_l=self.rel_emb_l,
+                                         max_edges=self.max_attended_edges, tc=tc)
 
         assert len(pruned_edges) == len(orig_indices)
 #        print("# pruned_edges {}".format(len(pruned_edges)))
@@ -639,7 +693,10 @@ class tDPMPN(torch.nn.Module):
 #        print("pruned nodes {}".format(pruned_nodes))
 #        print('node attention:', new_node_attention)
 
-        return pruned_nodes, new_node_score, updated_memorized_embedding
+        if analysis:
+            return pruned_nodes, new_node_score, updated_memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, edge_att
+        else:
+            return pruned_nodes, new_node_score, updated_memorized_embedding
 
     def loss(self, entity_att_score, entities, target_idx_l, batch_size, gradient_iters_per_update=1, loss_fn='BCE'):
         one_hot_label = torch.from_numpy(
