@@ -12,7 +12,7 @@ from torch import nn
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from segment import segment_softmax_op_v2, segment_topk
+from segment import segment_softmax_op_v2, segment_topk, segment_norm_l1_part, segment_norm_l1
 
 
 def _aggregate_op_entity(logits, nodes):
@@ -573,6 +573,9 @@ class tDPMPN(torch.nn.Module):
                 self._flow(attended_nodes, attended_node_score, memorized_embedding, step)
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]],
                                                                 attended_nodes)
+        # normalize entity prediction score
+        entity_att_score = segment_norm_l1(entity_att_score, entities[:, 0])
+
         return entity_att_score, entities
 
     def _analyse_forward(self, sample):
@@ -615,6 +618,9 @@ class tDPMPN(torch.nn.Module):
                     self.flow(attended_nodes, attended_node_score, memorized_embedding, step)
 
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
+        # normalize entity prediction score
+        entity_att_score = segment_norm_l1(entity_att_score, entities[:, 0])
+
         for i in range(batch_size):
             mask = entities[:, 0] == i
             tracking[i]['entity_score'] = entity_att_score.cpu().detach().numpy()[mask].tolist()
@@ -703,6 +709,9 @@ class tDPMPN(torch.nn.Module):
         #        print("# pruned nodes {}".format(len(pruned_nodes)))
         #        print("pruned nodes {}".format(pruned_nodes))
         #        print('node attention:', new_node_attention)
+
+        # normalize node prediction score, since we lose node prediction score in pruning
+        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
 
         return pruned_nodes, new_node_score, updated_memorized_embedding
 
@@ -795,6 +804,9 @@ class tDPMPN(torch.nn.Module):
 #        print("# pruned nodes {}".format(len(pruned_nodes)))
 #        print("pruned nodes {}".format(pruned_nodes))
 #        print('node attention:', new_node_attention)
+
+        # normalize node prediction score, since we lose node prediction score in pruning
+        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
 
         return pruned_nodes, new_node_score, updated_memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, edge_att
 
