@@ -573,8 +573,6 @@ class tDPMPN(torch.nn.Module):
                 self._flow(attended_nodes, attended_node_score, memorized_embedding, step)
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]],
                                                                 attended_nodes)
-        # normalize entity prediction score
-        entity_att_score = segment_norm_l1(entity_att_score, entities[:, 0])
 
         return entity_att_score, entities
 
@@ -614,8 +612,6 @@ class tDPMPN(torch.nn.Module):
                     attended_nodes_i[:, 3]].tolist()
 
         entity_att_score, entities = self.get_entity_attn_score(attended_node_score[attended_nodes[:, -1]], attended_nodes)
-        # normalize entity prediction score
-        entity_att_score = segment_norm_l1(entity_att_score, entities[:, 0])
 
         for i in range(batch_size):
             mask = entities[:, 0] == i
@@ -838,6 +834,8 @@ class tDPMPN(torch.nn.Module):
         if tc:
             t_start = time.time()
         entity_attn_score, entities = _aggregate_op_entity(logits, nodes)
+        # normalize entity prediction score
+        entity_attn_score = segment_norm_l1(entity_attn_score, entities[:, 0])
         if tc:
             tc['model']['entity_attn'] = time.time() - t_start
         return entity_attn_score, entities
