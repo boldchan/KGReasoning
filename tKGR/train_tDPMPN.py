@@ -247,38 +247,6 @@ if __name__ == "__main__":
 
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
-        if args.explainability_analysis:
-            assert args.mongo
-            mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
-            src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
-            mongo_id = register_query_mongo(mongodb[mongodb_analysis_collection_name], src_idx_l, rel_idx_l, cut_time_l,
-                                            target_idx_l, vars(args), contents.id2entity, contents.id2relation)
-            model.eval()
-            entity_att_score, entities, tracking = model(analysis_batch, analysis=True)
-            for i in range(args.batch_size):
-                for step in range(args.DP_steps):
-                    tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                         tracking[i][str(step)]["source_nodes"]]
-                    tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                           contents.id2entity[edge[3]], str(edge[4]),
-                                                                           contents.id2relation[edge[5]]]
-                                                                          for edge in
-                                                                          tracking[i][str(step)]["sampled_edges"]]
-                    tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                            contents.id2entity[edge[3]], str(edge[4]),
-                                                                            contents.id2relation[edge[5]]]
-                                                                           for edge in
-                                                                           tracking[i][str(step)]["selected_edges"]]
-                    tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for
-                                                                              n in tracking[i][str(step)][
-                                                                                  "new_sampled_nodes"]]
-                    tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n
-                                                                             in
-                                                                             tracking[i][str(step)]["new_source_nodes"]]
-                tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
-                                                              tracking[i]['entity_candidate']]
-                tracking[i]['epoch'] = epoch
-                mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
         # load data
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                        pin_memory=False, shuffle=True)
@@ -286,6 +254,46 @@ if __name__ == "__main__":
         running_loss = 0.
 
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
+            if args.explainability_analysis and batch_ndx % 50 == 0:
+                assert args.mongo
+                mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
+                src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
+                mongo_id = register_query_mongo(mongodb[mongodb_analysis_collection_name], src_idx_l, rel_idx_l,
+                                                cut_time_l,
+                                                target_idx_l, vars(args), contents.id2entity, contents.id2relation)
+                model.eval()
+                entity_att_score, entities, tracking = model(analysis_batch, analysis=True)
+                for i in range(args.batch_size):
+                    for step in range(args.DP_steps):
+                        tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n
+                                                                             in
+                                                                             tracking[i][str(step)]["source_nodes"]]
+                        tracking[i][str(step)]["sampled_edges(semantics)"] = [
+                            [contents.id2entity[edge[1]], str(edge[2]),
+                             contents.id2entity[edge[3]], str(edge[4]),
+                             contents.id2relation[edge[5]]]
+                            for edge in
+                            tracking[i][str(step)]["sampled_edges"]]
+                        tracking[i][str(step)]["selected_edges(semantics)"] = [
+                            [contents.id2entity[edge[1]], str(edge[2]),
+                             contents.id2entity[edge[3]], str(edge[4]),
+                             contents.id2relation[edge[5]]]
+                            for edge in
+                            tracking[i][str(step)]["selected_edges"]]
+                        tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])]
+                                                                                  for
+                                                                                  n in tracking[i][str(step)][
+                                                                                      "new_sampled_nodes"]]
+                        tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])]
+                                                                                 for n
+                                                                                 in
+                                                                                 tracking[i][str(step)][
+                                                                                     "new_source_nodes"]]
+                    tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
+                                                                  tracking[i]['entity_candidate']]
+                    tracking[i]['epoch'] = epoch
+                    tracking[i]['batch_idx'] = batch_ndx
+                    mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
             optimizer.zero_grad()
             model.zero_grad()
             model.train()
