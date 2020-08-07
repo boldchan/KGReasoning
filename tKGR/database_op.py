@@ -155,7 +155,8 @@ class DBDriver:
                         arg_type = "REAL"
                     elif isinstance(arg, bool):
                         arg_type = "INTEGER"
-                        arg = int(arg)
+                    elif isinstance(arg, list):
+                        arg_type = 'TEXT'
                     elif isinstance(arg, str):
                         arg_type = "TEXT"
                     else:
@@ -196,6 +197,8 @@ class DBDriver:
                     arg = getattr(args, hp)
                     if isinstance(arg, bool):
                         arg = int(arg)
+                    elif isinstance(arg, list):
+                        arg = ','.join([str(_) for _ in arg])
                     sql_hp_val.append(arg)
 
                 except:
