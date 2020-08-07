@@ -82,8 +82,7 @@ class DBDriver:
         task['aws_device'] = device
         return db['tasks'].insert_one(task).inserted_id
 
-    @staticmethod
-    def register_query_mongo(collection, src_idx_l: List[int], rel_idx_l: List[int], cut_time_l: List[int],
+    def register_query_mongo(self, collection, src_idx_l: List[int], rel_idx_l: List[int], cut_time_l: List[int],
                              target_idx_l: List[int], experiment_info: dict, id2entity, id2relation) -> List[int]:
         mongo_id = []
         for src, rel, ts, target in zip(src_idx_l, rel_idx_l, cut_time_l, target_idx_l):
@@ -95,7 +94,7 @@ class DBDriver:
                      'object': int(target),
                      'object(semantic)': id2entity[target],
                      'experiment_info': experiment_info}
-            mongo_id.append(collection.insert_one(query).inserted_id)
+            mongo_id.append(self.mongodb[collection].insert_one(query).inserted_id)
         return mongo_id
 
     @staticmethod
@@ -256,7 +255,6 @@ class DBDriver:
                 'checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw',
                 'HITS_10_raw',
                 'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
-
             placeholders = ', '.join('?' * len(logging_col))
             sql_logging = 'INSERT OR IGNORE INTO {}({}) VALUES ({})'.format(table_name, ', '.join(logging_col),
                                                                             placeholders)
