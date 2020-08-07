@@ -31,13 +31,7 @@ from model import tDPMPN
 import config
 import local_config
 from segment import *
-<<<<<<< HEAD
-from database_op import create_connection, create_task_table, create_logging_table, insert_into_logging_table, \
-    insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo, register_query_mongo
-=======
 from database_op import DBDriver
->>>>>>> master
-
 
 save_dir = local_config.save_dir
 
@@ -227,7 +221,7 @@ if __name__ == "__main__":
                 assert args.mongo
                 mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
                 src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
-                mongo_id = DBDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
+                mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
                                                 cut_time_l,
                                                 target_idx_l, vars(args), contents.id2entity, contents.id2relation)
                 model.eval()

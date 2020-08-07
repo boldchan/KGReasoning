@@ -591,7 +591,7 @@ class tDPMPN(torch.nn.Module):
                                      "source_nodes_score": attended_node_score.cpu().detach().numpy()[
                                          attended_nodes_i[:, 3]].tolist()}
             attended_nodes, attended_node_score, memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, updated_edge_attention = self._analyse_flow(
-                attended_nodes, attended_node_score, memorized_embedding, step=step, analysis=True)
+                attended_nodes, attended_node_score, memorized_embedding, step=step)
             for i in range(batch_size):
                 mask = sampled_edges[:, 0] == i
                 tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist()
@@ -702,8 +702,8 @@ class tDPMPN(torch.nn.Module):
         #        print("pruned nodes {}".format(pruned_nodes))
         #        print('node attention:', new_node_attention)
 
-        # normalize node prediction score, since we lose node prediction score in pruning
-        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
+#        # normalize node prediction score, since we lose node prediction score in pruning
+#        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
 
         return pruned_nodes, new_node_score, updated_memorized_embedding
 
@@ -789,8 +789,8 @@ class tDPMPN(torch.nn.Module):
 #        print("pruned nodes {}".format(pruned_nodes))
 #        print('node attention:', new_node_attention)
 
-        # normalize node prediction score, since we lose node prediction score in pruning
-        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
+#        # normalize node prediction score, since we lose node prediction score in pruning
+#        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
 
         return pruned_nodes, new_node_score, updated_memorized_embedding, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, edge_att
 
@@ -834,8 +834,8 @@ class tDPMPN(torch.nn.Module):
         if tc:
             t_start = time.time()
         entity_attn_score, entities = _aggregate_op_entity(logits, nodes)
-        # normalize entity prediction score
-        entity_attn_score = segment_norm_l1(entity_attn_score, entities[:, 0])
+#        # normalize entity prediction score
+#        entity_attn_score = segment_norm_l1(entity_attn_score, entities[:, 0])
         if tc:
             tc['model']['entity_attn'] = time.time() - t_start
         return entity_attn_score, entities
