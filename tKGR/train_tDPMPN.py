@@ -26,16 +26,18 @@ from tqdm import tqdm
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit, load_checkpoint
+from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit, load_checkpoint, new_checkpoint
 from model import tDPMPN
 import config
 import local_config
 from segment import *
+<<<<<<< HEAD
 from database_op import create_connection, create_task_table, create_logging_table, insert_into_logging_table, \
     insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo, register_query_mongo
+=======
+from database_op import DBDriver
+>>>>>>> master
 
-
-# from gpu_profile import gpu_profile
 
 save_dir = local_config.save_dir
 
@@ -156,63 +158,17 @@ if __name__ == "__main__":
     else:
         device = 'cpu'
 
-    if not args.debug:
-        if args.sqlite:
-            sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-            task_col = ('dataset', 'emb_dim', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                        'DP_num_neighbors', 'max_attended_edges', 'add_reverse',
-                        'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
-
-            if sqlite_conn is not None:
-                create_task_table(sqlite_conn, task_col, args, table_name='tasks')
-                create_logging_table(sqlite_conn, table_name='logging')
-            else:
-                print("Error! cannot create the database connection.")
-        if args.mongo:
-            mongodb = create_mongo_connection(local_config.MongoServer, "tKGR")
+    # profile time consumption
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
 
-    # save configuration
+    # init model and checkpoint folder
     start_time = time.time()
     struct_time = time.gmtime(start_time)
 
-    if not args.debug:
-        if args.load_checkpoint is None:
-            checkpoint_dir = 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
-                struct_time.tm_year,
-                struct_time.tm_mon,
-                struct_time.tm_mday,
-                struct_time.tm_hour,
-                struct_time.tm_min,
-                struct_time.tm_sec)
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', checkpoint_dir)
-            if not os.path.exists(CHECKPOINT_PATH):
-                os.makedirs(CHECKPOINT_PATH, mode=0o770)
-        else:
-            checkpoint_dir = os.path.dirname(args.load_checkpoint)
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
-
-        if args.sqlite:
-            # args_dict = vars(args)
-            git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
-            task_id = insert_into_task_table(sqlite_conn, task_col, args, checkpoint_dir, git_hash, table_name="tasks")
-            print("Log configuration to SQLite under {}".format(os.path.join(save_dir, 'tKGR.db')))
-        elif args.mongo:
-            git_hash = get_git_version_short_hash()
-            git_comment = get_git_description_last_commit()
-            task_id = insert_a_task_mongo(mongodb, args, checkpoint_dir, git_hash, git_comment, local_config.AWS_device)
-        else:
-            print("Save checkpoints under {}".format(CHECKPOINT_PATH))
-            save_config(args, CHECKPOINT_PATH)
-            print("Log configuration under {}".format(CHECKPOINT_PATH))
-
-
-    if args.load_checkpoint is not None:
-        model, optimizer, start_epoch, contents = load_checkpoint(os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
-        start_epoch += 1
-    else:
+    if args.load_checkpoint is None:
+        checkpoint_dir, CHECKPOINT_PATH = new_checkpoint(save_dir, struct_time)
         contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
 
         adj = contents.get_adj_dict()
@@ -224,13 +180,30 @@ if __name__ == "__main__":
         model = tDPMPN(nf, contents.num_entities, contents.num_relations, args.emb_dim, DP_steps=args.DP_steps,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation,
-                       device=device, diac_embed = args.diac_embed, emb_static_ratio = args.emb_static_ratio)
+                       device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
         model.relation_raw_embed.cpu()
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         start_epoch = 0
+        if not args.debug:
+            print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+    else:
+        checkpoint_dir = os.path.dirname(args.load_checkpoint)
+        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
+        model, optimizer, start_epoch, contents = load_checkpoint(
+            os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
+        start_epoch += 1
+        print("Load checkpoints {}".format(CHECKPOINT_PATH))
+
+    # save configuration to database and file system
+    if not args.debug:
+        dbDriver = DBDriver(useMongo=args.mongo, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer, sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
+        git_hash = get_git_version_short_hash()
+        git_comment = get_git_description_last_commit()
+        dbDriver.log_task(args, checkpoint_dir, git_hash=git_hash, git_comment=git_comment, device=local_config.AWS_device)
+        save_config(args, CHECKPOINT_PATH)
 
     sp2o = contents.get_sp2o()
     val_spt2o = contents.get_spt2o('valid')
@@ -254,7 +227,7 @@ if __name__ == "__main__":
                 assert args.mongo
                 mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
                 src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
-                mongo_id = register_query_mongo(mongodb[mongodb_analysis_collection_name], src_idx_l, rel_idx_l,
+                mongo_id = DBDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
                                                 cut_time_l,
                                                 target_idx_l, vars(args), contents.id2entity, contents.id2relation)
                 model.eval()
@@ -289,7 +262,7 @@ if __name__ == "__main__":
                                                                   tracking[i]['entity_candidate']]
                     tracking[i]['epoch'] = epoch
                     tracking[i]['batch_idx'] = batch_ndx
-                    mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
+                    dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
             optimizer.zero_grad()
             model.zero_grad()
             model.train()
@@ -444,13 +417,10 @@ if __name__ == "__main__":
                            hit_3 / num_query,
                            hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
                            hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
-            if args.sqlite:
-                sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-                insert_into_logging_table(sqlite_conn, checkpoint_dir, epoch, performance)
-            if args.mongo:
-                insert_a_evaluation_mongo(mongodb, checkpoint_dir, epoch, performance)
+
+            dbDriver.log_evaluation(checkpoint_dir, epoch, performance)
 
 
-    mongodb.close()
+    dbDriver.close()
     print("finished Training")
 #     os.umask(oldmask)

@@ -611,8 +611,10 @@ def save_config(args, dir: str):
     git_hash = get_git_version_short_hash()
     git_comment = get_git_description_last_commit()
     args_dict['git_hash'] = '\t'.join([git_hash, git_comment])
-    with open(os.path.join(dir, 'config.json'), 'w') as fp:
-        json.dump(args_dict, fp)
+    if not os.path.exists(os.path.join(dir, 'config.json')):
+        with open(os.path.join(dir, 'config.json'), 'w') as fp:
+            json.dump(args_dict, fp)
+            print("Log configuration under {}".format(os.path.join(dir, 'config.json')))
 
 
 def get_segment_ids(x):
@@ -669,3 +671,17 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
         raise IOError("=> no checkpoint found at '{}'".format(checkpoint_dir))
 
     return model, optimizer, start_epoch, contents
+
+
+def new_checkpoint(save_dir, struct_time):
+    checkpoint_dir = 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+        struct_time.tm_year,
+        struct_time.tm_mon,
+        struct_time.tm_mday,
+        struct_time.tm_hour,
+        struct_time.tm_min,
+        struct_time.tm_sec)
+    CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', checkpoint_dir)
+    if not os.path.exists(CHECKPOINT_PATH):
+        os.makedirs(CHECKPOINT_PATH, mode=0o770)
+    return checkpoint_dir, CHECKPOINT_PATH
