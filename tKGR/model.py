@@ -711,7 +711,7 @@ class tDPMPN(torch.nn.Module):
 
         return pruned_nodes, new_node_score, updated_memorized_embedding
 
-    def _analyse_flow(self, attended_nodes, attended_node_score, memorized_embedding, step, analysis=False, tc=None):
+    def _analyse_flow(self, attended_nodes, attended_node_score, memorized_embedding, step, tc=None):
         """[summary]
 
         Arguments:

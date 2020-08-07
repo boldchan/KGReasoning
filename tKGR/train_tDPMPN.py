@@ -35,8 +35,6 @@ from database_op import create_connection, create_task_table, create_logging_tab
     insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo, register_query_mongo
 
 
-# from gpu_profile import gpu_profile
-
 save_dir = local_config.save_dir
 
 # Reproducibility
