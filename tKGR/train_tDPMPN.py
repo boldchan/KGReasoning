@@ -145,7 +145,7 @@ args = parser.parse_args()
 
 if __name__ == "__main__":
     print(args)
-    # sys.settrace(gpu_profile)
+
     # check cuda
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
@@ -168,7 +168,7 @@ if __name__ == "__main__":
         adj = contents.get_adj_dict()
         max_time = max(contents.data[:, 3])
         # construct NeighborFinder
-        nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity),
+        nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=contents.num_entities,
                             weight_factor=args.weight_factor)
         # construct model
         model = tDPMPN(nf, contents.num_entities, contents.num_relations, args.emb_dim, DP_steps=args.DP_steps,

@@ -142,6 +142,14 @@ def segment_max(logits, segment_ids, keep_length=True):
 
 
 def segment_softmax_op_v2(logits, segment_ids, tc=None):
+    """
+
+    :param logits:
+    :param segment_ids: numpy array, same length as logits, logits[i] belongs to segment segment_ids[i]
+    logits in the same segment should aranged in a continuous block
+    :param tc:
+    :return:
+    """
     device = logits.get_device()
     if device == -1:
         device = torch.device('cpu')

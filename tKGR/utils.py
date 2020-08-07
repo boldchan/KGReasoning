@@ -21,6 +21,11 @@ DataDir = os.path.join(os.path.dirname(__file__), 'data')
 
 class Data:
     def __init__(self, dataset=None, add_reverse_relation=False):
+        """
+
+        :param dataset:
+        :param add_reverse_relation: if True, add reversed relation
+        """
         # load data
         self.id2entity = self._id2entity(dataset=dataset)
         self.id2relation = self._id2relation(dataset=dataset)
@@ -217,7 +222,7 @@ class Data:
 
 
 class NeighborFinder:
-    def __init__(self, adj, sampling=1, max_time=366 * 24, num_entities=None, weight_factor=1):
+    def __init__(self, adj, sampling=1, max_time=366 * 24, num_entities=None, weight_factor=1, time_granularity=24):
         """
         Params
         ------
@@ -231,6 +236,7 @@ class NeighborFinder:
         weight_factor: if sampling==3, use weight_factor to scale the time difference
         """
 
+        self.time_granularity = time_granularity
         node_idx_l, node_ts_l, edge_idx_l, off_set_l, off_set_t_l = self.init_off_set(adj, max_time, num_entities)
         self.node_idx_l = node_idx_l
         self.node_ts_l = node_ts_l
@@ -244,6 +250,11 @@ class NeighborFinder:
 
     def init_off_set(self, adj, max_time, num_entities):
         """
+        for events with entity of index i being subject:
+        node_idx_l[off_set_l[i]:off_set_l[i+1]] is the list of object index
+        node_ts_l[off_set_l[i]:off_set_l[i+1]] is the list of timestamp
+        edge_idx_l[off_set_l[i]:off_set_l[i+1]] is the list of relation
+        ordered by (ts, ent, rel) ascending
         Params
         ------
         adj_list: List[List[int]]
@@ -266,7 +277,7 @@ class NeighborFinder:
                 n_ts_l.extend(curr_ts)
 
                 off_set_l.append(len(n_idx_l))
-                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, 24)])# max_time+1 so we have max_time
+                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, self.time_granularity)])# max_time+1 so we have max_time
         elif isinstance(adj, dict):
             for i in range(num_entities):
                 curr = adj.get(i, [])
@@ -277,7 +288,7 @@ class NeighborFinder:
                 n_ts_l.extend(curr_ts)
 
                 off_set_l.append(len(n_idx_l))
-                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, 24)])# max_time+1 so we have max_time
+                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, self.time_granularity)])# max_time+1 so we have max_time
 
         n_idx_l = np.array(n_idx_l)
         n_ts_l = np.array(n_ts_l)
