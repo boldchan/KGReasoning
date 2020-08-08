@@ -611,7 +611,7 @@ class tDPMPN(torch.nn.Module):
                 mask = attended_nodes[:, 0] == i
                 attended_nodes_i = attended_nodes[mask]
                 tracking[i][str(step)] = {"source_nodes": attended_nodes_i.tolist(),
-                                          "source_nodes_score": visited_nodes.cpu().detach().numpy()[
+                                          "source_nodes_score": visited_node_score.cpu().detach().numpy()[
                                               attended_nodes_i[:, 3]].tolist()}
             attended_nodes, visited_nodes, visited_node_score, visited_node_representation, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, updated_edge_attention = self._analyse_flow(
                 attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step=step)
