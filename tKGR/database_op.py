@@ -2,6 +2,7 @@ import os
 import sys
 import time
 from copy import deepcopy
+from bson.objectid import ObjectId
 
 from typing import List
 import sqlite3
@@ -102,9 +103,9 @@ class DBDriver:
         performance_key = ['training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
                            'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil']
         performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
-        checkpoint_id = db['logging'].find_one({'checkpoint_dir': checkpoint_dir})
-        if checkpoint_id:
-            db['logging'].update_one({"_id": checkpoint_id}, {"$set": {"epoch": {str(epoch): performance_dict}}})
+        checkpoint = db['logging'].find_one({'checkpoint_dir': checkpoint_dir})
+        if checkpoint:
+            db['logging'].update_one({"_id": checkpoint['_id']}, {"$set": {"epoch."+str(epoch): performance_dict}})
         else:
             log = {'checkpoint_dir': checkpoint_dir, 'epoch': {str(epoch): performance_dict}}
             db['logging'].insert_one(log)
