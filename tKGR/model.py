@@ -201,6 +201,45 @@ class G2(torch.nn.Module):
             dim=-1) / np.sqrt(self.dim_in)
 
 
+class G3(torch.nn.Module):
+    def __init__(self, emb_dims, num_rel):
+        """[summary]
+        model different relation
+        output = MLP_1(x)^T A[rel] MLP_2(y), where A is three-dimenion matrix
+
+        Arguments:
+            left_dims {[type]} -- input dims of MLP_1
+            right_dims {[type]} -- input dims of MLP_2
+            output_dims {[type]} -- [description]
+        """
+        super(G, self).__init__()
+        self.left_dense = nn.Linear(emb_dims, emb_dims)
+        nn.init.normal_(self.left_dense.weight, mean=0, std=np.sqrt(2.0 / (emb_dims)))
+        self.right_dense = nn.Linear(emb_dims, emb_dims)
+        nn.init.normal_(self.right_dense.weight, mean=0, std=np.sqrt(2.0 / (emb_dims)))
+        self.center_dense = nn.ModuleList([nn.Linear(emb_dims, emb_dims) for _ in range(num_rel)])
+        self.center_dense.apply(lambda x: nn.init.xavier_normal_(x.weight))
+        self.left_act = nn.LeakyReLU()
+        self.right_act = nn.LeakyReLU()
+
+    def forward(self, inputs):
+        """[summary]
+        TBD
+        Arguments:
+            inputs: (left(Tensor), right(Tensor), rel (int))
+            left[i] -- tensor, bs x ... x left_dims
+            right[i] -- tensor, bs x ... x right_dims
+        """
+        left, right, rel = inputs
+        left_x = torch.cat(left, dim=-1)
+        right_x = torch.cat(right, dim=-1)
+        # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
+        # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
+        return torch.sum(
+            self.left_act(self.left_dense(left_x)) * self.center_dense[rel](self.right_act(self.right_dense(right_x))),
+            dim=-1)
+
+
 class AttentionFlow(nn.Module):
     def __init__(self, n_dims_in, n_dims_out, static_embed_dim, temporal_embed_dim, node_score_aggregation='sum',
                  device='cpu'):
@@ -453,12 +492,15 @@ class AttentionFlow(nn.Module):
         :param linear_act: whether apply linear and activation layer after message aggregation
         :return:
         """
+        ratio_self_neighbors = 0.8 # hyperparameter: when update node representation, new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
         num_nodes = len(node_representation)
         sparse_index_rep = torch.from_numpy(edges[:, [-2, -1]]).to(torch.int64).to(self.device)
-        sparse_value_rep = transition_logits
+        sparse_value_rep = (1 - ratio_self_neighbors) * transition_logits
         sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), edges[:, -2])).unsqueeze(
             1).repeat(1, 2).to(self.device)
         sparse_value_identical = torch.ones(len(sparse_index_identical)).to(self.device)
+        sparse_index_self = torch.from_numpy(np.unique(edges[:,-2])).unsqueeze(1).repeat(1,2).to(self.device)
+        sparse_value_self = ratio_self_neighbors * torch.ones(len(sparse_index_self)).to(self.device)
         sparse_index = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
         sparse_value = torch.cat([sparse_value_rep, sparse_value_identical])
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index.t(), sparse_value,
