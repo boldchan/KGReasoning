@@ -492,14 +492,14 @@ class AttentionFlow(nn.Module):
         :param linear_act: whether apply linear and activation layer after message aggregation
         :return:
         """
-        ratio_self_neighbors = 0.8 # hyperparameter: when update node representation, new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
+        ratio_self_neighbors = 0.8  # hyperparameter: when update node representation, new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
         num_nodes = len(node_representation)
         sparse_index_rep = torch.from_numpy(edges[:, [-2, -1]]).to(torch.int64).to(self.device)
         sparse_value_rep = (1 - ratio_self_neighbors) * transition_logits
         sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), edges[:, -2])).unsqueeze(
             1).repeat(1, 2).to(self.device)
         sparse_value_identical = torch.ones(len(sparse_index_identical)).to(self.device)
-        sparse_index_self = torch.from_numpy(np.unique(edges[:,-2])).unsqueeze(1).repeat(1,2).to(self.device)
+        sparse_index_self = torch.from_numpy(np.unique(edges[:, -2])).unsqueeze(1).repeat(1, 2).to(self.device)
         sparse_value_self = ratio_self_neighbors * torch.ones(len(sparse_index_self)).to(self.device)
         sparse_index = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
         sparse_value = torch.cat([sparse_value_rep, sparse_value_identical])
@@ -708,15 +708,15 @@ class tDPMPN(torch.nn.Module):
                                                                                        num_neighbors=self.DP_num_neighbors,
                                                                                        step=step,
                                                                                        add_self_loop=True, tc=tc)
-        new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2],
-                                                  eg_idx=new_sampled_nodes[:, 0])
-        for i in range(step):
-            new_sampled_nodes_emb = self.att_flow_list[i].bypass_forward(new_sampled_nodes_emb)
-        new_visited_node_representation = torch.cat([visited_node_representation, new_sampled_nodes_emb], axis=0)
-        new_visited_nodes = np.concatenate([visited_nodes, new_sampled_nodes], axis=0)
+        if len(new_sampled_nodes):
+            new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2],
+                                                      eg_idx=new_sampled_nodes[:, 0])
+            for i in range(step):
+                new_sampled_nodes_emb = self.att_flow_list[i].bypass_forward(new_sampled_nodes_emb)
+            visited_node_representation = torch.cat([visited_node_representation, new_sampled_nodes_emb], axis=0)
+            visited_nodes = np.concatenate([visited_nodes, new_sampled_nodes], axis=0)
 
-        if len(new_sampled_nodes) == 0:
-            assert len(new_visited_node_representation) == self.num_existing_nodes
+            assert len(visited_node_representation) == self.num_existing_nodes
             assert max(new_sampled_nodes[:, -1]) + 1 == self.num_existing_nodes
             assert max(sampled_edges[:, -1]) < self.num_existing_nodes
 
@@ -735,7 +735,7 @@ class tDPMPN(torch.nn.Module):
         new_visited_node_score, updated_visited_node_representation, pruned_edges, orig_indices = \
             self.att_flow_list[step](visited_node_score,
                                      selected_edges_l=self.sampled_edges_l,
-                                     visited_node_representation=new_visited_node_representation,
+                                     visited_node_representation=visited_node_representation,
                                      rel_emb_l=self.rel_emb_l,
                                      max_edges=self.max_attended_edges, tc=tc)
 
@@ -751,7 +751,7 @@ class tDPMPN(torch.nn.Module):
         #        # normalize node prediction score, since we lose node prediction score in pruning
         #        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
 
-        return updated_attended_nodes, new_visited_nodes, new_visited_node_score, updated_visited_node_representation
+        return updated_attended_nodes, visited_nodes, new_visited_node_score, updated_visited_node_representation
 
     def _analyse_flow(self, attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step,
                       tc=None):
@@ -775,15 +775,16 @@ class tDPMPN(torch.nn.Module):
                                                                                        num_neighbors=self.DP_num_neighbors,
                                                                                        step=step, add_self_loop=True,
                                                                                        tc=tc)
-        new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2],
-                                                  eg_idx=new_sampled_nodes[:, 0])
+        if len(new_sampled_nodes):
+            new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2],
+                                                      eg_idx=new_sampled_nodes[:, 0])
 
-        for i in range(step):
-            new_sampled_nodes_emb = self.att_flow_list[i].bypass_forward(new_sampled_nodes_emb)
-        new_memorized_embedding = torch.cat([visited_node_representation, new_sampled_nodes_emb], axis=0)
-        new_visited_nodes = np.concatenate([visited_nodes, new_sampled_nodes], axis=0)
-        if len(new_sampled_nodes) == 0:
-            assert len(new_memorized_embedding) == self.num_existing_nodes
+            for i in range(step):
+                new_sampled_nodes_emb = self.att_flow_list[i].bypass_forward(new_sampled_nodes_emb)
+            visited_node_representation = torch.cat([visited_node_representation, new_sampled_nodes_emb], axis=0)
+            visited_nodes = np.concatenate([visited_nodes, new_sampled_nodes], axis=0)
+
+            assert len(visited_node_representation) == self.num_existing_nodes
             assert max(new_sampled_nodes[:, -1]) + 1 == self.num_existing_nodes
             assert max(sampled_edges[:, -1]) < self.num_existing_nodes
 
@@ -803,7 +804,7 @@ class tDPMPN(torch.nn.Module):
             self.att_flow_list[step](
                 visited_node_score,
                 selected_edges_l=self.sampled_edges_l,
-                visited_node_representation=new_memorized_embedding,
+                visited_node_representation=visited_node_representation,
                 rel_emb_l=self.rel_emb_l,
                 max_edges=self.max_attended_edges,
                 analysis=True, tc=tc)
@@ -812,17 +813,6 @@ class tDPMPN(torch.nn.Module):
         #        print("# pruned_edges {}".format(len(pruned_edges)))
         self.sampled_edges_l[-1] = pruned_edges
         self.rel_emb_l[-1] = self.rel_emb_l[-1][orig_indices]
-        # there are events with same (s, o, t) but with different relation, therefore length of new_attending_nodes may be
-        # smaller than length of selected_edges
-        # print("Sampled {} edges, {} nodes".format(len(sampled_edges), len(selected_node)))
-        # for i in range(query_rel_emb.shape[0]):
-        #     print("graph of {}-th query ({}, {}, ?, {}) contains {} attending nodes, attention_sum: {}".format(
-        #         i,
-        #         self.src_idx_l[i],
-        #         self.rel_idx_l[i],
-        #         self.cut_time_l[i],
-        #         sum(selected_node[:, 0] == i),
-        #         sum(new_node_attention[selected_node[:, 0] == i])))
 
         # get pruned nodes
         _, indices = np.unique(pruned_edges[:, [0, 4, 3]], return_index=True, axis=0)
@@ -831,7 +821,7 @@ class tDPMPN(torch.nn.Module):
         #        # normalize node prediction score, since we lose node prediction score in pruning
         #        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
 
-        return updated_attended_nodes, new_visited_nodes, new_node_score, updated_visited_node_representation, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, edge_att
+        return updated_attended_nodes, visited_nodes, new_node_score, updated_visited_node_representation, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, edge_att
 
     def loss(self, entity_att_score, entities, target_idx_l, batch_size, gradient_iters_per_update=1, loss_fn='BCE'):
         one_hot_label = torch.from_numpy(
