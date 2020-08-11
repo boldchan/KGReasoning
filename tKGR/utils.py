@@ -311,7 +311,7 @@ class NeighborFinder:
 
         temp_degree = []
         for i, (src_idx, cut_time) in enumerate(zip(src_idx_l, cut_time_l)):
-            temp_degree.append(self.off_set_t_l[src_idx][int(cut_time / 24)])  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
+            temp_degree.append(self.off_set_t_l[src_idx][int(cut_time / self.time_granularity)])  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
         return np.array(temp_degree)
 
     # def find_before(self, src_idx, cut_time):
@@ -382,8 +382,8 @@ class NeighborFinder:
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-            mid = self.off_set_t_l[src_idx][int(cut_time / 24)]
-            end = self.off_set_t_l[src_idx][int(query_time / 24)]
+            mid = self.off_set_t_l[src_idx][int(cut_time / self.time_granularity)]
+            end = self.off_set_t_l[src_idx][int(query_time / self.time_granularity)]
             # every timestamp in neighbors_ts[:mid] is smaller than cut_time
             ngh_idx_before, ngh_eidx_before, ngh_ts_before = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # every timestamp in neighbors_ts[mid:end] is bigger than cut_time and smaller than query_time
@@ -437,7 +437,7 @@ class NeighborFinder:
             neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             mid = self.off_set_t_l[src_idx][
-                int(cut_time / 24)]  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
+                int(cut_time / self.time_granularity)]  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
             # mid = np.searchsorted(neighbors_ts, cut_time)
             ngh_idx, ngh_eidx, ngh_ts = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
@@ -485,7 +485,7 @@ class NeighborFinder:
                     # ngh_ts = ngh_ts + 1e-9
                     # weights = ngh_ts / sum(ngh_ts)
 
-                    delta_t = (ngh_ts - cut_time)/(24*self.weight_factor)
+                    delta_t = (ngh_ts - cut_time)/(self.time_granularity*self.weight_factor)
                     weights = np.exp(delta_t) + 1e-9
                     weights = weights / sum(weights)
 
