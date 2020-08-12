@@ -217,7 +217,7 @@ if __name__ == "__main__":
     if args.timer:
         time_cost = reset_time_cost()
 
-    dbDriver = DBDriver(useMongo=args.mongo, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer,
+    dbDriver = DBDriver(useMongo=True, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer,
                         sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
 
     checkpoint = args.load_checkpoint
@@ -248,8 +248,8 @@ if __name__ == "__main__":
     test_data_loader = DataLoader(test_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                  pin_memory=False, shuffle=True)
 
+    print("Start Evaluation")
     for batch_ndx, sample in enumerate(test_data_loader):
-        print("Start Evaluation")
         model.eval()
 
         src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
@@ -282,7 +282,6 @@ if __name__ == "__main__":
                                                                          tracking[i][str(step)]["new_source_nodes"]]
             tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
                                                           tracking[i]['entity_candidate']]
-            tracking[i]['prediction_rank'] = target_rank_l[i]
             dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
 
 

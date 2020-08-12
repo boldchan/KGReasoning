@@ -666,7 +666,7 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
 #                       recalculate_att_after_prun=args.recalculate_att_after_prun,
 #                       node_score_aggregation=args.node_score_aggregation,
 #                       device=device)
-        kwargs= vars(args)
+        kwargs = vars(args)
         kwargs['device'] = device
         model = tDPMPN(nf, contents.num_entities, contents.num_relations, **kwargs)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
