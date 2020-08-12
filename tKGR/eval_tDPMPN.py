@@ -31,9 +31,7 @@ from model import tDPMPN
 import config
 import local_config
 from segment import *
-from database_op import create_mongo_connection, MongoServer, register_query_mongo
-
-# from gpu_profile import gpu_profile
+from database_op import DBDriver
 
 save_dir = local_config.save_dir
 
@@ -219,6 +217,9 @@ if __name__ == "__main__":
     if args.timer:
         time_cost = reset_time_cost()
 
+    dbDriver = DBDriver(useMongo=args.mongo, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer,
+                        sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
+
     checkpoint = args.load_checkpoint
     mongodb_analysis_collection_name = 'analysis_' + checkpoint
 
@@ -228,9 +229,6 @@ if __name__ == "__main__":
         model, optimizer, start_epoch, contents = load_checkpoint(os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
         sp2o = contents.get_sp2o()
         test_spt2o = contents.get_spt2o('test')
-
-    model.analysis = True
-    mongodb = create_mongo_connection(MongoServer, "tKGR")
 
     hit_1 = hit_3 = hit_10 = 0
     hit_1_fil = hit_3_fil = hit_10_fil = 0
@@ -255,14 +253,15 @@ if __name__ == "__main__":
         model.eval()
 
         src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-        mongo_id = register_query_mongo(mongodb[mongodb_analysis_collection_name], src_idx_l, rel_idx_l, cut_time_l,
-                                        target_idx_l, vars(args), contents.id2entity, contents.id2relation)
+        mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
+                                                 cut_time_l,
+                                                 target_idx_l, vars(args), contents.id2entity, contents.id2relation)
 
         num_query += len(src_idx_l)
         degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
         mean_degree += sum(degree_batch)
 
-        entity_att_score, entities, tracking = model(sample)
+        entity_att_score, entities, tracking = model(sample, analysis=True)
         for i in range(args.batch_size):
             for step in range(args.DP_steps):
                 tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
@@ -283,7 +282,8 @@ if __name__ == "__main__":
                                                                          tracking[i][str(step)]["new_source_nodes"]]
             tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
                                                           tracking[i]['entity_candidate']]
-            mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
+            tracking[i]['prediction_rank'] = target_rank_l[i]
+            dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
 
 
         loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
@@ -304,7 +304,7 @@ if __name__ == "__main__":
                                                                                              rel_idx_l,
                                                                                              cut_time_l)
         for i in range(args.batch_size):
-            mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]},
+            dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]},
                                                                  {"$set": {"prediction_rank": target_rank_l[i]}})
         # print(target_rank_l)
         mean_degree_found += sum(degree_batch[found_mask])
@@ -365,5 +365,6 @@ if __name__ == "__main__":
                         hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
                         hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
-    mongodb[mongodb_analysis_collection_name].insert(performance_dict)
+    dbDriver.test_evaluation(checkpoint, performance)
+    dbDriver.close()
 

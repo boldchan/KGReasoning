@@ -45,6 +45,13 @@ class DBDriver:
         if self.mongodb:
             DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance)
 
+    def test_evaluation(self, checkpoint, performance):
+        checkpoint_dir, epoch = checkpoint.split("/")
+        if self.sqlite_conn:
+            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint, epoch, performance, table_name='Test_Evaluation')
+        if self.mongodb:
+            DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance, collection='Test_Evaluation')
+
     def close(self):
         if self.sqlite_conn:
             self.sqlite_conn.close()
@@ -99,16 +106,16 @@ class DBDriver:
         return mongo_id
 
     @staticmethod
-    def insert_a_evaluation_mongo(db, checkpoint_dir, epoch, performance):
+    def insert_a_evaluation_mongo(db, checkpoint_dir, epoch, performance, collection='logging'):
         performance_key = ['training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
                            'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil']
         performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
-        checkpoint = db['logging'].find_one({'checkpoint_dir': checkpoint_dir})
+        checkpoint = db[collection].find_one({'checkpoint_dir': checkpoint_dir})
         if checkpoint:
-            db['logging'].update_one({"_id": checkpoint['_id']}, {"$set": {"epoch."+str(epoch): performance_dict}})
+            db[collection].update_one({"_id": checkpoint['_id']}, {"$set": {"epoch."+str(epoch): performance_dict}})
         else:
             log = {'checkpoint_dir': checkpoint_dir, 'epoch': {str(epoch): performance_dict}}
-            db['logging'].insert_one(log)
+            db[collection].insert_one(log)
 
     @staticmethod
     def create_table(conn, create_table_sql):

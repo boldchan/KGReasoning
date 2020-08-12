@@ -270,7 +270,6 @@ if __name__ == "__main__":
                                                                   tracking[i]['entity_candidate']]
                     tracking[i]['epoch'] = epoch
                     tracking[i]['batch_idx'] = batch_ndx
-                    tracking[i]['prediction_rank'] = target_rank_l[i]
                     dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
             optimizer.zero_grad()
             model.zero_grad()
