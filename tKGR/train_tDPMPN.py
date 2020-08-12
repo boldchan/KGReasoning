@@ -231,6 +231,15 @@ if __name__ == "__main__":
                                                 target_idx_l, vars(args), contents.id2entity, contents.id2relation)
                 model.eval()
                 entity_att_score, entities, tracking = model(analysis_batch, analysis=True)
+                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(
+                    entity_att_score,
+                    entities,
+                    target_idx_l,
+                    sp2o,
+                    val_spt2o,
+                    src_idx_l,
+                    rel_idx_l,
+                    cut_time_l)
                 for i in range(args.batch_size):
                     for step in range(args.DP_steps):
                         tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n
@@ -261,6 +270,7 @@ if __name__ == "__main__":
                                                                   tracking[i]['entity_candidate']]
                     tracking[i]['epoch'] = epoch
                     tracking[i]['batch_idx'] = batch_ndx
+                    tracking[i]['prediction_rank'] = target_rank_l[i]
                     dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
             optimizer.zero_grad()
             model.zero_grad()
