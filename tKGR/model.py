@@ -441,7 +441,7 @@ class AttentionFlow(nn.Module):
 #                                                                                               transition_logits_softmax,
 #                                                                                               linear_act=False)
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
-            updated_edge_attention.append(torch.Tensor([-1]))
+            updated_edge_attention.append(torch.ones(len(selected_edges), 1))
 
         # the function's name is confusing, but it simply apply dense layer and activation on updated_memorized_embedding
         updated_visited_node_representation = self.bypass_forward(updated_visited_node_representation)
