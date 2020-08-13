@@ -14,12 +14,13 @@ sys.path.insert(1, PackageDir)
 
 
 class DBDriver:
-    def __init__(self, useMongo: bool = False, useSqlite: bool = False, MongoServerIP=None, sqlite_dir=None):
+    def __init__(self, useMongo: bool = False, useSqlite: bool = False, MongoServerIP=None, sqlite_dir=None, DATABASE='tKGR'):
         self.mongodb = None
         self.sqlite_conn = None
 
         if useMongo:
-            self.mongodb = DBDriver.create_mongo_connection(MongoServerIP)
+            self.client = DBDriver.create_mongo_connection(MongoServerIP, DATABASE=DATABASE)
+            self.mongodb = getattr(self.client, DATABASE)
         if useSqlite:
             self.sqlite_conn = DBDriver.create_connection(sqlite_dir)
             self.sql_task_schema = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
@@ -45,10 +46,9 @@ class DBDriver:
         if self.mongodb:
             DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance)
 
-    def test_evaluation(self, checkpoint, performance):
-        checkpoint_dir, epoch = checkpoint.split("/")
+    def test_evaluation(self, checkpoint_dir, epoch, performance):
         if self.sqlite_conn:
-            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint, epoch, performance, table_name='Test_Evaluation')
+            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint_dir, epoch, performance, table_name='Test_Evaluation')
         if self.mongodb:
             DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance, collection='Test_Evaluation')
 
@@ -56,15 +56,14 @@ class DBDriver:
         if self.sqlite_conn:
             self.sqlite_conn.close()
         if self.mongodb:
-            self.mongodb.close()
+            self.client.close()
 
     @staticmethod
     def create_mongo_connection(IP_ADDRESS, DATABASE='tKGR', USER='peng', PASSWORD='siemens'):
         client = pymongo.MongoClient("mongodb://{}:{}@{}/{}".format(USER, PASSWORD, IP_ADDRESS, DATABASE),
-                                     socketTimeoutMS=1000)
-        db = getattr(client, DATABASE)
+                                     socketTimeoutMS=20000)
         print("Connection to {}/{} established".format(IP_ADDRESS, DATABASE))
-        return db
+        return client
 
     @staticmethod
     def create_connection(db_file):

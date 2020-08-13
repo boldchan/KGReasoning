@@ -141,6 +141,10 @@ parser.add_argument('--add_reverse', action='store_true', default=True, help='ad
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
+parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
+                                                                  'ratio * self representation + (1 - ratio) * neighbors, '
+                                                                  'if ratio==0, GCN style, ratio==1, no node representation update')
+
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -178,7 +182,7 @@ if __name__ == "__main__":
         # construct model
         model = tDPMPN(nf, contents.num_entities, contents.num_relations, args.emb_dim, DP_steps=args.DP_steps,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-                       node_score_aggregation=args.node_score_aggregation,
+                       node_score_aggregation=args.node_score_aggregation, ratio_update=args.ratio_update,
                        device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
@@ -191,7 +195,7 @@ if __name__ == "__main__":
     else:
         checkpoint_dir = os.path.dirname(args.load_checkpoint)
         CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
-        model, optimizer, start_epoch, contents = load_checkpoint(
+        model, optimizer, start_epoch, contents, args = load_checkpoint(
             os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
         start_epoch += 1
         print("Load checkpoints {}".format(CHECKPOINT_PATH))
