@@ -46,10 +46,9 @@ class DBDriver:
         if self.mongodb:
             DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance)
 
-    def test_evaluation(self, checkpoint, performance):
-        checkpoint_dir, epoch = checkpoint.split("/")
+    def test_evaluation(self, checkpoint_dir, epoch, performance):
         if self.sqlite_conn:
-            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint, epoch, performance, table_name='Test_Evaluation')
+            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint_dir, epoch, performance, table_name='Test_Evaluation')
         if self.mongodb:
             DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance, collection='Test_Evaluation')
 
