@@ -249,6 +249,7 @@ def segment_norm_l1_part(logits, logits_ids, segment_ids, tc=None):
     res[res != res] = 0 # res != res inidcates where NaNs (0/0) are
     return res
 
+
 def segment_topk(t, segment_idx, k, sorted=False):
     """
     compute topk along segments of a tensor
