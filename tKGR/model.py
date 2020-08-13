@@ -430,7 +430,7 @@ class AttentionFlow(nn.Module):
                                                                                            transition_logits_pruned_softmax,
                                                                                            linear_act=False)
 
-#        for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
+       # for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
 #            transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation, rel_emb)
 #            # possible solution, use updated rel_emb, but dimension mismatch between update along older edge and along latest edge, since we apply linear on updated node representation
 #            transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
@@ -440,6 +440,8 @@ class AttentionFlow(nn.Module):
 #                                                                                               updated_visited_node_representation,
 #                                                                                               transition_logits_softmax,
 #                                                                                               linear_act=False)
+        for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
+            updated_edge_attention.append(torch.Tensor([-1]))
 
         # the function's name is confusing, but it simply apply dense layer and activation on updated_memorized_embedding
         updated_visited_node_representation = self.bypass_forward(updated_visited_node_representation)
