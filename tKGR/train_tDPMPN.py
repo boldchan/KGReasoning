@@ -191,7 +191,7 @@ if __name__ == "__main__":
     else:
         checkpoint_dir = os.path.dirname(args.load_checkpoint)
         CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
-        model, optimizer, start_epoch, contents = load_checkpoint(
+        model, optimizer, start_epoch, contents, args = load_checkpoint(
             os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
         start_epoch += 1
         print("Load checkpoints {}".format(CHECKPOINT_PATH))

@@ -681,7 +681,7 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
     else:
         raise IOError("=> no checkpoint found at '{}'".format(checkpoint_dir))
 
-    return model, optimizer, start_epoch, contents
+    return model, optimizer, start_epoch, contents, args
 
 
 def new_checkpoint(save_dir, struct_time):

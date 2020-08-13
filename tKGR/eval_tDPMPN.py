@@ -81,10 +81,10 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, 
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
-#     neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
+    #     neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
     if args.timer:
         tc['data']['load_data'] += time.time() - t_start
-#     return np.concatenate([events, neg_obj_idx], axis=1)
+    #     return np.concatenate([events, neg_obj_idx], axis=1)
     return events
 
 
@@ -169,7 +169,7 @@ def segment_rank(t, entities, target_idx_l):
             rank.append(torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item() + 1)
         else:
             found_mask.append(False)
-            rank.append(1e9) # MINERVA set rank to +inf if not in path, we follow this scheme
+            rank.append(1e9)  # MINERVA set rank to +inf if not in path, we follow this scheme
     return np.array(rank), found_mask
 
 
@@ -191,17 +191,22 @@ parser.add_argument('--max_attended_edges', type=int, default=20, help='max numb
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight')
 parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
-parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
-parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
-parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
-parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False, help='in attention module, whether re-calculate attention score after pruning')
+parser.add_argument('--emb_static_ratio', type=float, default=1,
+                    help='ratio of static embedding to time(temporal) embeddings')
+parser.add_argument('--diac_embed', action='store_true',
+                    help='use entity-specific frequency and phase of time embeddings')
+parser.add_argument('--simpl_att', action='store_true', help='use simplified attention function.')
+parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False,
+                    help='in attention module, whether re-calculate attention score after pruning')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
-parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
+parser.add_argument('--gradient_iters_per_update', type=int, default=1,
+                    help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
+parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -217,6 +222,8 @@ if __name__ == "__main__":
     if args.timer:
         time_cost = reset_time_cost()
 
+    analysis = args.explainability_analysis
+
     dbDriver = DBDriver(useMongo=True, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer,
                         sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
 
@@ -226,9 +233,12 @@ if __name__ == "__main__":
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
     else:
-        model, optimizer, start_epoch, contents = load_checkpoint(os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
+        model, optimizer, start_epoch, contents, args = load_checkpoint(
+            os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
         sp2o = contents.get_sp2o()
         test_spt2o = contents.get_spt2o('test')
+
+    print(args)
 
     hit_1 = hit_3 = hit_10 = 0
     hit_1_fil = hit_3_fil = hit_10_fil = 0
@@ -246,44 +256,55 @@ if __name__ == "__main__":
 
     test_inputs = prepare_inputs(contents, dataset='test', tc=time_cost)
     test_data_loader = DataLoader(test_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
-                                 pin_memory=False, shuffle=True)
+                                  pin_memory=False, shuffle=True)
 
     print("Start Evaluation")
     for batch_ndx, sample in enumerate(test_data_loader):
         model.eval()
 
         src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-        mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
-                                                 cut_time_l,
-                                                 target_idx_l, vars(args), contents.id2entity, contents.id2relation)
+        # mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
+        #                                          cut_time_l,
+        #                                          target_idx_l, vars(args), contents.id2entity, contents.id2relation)
 
         num_query += len(src_idx_l)
         degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
         mean_degree += sum(degree_batch)
 
-        entity_att_score, entities, tracking = model(sample, analysis=True)
-        for i in range(args.batch_size):
-            for step in range(args.DP_steps):
-                tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                     tracking[i][str(step)]["source_nodes"]]
-                tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                       contents.id2entity[edge[3]], str(edge[4]),
-                                                                       contents.id2relation[edge[5]]]
-                                                                      for edge in
-                                                                      tracking[i][str(step)]["sampled_edges"]]
-                tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                        contents.id2entity[edge[3]], str(edge[4]),
-                                                                        contents.id2relation[edge[5]]]
-                                                                       for edge in
-                                                                       tracking[i][str(step)]["selected_edges"]]
-                tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                          tracking[i][str(step)]["new_sampled_nodes"]]
-                tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                         tracking[i][str(step)]["new_source_nodes"]]
-            tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
-                                                          tracking[i]['entity_candidate']]
-            dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
+        if analysis:
+            entity_att_score, entities, tracking = model(sample, analysis=True)
 
+            for i in range(args.batch_size):
+                tracking[i].update({'subject': int(src_idx_l[i]),
+                                    'subject(semantic)': contents.id2entity[src_idx_l[i]],
+                                    'relation': int(rel_idx_l[i]),
+                                    'relation(semantic)': contents.id2relation[rel_idx_l[i]],
+                                    'timestamp': int(cut_time_l[i]),
+                                    'object': int(target_idx_l[i]),
+                                    'object(semantic)': contents.id2entity[target_idx_l[i]],
+                                    'experiment_info': vars(args)})
+                for step in range(args.DP_steps):
+                    tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                         tracking[i][str(step)]["source_nodes"]]
+                    tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                           contents.id2entity[edge[3]], str(edge[4]),
+                                                                           contents.id2relation[edge[5]]]
+                                                                          for edge in
+                                                                          tracking[i][str(step)]["sampled_edges"]]
+                    tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                            contents.id2entity[edge[3]], str(edge[4]),
+                                                                            contents.id2relation[edge[5]]]
+                                                                           for edge in
+                                                                           tracking[i][str(step)]["selected_edges"]]
+                    tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                              tracking[i][str(step)]["new_sampled_nodes"]]
+                    tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                             tracking[i][str(step)]["new_source_nodes"]]
+                tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
+                                                              tracking[i]['entity_candidate']]
+
+        else:
+            entity_att_score, entities = model(sample, analysis=False)
 
         loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
                           args.gradient_iters_per_update, args.loss_fn)
@@ -302,18 +323,24 @@ if __name__ == "__main__":
                                                                                              src_idx_l,
                                                                                              rel_idx_l,
                                                                                              cut_time_l)
-        for i in range(args.batch_size):
-            dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]},
-                                                                 {"$set": {"prediction_rank": target_rank_l[i]}})
+        if analysis:
+            for i in range(args.batch_size):
+                tracking[i]['prediction_rank'] = target_rank_l[i]
+            mongo_id = dbDriver.mongodb[mongodb_analysis_collection_name].insert_many(
+                [tracking[i] for i in range(args.batch_size)]).inserted_ids
+        # for i in range(args.batch_size):
+        #     dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]},
+        #                                                                   {"$set": {
+        #                                                                       "prediction_rank": target_rank_l[i]}})
         # print(target_rank_l)
         mean_degree_found += sum(degree_batch[found_mask])
         hit_1 += np.sum(target_rank_l == 1)
         hit_3 += np.sum(target_rank_l <= 3)
         hit_10 += np.sum(target_rank_l <= 10)
-        hit_1_fil += np.sum(target_rank_fil_l <= 1) # target_rank_fil_l has dtype float
+        hit_1_fil += np.sum(target_rank_fil_l <= 1)  # target_rank_fil_l has dtype float
         hit_3_fil += np.sum(target_rank_fil_l <= 3)
         hit_10_fil += np.sum(target_rank_fil_l <= 10)
-        hit_1_fil_t += np.sum(target_rank_fil_t_l <= 1)# target_rank_fil_t_l has dtype float
+        hit_1_fil_t += np.sum(target_rank_fil_t_l <= 1)  # target_rank_fil_t_l has dtype float
         hit_3_fil_t += np.sum(target_rank_fil_t_l <= 3)
         hit_10_fil_t += np.sum(target_rank_fil_t_l <= 10)
         found_cnt += np.sum(found_mask)
@@ -360,10 +387,9 @@ if __name__ == "__main__":
     performance_key = ['HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
                        'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil']
     performance = [hit_1 / num_query,
-                        hit_3 / num_query,
-                        hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
-                        hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
+                   hit_3 / num_query,
+                   hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
+                   hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
     dbDriver.test_evaluation(checkpoint, performance)
     dbDriver.close()
-

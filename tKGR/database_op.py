@@ -61,7 +61,7 @@ class DBDriver:
     @staticmethod
     def create_mongo_connection(IP_ADDRESS, DATABASE='tKGR', USER='peng', PASSWORD='siemens'):
         client = pymongo.MongoClient("mongodb://{}:{}@{}/{}".format(USER, PASSWORD, IP_ADDRESS, DATABASE),
-                                     socketTimeoutMS=1000)
+                                     socketTimeoutMS=20000)
         db = getattr(client, DATABASE)
         print("Connection to {}/{} established".format(IP_ADDRESS, DATABASE))
         return db
