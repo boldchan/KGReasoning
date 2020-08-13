@@ -145,6 +145,9 @@ parser.add_argument('--add_reverse', action='store_true', default=True, help='ad
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
+parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
+                                                                  'ratio * self representation + (1 - ratio) * neighbors, '
+                                                                  'if ratio==0, GCN style, ratio==1, no node representation update')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -177,7 +180,7 @@ if __name__ == "__main__":
         # construct model
         model = tDPMPN(nf, contents.num_entities, contents.num_relations, args.emb_dim, args.emb_dim_sm,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-                       node_score_aggregation=args.node_score_aggregation,
+                       node_score_aggregation=args.node_score_aggregation, ratio_update=args.ratio_update,
                        device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
@@ -227,7 +230,7 @@ if __name__ == "__main__":
                 assert args.mongo
                 mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
                 src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
-                mongo_id = dbDriver.register_query_mongo(mongodb[mongodb_analysis_collection_name], src_idx_l, rel_idx_l,
+                mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
                                                 cut_time_l,
                                                 target_idx_l, vars(args), contents.id2entity, contents.id2relation)
                 model.eval()
@@ -262,7 +265,7 @@ if __name__ == "__main__":
                                                                   tracking[i]['entity_candidate']]
                     tracking[i]['epoch'] = epoch
                     tracking[i]['batch_idx'] = batch_ndx
-                    mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
+                    dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
             optimizer.zero_grad()
             model.zero_grad()
             model.train()
