@@ -241,13 +241,14 @@ class G3(torch.nn.Module):
 
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims_in, n_dims_out, static_embed_dim, temporal_embed_dim, node_score_aggregation='sum',
+    def __init__(self, n_dims_in, n_dims_out, ratio_update=0, node_score_aggregation='sum',
                  device='cpu'):
         """[summary]
 
         Arguments:
             n_dims -- int, dimension of entity and relation embedding
             n_dims_sm -- int, smaller than n_dims to reduce the compuation consumption of calculating attention score
+            ratio_update -- new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
         """
         super(AttentionFlow, self).__init__()
 
@@ -259,6 +260,7 @@ class AttentionFlow(nn.Module):
         self.act_between_steps = torch.nn.LeakyReLU()
 
         self.node_score_aggregation = node_score_aggregation
+        self.ratio_update = ratio_update
 
         self.query_src_ts_emb = None
         self.query_rel_emb = None
@@ -492,17 +494,16 @@ class AttentionFlow(nn.Module):
         :param linear_act: whether apply linear and activation layer after message aggregation
         :return:
         """
-        ratio_self_neighbors = 0.8  # hyperparameter: when update node representation, new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
         num_nodes = len(node_representation)
         sparse_index_rep = torch.from_numpy(edges[:, [-2, -1]]).to(torch.int64).to(self.device)
-        sparse_value_rep = (1 - ratio_self_neighbors) * transition_logits
+        sparse_value_rep = (1 - self.ratio_update) * transition_logits
         sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), edges[:, -2])).unsqueeze(
             1).repeat(1, 2).to(self.device)
         sparse_value_identical = torch.ones(len(sparse_index_identical)).to(self.device)
         sparse_index_self = torch.from_numpy(np.unique(edges[:, -2])).unsqueeze(1).repeat(1, 2).to(self.device)
-        sparse_value_self = ratio_self_neighbors * torch.ones(len(sparse_index_self)).to(self.device)
-        sparse_index = torch.cat([sparse_index_rep, sparse_index_identical], axis=0)
-        sparse_value = torch.cat([sparse_value_rep, sparse_value_identical])
+        sparse_value_self = self.ratio_update * torch.ones(len(sparse_index_self)).to(self.device)
+        sparse_index = torch.cat([sparse_index_rep, sparse_index_identical, sparse_index_self], axis=0)
+        sparse_value = torch.cat([sparse_value_rep, sparse_value_identical, sparse_value_self])
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index.t(), sparse_value,
                                                        torch.Size([num_nodes, num_nodes])).to(self.device)
         updated_node_representation = torch.sparse.mm(trans_matrix_sparse, node_representation)
@@ -519,7 +520,7 @@ class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim: List[int] = None,
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
-                 node_score_aggregation='sum', max_attended_edges=20,
+                 node_score_aggregation='sum', max_attended_edges=20, ratio_update=0,
                  device='cpu', analysis=False, **kwargs):
         """[summary]
 
@@ -540,6 +541,7 @@ class tDPMPN(torch.nn.Module):
             drop_out {float} -- [description] (default: {0.1})
             seq_len {[type]} -- [description] (default: {None})
             max_attended_nodes {int} -- [max number of nodes in attending-from horizon] (default: {20})
+            ratio_update: new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
             device {str} -- [description] (default: {'cpu'})
         """
         super(tDPMPN, self).__init__()
@@ -560,7 +562,8 @@ class tDPMPN(torch.nn.Module):
         self.att_flow_list = nn.ModuleList([AttentionFlow(emb_dim[_], emb_dim[_ + 1],
                                                           static_embed_dim=self.static_embed_dim[_],
                                                           temporal_embed_dim=self.temporal_embed_dim[_],
-                                                          node_score_aggregation=node_score_aggregation, device=device)
+                                                          node_score_aggregation=node_score_aggregation,
+                                                          ratio_update=ratio_update, device=device)
                                             for _ in range(DP_steps)])
         self.node_emb_proj = nn.Linear(2 * emb_dim[0], emb_dim[0])
         nn.init.xavier_normal_(self.node_emb_proj.weight)
