@@ -560,8 +560,8 @@ class tDPMPN(torch.nn.Module):
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop"
         self.att_flow_list = nn.ModuleList([AttentionFlow(emb_dim[_], emb_dim[_ + 1],
-                                                          static_embed_dim=self.static_embed_dim[_],
-                                                          temporal_embed_dim=self.temporal_embed_dim[_],
+                                                          #static_embed_dim=self.static_embed_dim[_],
+                                                          #temporal_embed_dim=self.temporal_embed_dim[_],
                                                           node_score_aggregation=node_score_aggregation,
                                                           ratio_update=ratio_update, device=device)
                                             for _ in range(DP_steps)])
