@@ -163,12 +163,13 @@ class G(torch.nn.Module):
 
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims, n_dims_sm, static_embed_dim, temporal_embed_dim, node_score_aggregation='sum', device='cpu'):
+    def __init__(self, n_dims, n_dims_sm, static_embed_dim, temporal_embed_dim, ratio_update=0, node_score_aggregation='sum', device='cpu'):
         """[summary]
 
         Arguments:
             n_dims -- int, dimension of entity and relation embedding
             n_dims_sm -- int, smaller than n_dims to reduce the compuation consumption of calculating attention score
+            ratio_update: when update node representation: ratio * self representation + (1 - ratio) * neighbors
         """
         super(AttentionFlow, self).__init__()
 
@@ -193,6 +194,7 @@ class AttentionFlow(nn.Module):
         # self.Linear_between_steps.apply(weight_init)
 
         self.node_score_aggregation = node_score_aggregation
+        self.ratio_update = ratio_update
 
         self.device = device
 
@@ -473,21 +475,25 @@ class AttentionFlow(nn.Module):
         updated_visited_node_representation = self._update_node_representation_along_edges(topk_edges,
                                                                                           visited_node_representation,
                                                                                           transition_logits_pruned_softmax,
-                                                                                          num_nodes)
+                                                                                          num_nodes, linear_act=False)
 
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
             transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation, rel_emb,
                                                           query_src_ts_vec, query_rel_vec)
             transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2])
             updated_edge_attention.append(transition_logits_softmax)
+            # message passing and aggregation along previous selected edges, no dense and act in this step
             updated_visited_node_representation = self._update_node_representation_along_edges(selected_edges,
                                                                                               updated_visited_node_representation,
                                                                                               transition_logits_softmax,
-                                                                                              num_nodes)
+                                                                                              num_nodes, linear_act=False)
+
+        # apply dense and activation
+        updated_visited_node_representation = self.bypass_forward(updated_visited_node_representation)
         return updated_node_score, updated_visited_node_representation, topk_edges, orig_indices, \
                edge_attn_before_pruning, updated_edge_attention[::-1]
 
-    def _update_node_representation_along_edges(self, edges, memorized_embedding, transition_logits, num_nodes):
+    def _update_node_representation_along_edges_old(self, edges, memorized_embedding, transition_logits, num_nodes):
         # update representation of nodes with neighbors
         # 1. message passing and aggregation
         sparse_index_rep = torch.from_numpy(edges[:, [-2, -1]]).to(torch.int64).to(self.device)
@@ -505,13 +511,34 @@ class AttentionFlow(nn.Module):
         updated_memorized_embedding = updated_memorized_embedding + identical_memorized_embedding
         return updated_memorized_embedding
 
+    def _update_node_representation_along_edges(self, edges, node_representation, transition_logits, linear_act=True):
+        num_nodes = len(node_representation)
+        # neighbor nodes to center node
+        sparse_index_rep = torch.from_numpy(edges[:, [-2, -1]]).to(torch.int64).to(self.device)
+        sparse_value_rep = (1 - self.ratio_update) * transition_logits
+        # nodes without neighbors
+        sparse_index_identical = torch.from_numpy(np.setdiff1d(np.arange(num_nodes), edges[:, -2])).unsqueeze(
+            1).repeat(1, 2).to(self.device)
+        sparse_value_identical = torch.ones(len(sparse_index_identical)).to(self.device)
+        # node with neighbor update from itself
+        sparse_index_self = torch.from_numpy(np.unique(edges[:, -2])).unsqueeze(1).repeat(1, 2).to(self.device)
+        sparse_value_self = self.ratio_update * torch.ones(len(sparse_index_self)).to(self.device)
+        sparse_index = torch.cat([sparse_index_rep, sparse_index_identical, sparse_index_self], axis=0)
+        sparse_value = torch.cat([sparse_value_rep, sparse_value_identical, sparse_value_self])
+        trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index.t(), sparse_value,
+                                                       torch.Size([num_nodes, num_nodes])).to(self.device)
+        updated_node_representation = torch.sparse.mm(trans_matrix_sparse, node_representation)
+        if linear_act:
+            updated_node_representation = self.act_between_steps(self.linear_between_steps(updated_node_representation))
+
+        return updated_node_representation
 
 
 class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim=None, emb_dim_sm=None,
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
-                 node_score_aggregation='sum', max_attended_edges=20, device='cpu', **kwargs):
+                 node_score_aggregation='sum', max_attended_edges=20, ratio_update=0, device='cpu', **kwargs):
         """[summary]
 
         Arguments:
@@ -532,6 +559,7 @@ class tDPMPN(torch.nn.Module):
             drop_out {float} -- [description] (default: {0.1})
             seq_len {[type]} -- [description] (default: {None})
             max_attended_nodes {int} -- [max number of nodes in attending-from horizon] (default: {20})
+            ratio_update: when update node representation: ratio * self representation + (1 - ratio) * neighbors
             device {str} -- [description] (default: {'cpu'})
         """
         super(tDPMPN, self).__init__()
@@ -550,7 +578,7 @@ class tDPMPN(torch.nn.Module):
         self.selfloop = num_rel  # index of relation "selfloop", therefore num_edges in relation_raw_embed need to be increased by 1
         self.att_flow = AttentionFlow(emb_dim, emb_dim_sm,
                                       static_embed_dim = self.static_embed_dim, temporal_embed_dim = self.temporal_embed_dim,
-                                      node_score_aggregation=node_score_aggregation, device=device)
+                                      node_score_aggregation=node_score_aggregation, ratio_update=ratio_update, device=device)
         self.max_attended_edges = max_attended_edges
 
         self.time_encoder = TimeEncode(expand_dim=self.temporal_embed_dim, entity_specific=diac_embed, num_entities=num_entity, device=device)
