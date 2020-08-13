@@ -14,12 +14,13 @@ sys.path.insert(1, PackageDir)
 
 
 class DBDriver:
-    def __init__(self, useMongo: bool = False, useSqlite: bool = False, MongoServerIP=None, sqlite_dir=None):
+    def __init__(self, useMongo: bool = False, useSqlite: bool = False, MongoServerIP=None, sqlite_dir=None, DATABASE='tKGR'):
         self.mongodb = None
         self.sqlite_conn = None
 
         if useMongo:
-            self.mongodb = DBDriver.create_mongo_connection(MongoServerIP)
+            self.client = DBDriver.create_mongo_connection(MongoServerIP, DATABASE=DATABASE)
+            self.mongodb = getattr(self.client, DATABASE)
         if useSqlite:
             self.sqlite_conn = DBDriver.create_connection(sqlite_dir)
             self.sql_task_schema = ('dataset', 'emb_dim', 'emb_dim_sm', 'lr', 'batch_size', 'sampling', 'DP_steps',
@@ -56,15 +57,14 @@ class DBDriver:
         if self.sqlite_conn:
             self.sqlite_conn.close()
         if self.mongodb:
-            self.mongodb.close()
+            self.client.close()
 
     @staticmethod
     def create_mongo_connection(IP_ADDRESS, DATABASE='tKGR', USER='peng', PASSWORD='siemens'):
         client = pymongo.MongoClient("mongodb://{}:{}@{}/{}".format(USER, PASSWORD, IP_ADDRESS, DATABASE),
                                      socketTimeoutMS=20000)
-        db = getattr(client, DATABASE)
         print("Connection to {}/{} established".format(IP_ADDRESS, DATABASE))
-        return db
+        return client
 
     @staticmethod
     def create_connection(db_file):
