@@ -391,5 +391,8 @@ if __name__ == "__main__":
                    hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
                    hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
-    dbDriver.test_evaluation(checkpoint, performance)
+    checkpoint = os.path.basename(checkpoint)
+    checkpoint_dir, epoch = checkpoint.split("_")
+    epoch, _ = epoch.split(".")
+    dbDriver.test_evaluation(checkpoint_dir, epoch, performance)
     dbDriver.close()
