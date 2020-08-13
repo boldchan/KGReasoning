@@ -144,6 +144,7 @@ parser.add_argument('--explainability_analysis', action='store_true', default=No
 parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
                                                                   'ratio * self representation + (1 - ratio) * neighbors, '
                                                                   'if ratio==0, GCN style, ratio==1, no node representation update')
+parser.add_argument('--update_prev_edges', action='store_true', help='if update node representation along previous selected edges')
 
 args = parser.parse_args()
 
@@ -183,7 +184,8 @@ if __name__ == "__main__":
         model = tDPMPN(nf, contents.num_entities, contents.num_relations, args.emb_dim, DP_steps=args.DP_steps,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation, ratio_update=args.ratio_update,
-                       device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio)
+                       device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
+                       update_prev_edges=args.update_prev_edges)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()

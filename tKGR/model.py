@@ -241,7 +241,7 @@ class G3(torch.nn.Module):
 
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims_in, n_dims_out, ratio_update=0, node_score_aggregation='sum',
+    def __init__(self, n_dims_in, n_dims_out, ratio_update=0, update_prev_edges=True, node_score_aggregation='sum',
                  device='cpu'):
         """[summary]
 
@@ -261,6 +261,7 @@ class AttentionFlow(nn.Module):
 
         self.node_score_aggregation = node_score_aggregation
         self.ratio_update = ratio_update
+        self.update_prev_edges = update_prev_edges
 
         self.query_src_ts_emb = None
         self.query_rel_emb = None
@@ -432,16 +433,20 @@ class AttentionFlow(nn.Module):
                                                                                            transition_logits_pruned_softmax,
                                                                                            linear_act=False)
 
-        for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
-            transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation, rel_emb)
-            # possible solution, use updated rel_emb, but dimension mismatch between update along older edge and along latest edge, since we apply linear on updated node representation
-            transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
-            updated_edge_attention.append(transition_logits_softmax)
-            # only message passing and aggregation, apply dense and act layer
-            updated_visited_node_representation = self._update_node_representation_along_edges(selected_edges,
-                                                                                               updated_visited_node_representation,
-                                                                                               transition_logits_softmax,
-                                                                                               linear_act=False)
+        if self.update_prev_edges:
+            for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
+                transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation, rel_emb)
+                # possible solution, use updated rel_emb, but dimension mismatch between update along older edge and along latest edge, since we apply linear on updated node representation
+                transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
+                updated_edge_attention.append(transition_logits_softmax)
+                # only message passing and aggregation, apply dense and act layer
+                updated_visited_node_representation = self._update_node_representation_along_edges(selected_edges,
+                                                                                                   updated_visited_node_representation,
+                                                                                                   transition_logits_softmax,
+                                                                                                   linear_act=False)
+        else:
+            for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
+                updated_edge_attention.append(torch.ones(len(selected_edges), 1))
 
         # the function's name is confusing, but it simply apply dense layer and activation on updated_memorized_embedding
         updated_visited_node_representation = self.bypass_forward(updated_visited_node_representation)
@@ -520,7 +525,7 @@ class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim: List[int] = None,
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
-                 node_score_aggregation='sum', max_attended_edges=20, ratio_update=0,
+                 node_score_aggregation='sum', max_attended_edges=20, ratio_update=0, update_prev_edges=True
                  device='cpu', analysis=False, **kwargs):
         """[summary]
 
@@ -542,6 +547,7 @@ class tDPMPN(torch.nn.Module):
             seq_len {[type]} -- [description] (default: {None})
             max_attended_nodes {int} -- [max number of nodes in attending-from horizon] (default: {20})
             ratio_update: new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
+            update_prev_edges: if update node representation along previous selected edges
             device {str} -- [description] (default: {'cpu'})
         """
         super(tDPMPN, self).__init__()
@@ -563,7 +569,8 @@ class tDPMPN(torch.nn.Module):
                                                           #static_embed_dim=self.static_embed_dim[_],
                                                           #temporal_embed_dim=self.temporal_embed_dim[_],
                                                           node_score_aggregation=node_score_aggregation,
-                                                          ratio_update=ratio_update, device=device)
+                                                          ratio_update=ratio_update, update_prev_edges=update_prev_edges,
+                                                          device=device)
                                             for _ in range(DP_steps)])
         self.node_emb_proj = nn.Linear(2 * emb_dim[0], emb_dim[0])
         nn.init.xavier_normal_(self.node_emb_proj.weight)
