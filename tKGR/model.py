@@ -525,7 +525,7 @@ class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim: List[int] = None,
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
-                 node_score_aggregation='sum', max_attended_edges=20, ratio_update=0, update_prev_edges=True
+                 node_score_aggregation='sum', max_attended_edges=20, ratio_update=0, update_prev_edges=True,
                  device='cpu', analysis=False, **kwargs):
         """[summary]
 
