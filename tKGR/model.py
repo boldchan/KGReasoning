@@ -435,7 +435,8 @@ class AttentionFlow(nn.Module):
 
         if self.update_prev_edges:
             for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
-                transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation, rel_emb)
+                transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation,
+                                                              rel_emb)
                 # possible solution, use updated rel_emb, but dimension mismatch between update along older edge and along latest edge, since we apply linear on updated node representation
                 transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
                 updated_edge_attention.append(transition_logits_softmax)
@@ -526,7 +527,7 @@ class tDPMPN(torch.nn.Module):
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
                  node_score_aggregation='sum', max_attended_edges=20, ratio_update=0, update_prev_edges=True,
-                 device='cpu', analysis=False, **kwargs):
+                 device='cpu', analysis=False, use_time_embedding=True, **kwargs):
         """[summary]
 
         Arguments:
@@ -555,7 +556,11 @@ class tDPMPN(torch.nn.Module):
 
         self.DP_num_neighbors = DP_num_neighbors
         self.DP_steps = DP_steps
+        self.use_time_embedding = use_time_embedding
         self.ngh_finder = ngh_finder
+
+        if not self.use_time_embedding:
+            emb_static_ratio = 1
 
         self.temporal_embed_dim = [int(emb_dim[_] * 2 / (1 + emb_static_ratio)) for _ in range(DP_steps)]
         self.static_embed_dim = [emb_dim[_] * 2 - self.temporal_embed_dim[_] for _ in range(DP_steps)]
@@ -566,18 +571,24 @@ class tDPMPN(torch.nn.Module):
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop"
         self.att_flow_list = nn.ModuleList([AttentionFlow(emb_dim[_], emb_dim[_ + 1],
-                                                          #static_embed_dim=self.static_embed_dim[_],
-                                                          #temporal_embed_dim=self.temporal_embed_dim[_],
+                                                          # static_embed_dim=self.static_embed_dim[_],
+                                                          # temporal_embed_dim=self.temporal_embed_dim[_],
                                                           node_score_aggregation=node_score_aggregation,
-                                                          ratio_update=ratio_update, update_prev_edges=update_prev_edges,
+                                                          ratio_update=ratio_update,
+                                                          update_prev_edges=update_prev_edges,
                                                           device=device)
                                             for _ in range(DP_steps)])
-        self.node_emb_proj = nn.Linear(2 * emb_dim[0], emb_dim[0])
+        if use_time_embedding:
+            self.node_emb_proj = nn.Linear(2 * emb_dim[0], emb_dim[0])
+        else:
+            self.node_emb_proj = nn.Linear(emb_dim[0], emb_dim[0])
+
         nn.init.xavier_normal_(self.node_emb_proj.weight)
         self.max_attended_edges = max_attended_edges
 
-        self.time_encoder = TimeEncode(expand_dim=self.temporal_embed_dim[0], entity_specific=diac_embed,
-                                       num_entities=num_entity, device=device)
+        if use_time_embedding:
+            self.time_encoder = TimeEncode(expand_dim=self.temporal_embed_dim[0], entity_specific=diac_embed,
+                                           num_entities=num_entity, device=device)
         self.ent_spec_time_embed = diac_embed
 
         self.device = device
@@ -597,15 +608,18 @@ class tDPMPN(torch.nn.Module):
 
         query_src_emb = self.get_ent_emb(self.src_idx_l, self.device)
         query_rel_emb = self.get_rel_emb(self.rel_idx_l, self.device)
-        if self.ent_spec_time_embed:
-            query_ts_emb = self.time_encoder(
-                torch.zeros(len(self.cut_time_l), 1).to(torch.float32).to(self.device),
-                entities=self.src_idx_l)
+        if self.use_time_embedding:
+            if self.ent_spec_time_embed:
+                query_ts_emb = self.time_encoder(
+                    torch.zeros(len(self.cut_time_l), 1).to(torch.float32).to(self.device),
+                    entities=self.src_idx_l)
+            else:
+                query_ts_emb = self.time_encoder(
+                    torch.zeros(len(self.cut_time_l), 1).to(torch.float32).to(self.device))
+            query_ts_emb = torch.squeeze(query_ts_emb, 1)
+            query_src_ts_emb = self.node_emb_proj(torch.cat([query_src_emb, query_ts_emb], axis=1))
         else:
-            query_ts_emb = self.time_encoder(
-                torch.zeros(len(self.cut_time_l), 1).to(torch.float32).to(self.device))
-        query_ts_emb = torch.squeeze(query_ts_emb, 1)
-        query_src_ts_emb = self.node_emb_proj(torch.cat([query_src_emb, query_ts_emb], axis=1))
+            query_src_ts_emb = self.node_emb_proj(query_src_emb)
 
         # init query_src_ts_emb and query_rel_emb for each AttentionFlow layer
         for i, att_flow in enumerate(self.att_flow_list):
@@ -862,13 +876,16 @@ class tDPMPN(torch.nn.Module):
     def get_node_emb(self, src_idx_l, cut_time_l, eg_idx):
 
         hidden_node = self.get_ent_emb(src_idx_l, self.device)
-        cut_time_l = cut_time_l - self.cut_time_l[eg_idx]
-        if self.ent_spec_time_embed:
-            hidden_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device),
-                                            entities=src_idx_l)
+        if self.use_time_embedding:
+            cut_time_l = cut_time_l - self.cut_time_l[eg_idx]
+            if self.ent_spec_time_embed:
+                hidden_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device),
+                                                entities=src_idx_l)
+            else:
+                hidden_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device))
+            return self.node_emb_proj(torch.cat([hidden_node, torch.squeeze(hidden_time, 1)], axis=1))
         else:
-            hidden_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device))
-        return self.node_emb_proj(torch.cat([hidden_node, torch.squeeze(hidden_time, 1)], axis=1))
+            return self.node_emb_proj(hidden_node)
 
     def get_entity_attn_score(self, logits, nodes, tc=None):
         if tc:
