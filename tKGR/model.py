@@ -475,7 +475,7 @@ class AttentionFlow(nn.Module):
         updated_visited_node_representation = self._update_node_representation_along_edges(topk_edges,
                                                                                           visited_node_representation,
                                                                                           transition_logits_pruned_softmax,
-                                                                                          num_nodes, linear_act=False)
+                                                                                          linear_act=False)
 
         for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
             transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation, rel_emb,
@@ -486,7 +486,7 @@ class AttentionFlow(nn.Module):
             updated_visited_node_representation = self._update_node_representation_along_edges(selected_edges,
                                                                                               updated_visited_node_representation,
                                                                                               transition_logits_softmax,
-                                                                                              num_nodes, linear_act=False)
+                                                                                              linear_act=False)
 
         # apply dense and activation
         updated_visited_node_representation = self.bypass_forward(updated_visited_node_representation)
@@ -532,6 +532,9 @@ class AttentionFlow(nn.Module):
             updated_node_representation = self.act_between_steps(self.linear_between_steps(updated_node_representation))
 
         return updated_node_representation
+
+    def bypass_forward(self, embedding):
+        return self.act_between_steps(self.linear_between_steps(embedding))
 
 
 class tDPMPN(torch.nn.Module):
