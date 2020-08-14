@@ -31,7 +31,7 @@ from model import tDPMPN
 import config
 import local_config
 from segment import *
-from database_op import create_mongo_connection
+from database_op import DBDriver
 
 # from gpu_profile import gpu_profile
 
@@ -215,9 +215,18 @@ if __name__ == "__main__":
     else:
         device = 'cpu'
 
+    checkpoint = args.checkpoint
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
+
+    analysis = args.explainability_analysis
+
+    dbDriver = DBDriver(useMongo=True, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer,
+                        sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
+
+    checkpoint = args.load_checkpoint
+    mongodb_analysis_collection_name = 'analysis_' + checkpoint
 
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
@@ -225,10 +234,6 @@ if __name__ == "__main__":
         model, optimizer, start_epoch, contents = load_checkpoint(os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
         sp2o = contents.get_sp2o()
         test_spt2o = contents.get_spt2o('test')
-
-    model.analysis = True
-    mongodb = create_mongo_connection(local_config.MongoServer, "tKGR")
-    model.mongodb = mongodb
 
     hit_1 = hit_3 = hit_10 = 0
     hit_1_fil = hit_3_fil = hit_10_fil = 0
@@ -257,7 +262,43 @@ if __name__ == "__main__":
         degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
         mean_degree += sum(degree_batch)
 
-        entity_att_score, entities = model(sample)
+        if analysis:
+            entity_att_score, entities, tracking = model(sample, analysis=True)
+
+            for i in range(args.batch_size):
+                tracking[i].update({'subject': int(src_idx_l[i]),
+                                    'subject(semantic)': contents.id2entity[src_idx_l[i]],
+                                    'relation': int(rel_idx_l[i]),
+                                    'relation(semantic)': contents.id2relation[rel_idx_l[i]],
+                                    'timestamp': int(cut_time_l[i]),
+                                    'object': int(target_idx_l[i]),
+                                    'object(semantic)': contents.id2entity[target_idx_l[i]],
+                                    'experiment_info': vars(args)})
+                for step in range(args.DP_steps):
+                    tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                         tracking[i][str(step)]["source_nodes"]]
+                    tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                           contents.id2entity[edge[3]], str(edge[4]),
+                                                                           contents.id2relation[edge[5]]]
+                                                                          for edge in
+                                                                          tracking[i][str(step)]["sampled_edges"]]
+                    tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                            contents.id2entity[edge[3]], str(edge[4]),
+                                                                            contents.id2relation[edge[5]]]
+                                                                           for edge in
+                                                                           tracking[i][str(step)]["selected_edges"]]
+                    tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for
+                                                                              n in
+                                                                              tracking[i][str(step)][
+                                                                                  "new_sampled_nodes"]]
+                    tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n
+                                                                             in
+                                                                             tracking[i][str(step)]["new_source_nodes"]]
+                tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
+                                                              tracking[i]['entity_candidate']]
+
+        else:
+            entity_att_score, entities = model(sample, analysis=False)
 
         loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
                           args.gradient_iters_per_update, args.loss_fn)
@@ -276,6 +317,12 @@ if __name__ == "__main__":
                                                                                              src_idx_l,
                                                                                              rel_idx_l,
                                                                                              cut_time_l)
+
+        if analysis:
+            for i in range(args.batch_size):
+                tracking[i]['prediction_rank'] = target_rank_l[i]
+            mongo_id = dbDriver.mongodb[mongodb_analysis_collection_name].insert_many(
+                [tracking[i] for i in range(args.batch_size)]).inserted_ids
         # print(target_rank_l)
         mean_degree_found += sum(degree_batch[found_mask])
         hit_1 += np.sum(target_rank_l == 1)
@@ -327,5 +374,17 @@ if __name__ == "__main__":
             mean_degree_found / found_cnt))
     else:
         print('No subgraph found the ground truth!!')
+
+    performance_key = ['HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
+                       'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil']
+    performance = [hit_1 / num_query,
+                   hit_3 / num_query,
+                   hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
+                   hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
+    performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
+    checkpoint = os.path.basename(checkpoint)
+    checkpoint_dir, epoch = checkpoint.split("_")
+    dbDriver.test_evaluation(checkpoint_dir, epoch[:-3], performance)
+    dbDriver.close()
 
 
