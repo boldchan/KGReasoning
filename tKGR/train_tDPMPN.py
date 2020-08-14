@@ -203,9 +203,7 @@ if __name__ == "__main__":
         dbDriver = DBDriver(useMongo=args.mongo, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer, sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
         git_hash = get_git_version_short_hash()
         git_comment = get_git_description_last_commit()
-        pdb.set_trace()
         dbDriver.log_task(args, checkpoint_dir, git_hash=git_hash, git_comment=git_comment, device=local_config.AWS_device)
-        pdb.set_trace()
         save_config(args, CHECKPOINT_PATH)
 
     sp2o = contents.get_sp2o()
