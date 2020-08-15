@@ -284,24 +284,24 @@ if __name__ == "__main__":
                                 'object(semantic)': contents.id2entity[target_idx_l[i]],
                                 'experiment_info': vars(args)})
                 for step in range(args.DP_steps):
-                tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                     tracking[i][str(step)]["source_nodes"]]
-                tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                       contents.id2entity[edge[3]], str(edge[4]),
-                                                                       contents.id2relation[edge[5]]]
-                                                                      for edge in
-                                                                      tracking[i][str(step)]["sampled_edges"]]
-                tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                        contents.id2entity[edge[3]], str(edge[4]),
-                                                                        contents.id2relation[edge[5]]]
-                                                                       for edge in
-                                                                       tracking[i][str(step)]["selected_edges"]]
-                tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                          tracking[i][str(step)]["new_sampled_nodes"]]
-                tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                         tracking[i][str(step)]["new_source_nodes"]]
-                tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
-                                                      tracking[i]['entity_candidate']]
+                    tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                         tracking[i][str(step)]["source_nodes"]]
+                    tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                           contents.id2entity[edge[3]], str(edge[4]),
+                                                                           contents.id2relation[edge[5]]]
+                                                                          for edge in
+                                                                          tracking[i][str(step)]["sampled_edges"]]
+                    tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                            contents.id2entity[edge[3]], str(edge[4]),
+                                                                            contents.id2relation[edge[5]]]
+                                                                           for edge in
+                                                                           tracking[i][str(step)]["selected_edges"]]
+                    tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                              tracking[i][str(step)]["new_sampled_nodes"]]
+                    tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                             tracking[i][str(step)]["new_source_nodes"]]
+                    tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
+                                                          tracking[i]['entity_candidate']]
 
         else:
             entity_att_score, entities = model(sample, analysis=False)
