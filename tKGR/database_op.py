@@ -40,17 +40,24 @@ class DBDriver:
                                                       git_hash)
             print("save task information in sqlite3 under id: ", task_id)
 
-    def log_evaluation(self, checkpoint_dir, epoch, performance):
-        if self.sqlite_conn:
-            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint_dir, epoch, performance)
-        if self.mongodb:
-            DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance)
+    def log_evaluation(self, checkpoint_dir, epoch, performance_dict):
+        """
 
-    def test_evaluation(self, checkpoint_dir, epoch, performance):
+        :param checkpoint_dir:
+        :param epoch:
+        :param performance_dict: dictionary, key is the name of the metric, value is the quantity
+        :return:
+        """
         if self.sqlite_conn:
-            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint_dir, epoch, performance, table_name='Test_Evaluation')
+            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint_dir, epoch, performance_dict)
         if self.mongodb:
-            DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance, collection='Test_Evaluation')
+            DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance_dict)
+
+    def test_evaluation(self, checkpoint_dir, epoch, performance_dict):
+        if self.sqlite_conn:
+            DBDriver.insert_into_logging_table(self.sqlite_conn, checkpoint_dir, epoch, performance_dict, table_name='Test_Evaluation')
+        if self.mongodb:
+            DBDriver.insert_a_evaluation_mongo(self.mongodb, checkpoint_dir, epoch, performance_dict, collection='Test_Evaluation')
 
     def close(self):
         if self.sqlite_conn:
@@ -106,10 +113,7 @@ class DBDriver:
         return mongo_id
 
     @staticmethod
-    def insert_a_evaluation_mongo(db, checkpoint_dir, epoch, performance, collection='logging'):
-        performance_key = ['training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
-                           'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil']
-        performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
+    def insert_a_evaluation_mongo(db, checkpoint_dir, epoch, performance_dict, collection='logging'):
         checkpoint = db[collection].find_one({'checkpoint_dir': checkpoint_dir})
         if checkpoint:
             db[collection].update_one({"_id": checkpoint['_id']}, {"$set": {"epoch."+str(epoch): performance_dict}})
@@ -248,7 +252,16 @@ class DBDriver:
             DBDriver.create_table(conn, sql_create_loggings_table)
 
     @staticmethod
-    def insert_into_logging_table(conn, checkpoint_dir, epoch, performance, table_name='logging'):
+    def insert_into_logging_table(conn, checkpoint_dir, epoch, performance_dict, table_name='logging'):
+        """
+        sqlite is not vertical scalable, make sure the schema is identical with the existing table
+        :param conn:
+        :param checkpoint_dir:
+        :param epoch:
+        :param performance_dict:
+        :param table_name:
+        :return:
+        """
         with conn:
             cur = conn.cursor()
             # get the count of tables with the name
@@ -259,12 +272,13 @@ class DBDriver:
             if cur.fetchone()[0] != 1:
                 raise Error("table doesn't exist")
 
-            logging_col = (
-                'checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw',
-                'HITS_10_raw',
-                'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
+            # logging_col = (
+            #     'checkpoint_dir', 'epoch', 'training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw',
+            #     'HITS_10_raw',
+            #     'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil')
+            logging_col = list(performance_dict.keys())
             placeholders = ', '.join('?' * len(logging_col))
             sql_logging = 'INSERT OR IGNORE INTO {}({}) VALUES ({})'.format(table_name, ', '.join(logging_col),
                                                                             placeholders)
-            sql_logging_val = [checkpoint_dir, epoch] + performance
+            sql_logging_val = [checkpoint_dir, epoch] + performance_dict.values()
             cur.execute(sql_logging, sql_logging_val)
