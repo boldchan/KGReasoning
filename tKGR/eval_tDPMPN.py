@@ -393,5 +393,5 @@ if __name__ == "__main__":
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
     checkpoint_dir = os.path.dirname(checkpoint)
     _, epoch = os.path.basename(checkpoint).split("_")
-    dbDriver.test_evaluation(checkpoint_dir, epoch[:-3], performance)
+    dbDriver.test_evaluation(checkpoint_dir, epoch[:-3], performance_dict)
     dbDriver.close()
