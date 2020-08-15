@@ -385,11 +385,11 @@ if __name__ == "__main__":
         print('No subgraph found the ground truth!!')
 
     performance_key = ['HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
-                       'HITS_INF', 'MRR_raw', 'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil']
+                       'HITS_INF', 'MRR_raw', 'HITS_1_found', 'HITS_3_found', 'HITS_10_found', 'MRR_found']
     performance = [hit_1 / num_query,
                    hit_3 / num_query,
-                   hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
-                   hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
+                   hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1 / found_cnt,
+                   hit_3 / found_cnt, hit_10 / found_cnt, MRR_found / found_cnt]
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
     checkpoint_dir = os.path.dirname(checkpoint)
     _, epoch = os.path.basename(checkpoint).split("_")
