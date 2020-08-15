@@ -259,7 +259,7 @@ if __name__ == "__main__":
                                   pin_memory=False, shuffle=True)
 
     print("Start Evaluation")
-    for batch_ndx, sample in enumerate(test_data_loader):
+    for batch_ndx, sample in tqdm(enumerate(test_data_loader)):
         model.eval()
 
         src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
@@ -274,34 +274,34 @@ if __name__ == "__main__":
         if analysis:
             entity_att_score, entities, tracking = model(sample, analysis=True)
 
-            for i in range(args.batch_size):
+            for i in range(len(tracking)):
                 tracking[i].update({'subject': int(src_idx_l[i]),
-                                    'subject(semantic)': contents.id2entity[src_idx_l[i]],
-                                    'relation': int(rel_idx_l[i]),
-                                    'relation(semantic)': contents.id2relation[rel_idx_l[i]],
-                                    'timestamp': int(cut_time_l[i]),
-                                    'object': int(target_idx_l[i]),
-                                    'object(semantic)': contents.id2entity[target_idx_l[i]],
-                                    'experiment_info': vars(args)})
+                                'subject(semantic)': contents.id2entity[src_idx_l[i]],
+                                'relation': int(rel_idx_l[i]),
+                                'relation(semantic)': contents.id2relation[rel_idx_l[i]],
+                                'timestamp': int(cut_time_l[i]),
+                                'object': int(target_idx_l[i]),
+                                'object(semantic)': contents.id2entity[target_idx_l[i]],
+                                'experiment_info': vars(args)})
                 for step in range(args.DP_steps):
-                    tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                         tracking[i][str(step)]["source_nodes"]]
-                    tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                           contents.id2entity[edge[3]], str(edge[4]),
-                                                                           contents.id2relation[edge[5]]]
-                                                                          for edge in
-                                                                          tracking[i][str(step)]["sampled_edges"]]
-                    tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                            contents.id2entity[edge[3]], str(edge[4]),
-                                                                            contents.id2relation[edge[5]]]
-                                                                           for edge in
-                                                                           tracking[i][str(step)]["selected_edges"]]
-                    tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                              tracking[i][str(step)]["new_sampled_nodes"]]
-                    tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                             tracking[i][str(step)]["new_source_nodes"]]
+                tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                     tracking[i][str(step)]["source_nodes"]]
+                tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                       contents.id2entity[edge[3]], str(edge[4]),
+                                                                       contents.id2relation[edge[5]]]
+                                                                      for edge in
+                                                                      tracking[i][str(step)]["sampled_edges"]]
+                tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
+                                                                        contents.id2entity[edge[3]], str(edge[4]),
+                                                                        contents.id2relation[edge[5]]]
+                                                                       for edge in
+                                                                       tracking[i][str(step)]["selected_edges"]]
+                tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                          tracking[i][str(step)]["new_sampled_nodes"]]
+                tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
+                                                                         tracking[i][str(step)]["new_source_nodes"]]
                 tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
-                                                              tracking[i]['entity_candidate']]
+                                                      tracking[i]['entity_candidate']]
 
         else:
             entity_att_score, entities = model(sample, analysis=False)
@@ -324,10 +324,10 @@ if __name__ == "__main__":
                                                                                              rel_idx_l,
                                                                                              cut_time_l)
         if analysis:
-            for i in range(args.batch_size):
+            for i in range(len(tracking)):
                 tracking[i]['prediction_rank'] = target_rank_l[i]
             mongo_id = dbDriver.mongodb[mongodb_analysis_collection_name].insert_many(
-                [tracking[i] for i in range(args.batch_size)]).inserted_ids
+                [tracking[i] for i in range(len(tracking))]).inserted_ids
         # for i in range(args.batch_size):
         #     dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]},
         #                                                                   {"$set": {
@@ -391,7 +391,7 @@ if __name__ == "__main__":
                    hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
                    hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
-    checkpoint = os.path.basename(checkpoint)
-    checkpoint_dir, epoch = checkpoint.split("_")
+    checkpoint_dir = os.path.dirname(checkpoint)
+    _, epoch = os.path.basename(checkpoint).split("_")
     dbDriver.test_evaluation(checkpoint_dir, epoch[:-3], performance)
     dbDriver.close()
