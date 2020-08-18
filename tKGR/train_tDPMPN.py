@@ -145,7 +145,7 @@ parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update:
                                                                   'ratio * self representation + (1 - ratio) * neighbors, '
                                                                   'if ratio==0, GCN style, ratio==1, no node representation update')
 parser.add_argument('--stop_update_prev_edges', action='store_true', help='stop updating node representation along previous selected edges')
-
+parser.add_argument('--no_time_embedding', action='store_true', help='set to stop use time embedding')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -185,7 +185,7 @@ if __name__ == "__main__":
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation, ratio_update=args.ratio_update,
                        device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
-                       update_prev_edges=not args.stop_update_prev_edges)
+                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
