@@ -144,8 +144,8 @@ parser.add_argument('--explainability_analysis', action='store_true', default=No
 parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
                                                                   'ratio * self representation + (1 - ratio) * neighbors, '
                                                                   'if ratio==0, GCN style, ratio==1, no node representation update')
-parser.add_argument('--stop_update_prev_edges', action='store_true', help='stop updating node representation along previous selected edges')
-parser.add_argument('--no_time_embedding', action='store_true', help='set to stop use time embedding')
+parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
+parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
 args = parser.parse_args()
 
 if __name__ == "__main__":
