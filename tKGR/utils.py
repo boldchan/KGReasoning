@@ -21,6 +21,11 @@ DataDir = os.path.join(os.path.dirname(__file__), 'data')
 
 class Data:
     def __init__(self, dataset=None, add_reverse_relation=False):
+        """
+
+        :param dataset:
+        :param add_reverse_relation: if True, add reversed relation
+        """
         # load data
         self.id2entity = self._id2entity(dataset=dataset)
         self.id2relation = self._id2relation(dataset=dataset)
@@ -35,6 +40,7 @@ class Data:
         else:
             self.num_relations = num_relations
         self.num_entities = len(self.id2entity)
+        self.id2relation[self.num_relations] = 'selfloop'
 
         self.train_data = self._load_data(os.path.join(DataDir, dataset), "train")
         self.valid_data = self._load_data(os.path.join(DataDir, dataset), "valid")
@@ -216,7 +222,7 @@ class Data:
 
 
 class NeighborFinder:
-    def __init__(self, adj, sampling=1, max_time=366 * 24, num_entities=None, weight_factor=1):
+    def __init__(self, adj, sampling=1, max_time=366 * 24, num_entities=None, weight_factor=1, time_granularity=24):
         """
         Params
         ------
@@ -230,6 +236,7 @@ class NeighborFinder:
         weight_factor: if sampling==3, use weight_factor to scale the time difference
         """
 
+        self.time_granularity = time_granularity
         node_idx_l, node_ts_l, edge_idx_l, off_set_l, off_set_t_l = self.init_off_set(adj, max_time, num_entities)
         self.node_idx_l = node_idx_l
         self.node_ts_l = node_ts_l
@@ -243,6 +250,11 @@ class NeighborFinder:
 
     def init_off_set(self, adj, max_time, num_entities):
         """
+        for events with entity of index i being subject:
+        node_idx_l[off_set_l[i]:off_set_l[i+1]] is the list of object index
+        node_ts_l[off_set_l[i]:off_set_l[i+1]] is the list of timestamp
+        edge_idx_l[off_set_l[i]:off_set_l[i+1]] is the list of relation
+        ordered by (ts, ent, rel) ascending
         Params
         ------
         adj_list: List[List[int]]
@@ -265,7 +277,7 @@ class NeighborFinder:
                 n_ts_l.extend(curr_ts)
 
                 off_set_l.append(len(n_idx_l))
-                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, 24)])# max_time+1 so we have max_time
+                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, self.time_granularity)])# max_time+1 so we have max_time
         elif isinstance(adj, dict):
             for i in range(num_entities):
                 curr = adj.get(i, [])
@@ -276,7 +288,7 @@ class NeighborFinder:
                 n_ts_l.extend(curr_ts)
 
                 off_set_l.append(len(n_idx_l))
-                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, 24)])# max_time+1 so we have max_time
+                off_set_t_l.append([np.searchsorted(curr_ts, cut_time, 'left') for cut_time in range(0, max_time+1, self.time_granularity)])# max_time+1 so we have max_time
 
         n_idx_l = np.array(n_idx_l)
         n_ts_l = np.array(n_ts_l)
@@ -299,7 +311,7 @@ class NeighborFinder:
 
         temp_degree = []
         for i, (src_idx, cut_time) in enumerate(zip(src_idx_l, cut_time_l)):
-            temp_degree.append(self.off_set_t_l[src_idx][int(cut_time / 24)])  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
+            temp_degree.append(self.off_set_t_l[src_idx][int(cut_time / self.time_granularity)])  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
         return np.array(temp_degree)
 
     # def find_before(self, src_idx, cut_time):
@@ -370,8 +382,8 @@ class NeighborFinder:
             neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-            mid = self.off_set_t_l[src_idx][int(cut_time / 24)]
-            end = self.off_set_t_l[src_idx][int(query_time / 24)]
+            mid = self.off_set_t_l[src_idx][int(cut_time / self.time_granularity)]
+            end = self.off_set_t_l[src_idx][int(query_time / self.time_granularity)]
             # every timestamp in neighbors_ts[:mid] is smaller than cut_time
             ngh_idx_before, ngh_eidx_before, ngh_ts_before = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # every timestamp in neighbors_ts[mid:end] is bigger than cut_time and smaller than query_time
@@ -425,7 +437,7 @@ class NeighborFinder:
             neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             mid = self.off_set_t_l[src_idx][
-                int(cut_time / 24)]  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
+                int(cut_time / self.time_granularity)]  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
             # mid = np.searchsorted(neighbors_ts, cut_time)
             ngh_idx, ngh_eidx, ngh_ts = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
             # ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
@@ -473,7 +485,7 @@ class NeighborFinder:
                     # ngh_ts = ngh_ts + 1e-9
                     # weights = ngh_ts / sum(ngh_ts)
 
-                    delta_t = (ngh_ts - cut_time)/(24*self.weight_factor)
+                    delta_t = (ngh_ts - cut_time)/(self.time_granularity*self.weight_factor)
                     weights = np.exp(delta_t) + 1e-9
                     weights = weights / sum(weights)
 
@@ -610,8 +622,10 @@ def save_config(args, dir: str):
     git_hash = get_git_version_short_hash()
     git_comment = get_git_description_last_commit()
     args_dict['git_hash'] = '\t'.join([git_hash, git_comment])
-    with open(os.path.join(dir, 'config.json'), 'w') as fp:
-        json.dump(args_dict, fp)
+    if not os.path.exists(os.path.join(dir, 'config.json')):
+        with open(os.path.join(dir, 'config.json'), 'w') as fp:
+            json.dump(args_dict, fp)
+            print("Log configuration under {}".format(os.path.join(dir, 'config.json')))
 
 
 def get_segment_ids(x):
@@ -652,9 +666,9 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
 #                       recalculate_att_after_prun=args.recalculate_att_after_prun,
 #                       node_score_aggregation=args.node_score_aggregation,
 #                       device=device)
-        kwargs= vars(args)
+        kwargs = vars(args)
         kwargs['device'] = device
-        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), **kwargs)
+        model = tDPMPN(nf, contents.num_entities, contents.num_relations, **kwargs)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
@@ -667,4 +681,18 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
     else:
         raise IOError("=> no checkpoint found at '{}'".format(checkpoint_dir))
 
-    return model, optimizer, start_epoch, contents
+    return model, optimizer, start_epoch, contents, args
+
+
+def new_checkpoint(save_dir, struct_time):
+    checkpoint_dir = 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
+        struct_time.tm_year,
+        struct_time.tm_mon,
+        struct_time.tm_mday,
+        struct_time.tm_hour,
+        struct_time.tm_min,
+        struct_time.tm_sec)
+    CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', checkpoint_dir)
+    if not os.path.exists(CHECKPOINT_PATH):
+        os.makedirs(CHECKPOINT_PATH, mode=0o770)
+    return checkpoint_dir, CHECKPOINT_PATH

@@ -26,16 +26,12 @@ from tqdm import tqdm
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit, load_checkpoint
+from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit, load_checkpoint, new_checkpoint
 from model import tDPMPN
 import config
 import local_config
 from segment import *
-from database_op import create_connection, create_task_table, create_logging_table, insert_into_logging_table, \
-    insert_into_task_table, create_mongo_connection, insert_a_task_mongo, insert_a_evaluation_mongo
-
-
-# from gpu_profile import gpu_profile
+from database_op import DBDriver
 
 save_dir = local_config.save_dir
 
@@ -144,95 +140,83 @@ parser.add_argument('--mongo', action='store_true', default=None, help='save inf
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
+parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
+parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
+                                                                  'ratio * self representation + (1 - ratio) * neighbors, '
+                                                                  'if ratio==0, GCN style, ratio==1, no node representation update')
+parser.add_argument('--stop_update_prev_edges', action='store_true', help='stop updating node representation along previous selected edges')
+
 args = parser.parse_args()
 
 if __name__ == "__main__":
     print(args)
-    # sys.settrace(gpu_profile)
+
     # check cuda
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
     else:
         device = 'cpu'
 
-    if not args.debug:
-        if args.sqlite:
-            sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-            task_col = ('dataset', 'emb_dim', 'lr', 'batch_size', 'sampling', 'DP_steps',
-                        'DP_num_neighbors', 'max_attended_edges', 'add_reverse',
-                        'node_score_aggregation', 'diac_embed', 'simpl_att', 'emb_static_ratio', 'loss_fn')
-
-            if sqlite_conn is not None:
-                create_task_table(sqlite_conn, task_col, args, table_name='tasks')
-                create_logging_table(sqlite_conn, table_name='logging')
-            else:
-                print("Error! cannot create the database connection.")
-        if args.mongo:
-            mongodb = create_mongo_connection(config.MongoServer, "tKGR")
+    # profile time consumption
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
 
-    # save configuration
+    # init model and checkpoint folder
     start_time = time.time()
     struct_time = time.gmtime(start_time)
 
-    if not args.debug:
-        if args.load_checkpoint is None:
-            checkpoint_dir = 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
-                struct_time.tm_year,
-                struct_time.tm_mon,
-                struct_time.tm_mday,
-                struct_time.tm_hour,
-                struct_time.tm_min,
-                struct_time.tm_sec)
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', checkpoint_dir)
-            if not os.path.exists(CHECKPOINT_PATH):
-                os.makedirs(CHECKPOINT_PATH, mode=0o770)
-        else:
-            checkpoint_dir = os.path.dirname(args.load_checkpoint)
-            CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
-
-        if args.sqlite:
-            # args_dict = vars(args)
-            git_hash = '\t'.join([get_git_version_short_hash(), get_git_description_last_commit()])
-            task_id = insert_into_task_table(sqlite_conn, task_col, args, checkpoint_dir, git_hash, table_name="tasks")
-            print("Log configuration to SQLite under {}".format(os.path.join(save_dir, 'tKGR.db')))
-        elif args.mongo:
-            git_hash = get_git_version_short_hash()
-            git_comment = get_git_description_last_commit()
-            task_id = insert_a_task_mongo(mongodb, args, checkpoint_dir, git_hash, git_comment, local_config.AWS_device)
-        else:
-            print("Save checkpoints under {}".format(CHECKPOINT_PATH))
-            save_config(args, CHECKPOINT_PATH)
-            print("Log configuration under {}".format(CHECKPOINT_PATH))
-
-
-    if args.load_checkpoint is not None:
-        model, optimizer, start_epoch, contents = load_checkpoint(os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
-        start_epoch += 1
-    else:
+    if args.load_checkpoint is None:
+        checkpoint_dir, CHECKPOINT_PATH = new_checkpoint(save_dir, struct_time)
         contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
 
         adj = contents.get_adj_dict()
         max_time = max(contents.data[:, 3])
         # construct NeighborFinder
-        nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity),
-                            weight_factor=args.weight_factor)
+        if 'yago' in args.dataset.lower():
+            time_granularity = 1
+        elif 'icews' in args.dataset.lower():
+            time_granularity = 24
+
+        nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=contents.num_entities,
+                            weight_factor=args.weight_factor, time_granularity=time_granularity)
         # construct model
-        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, DP_steps=args.DP_steps,
+        model = tDPMPN(nf, contents.num_entities, contents.num_relations, args.emb_dim, DP_steps=args.DP_steps,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-                       node_score_aggregation=args.node_score_aggregation,
-                       device=device, diac_embed = args.diac_embed, emb_static_ratio = args.emb_static_ratio)
+                       node_score_aggregation=args.node_score_aggregation, ratio_update=args.ratio_update,
+                       device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
+                       update_prev_edges=not args.stop_update_prev_edges)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
         model.relation_raw_embed.cpu()
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         start_epoch = 0
+        if not args.debug:
+            print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+    else:
+        checkpoint_dir = os.path.dirname(args.load_checkpoint)
+        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
+        model, optimizer, start_epoch, contents, args = load_checkpoint(
+            os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
+        start_epoch += 1
+        print("Load checkpoints {}".format(CHECKPOINT_PATH))
+
+    # save configuration to database and file system
+    if not args.debug:
+        dbDriver = DBDriver(useMongo=args.mongo, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer, sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
+        git_hash = get_git_version_short_hash()
+        git_comment = get_git_description_last_commit()
+        dbDriver.log_task(args, checkpoint_dir, git_hash=git_hash, git_comment=git_comment, device=local_config.AWS_device)
+        save_config(args, CHECKPOINT_PATH)
 
     sp2o = contents.get_sp2o()
     val_spt2o = contents.get_spt2o('valid')
+    train_inputs = prepare_inputs(contents, start_time=args.warm_start_time, tc=time_cost)
+    val_inputs = prepare_inputs(contents, dataset='valid', tc=time_cost)
+    analysis_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                 pin_memory=False, shuffle=True)
+    analysis_batch = next(iter(analysis_data_loader))
 
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
@@ -244,6 +228,55 @@ if __name__ == "__main__":
         running_loss = 0.
 
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
+            if args.explainability_analysis and batch_ndx % 50 == 0:
+                assert args.mongo
+                mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
+                src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
+                mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
+                                                cut_time_l,
+                                                target_idx_l, vars(args), contents.id2entity, contents.id2relation)
+                model.eval()
+                entity_att_score, entities, tracking = model(analysis_batch, analysis=True)
+                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(
+                    entity_att_score,
+                    entities,
+                    target_idx_l,
+                    sp2o,
+                    val_spt2o,
+                    src_idx_l,
+                    rel_idx_l,
+                    cut_time_l)
+                for i in range(args.batch_size):
+                    for step in range(args.DP_steps):
+                        tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n
+                                                                             in
+                                                                             tracking[i][str(step)]["source_nodes"]]
+                        tracking[i][str(step)]["sampled_edges(semantics)"] = [
+                            [contents.id2entity[edge[1]], str(edge[2]),
+                             contents.id2entity[edge[3]], str(edge[4]),
+                             contents.id2relation[edge[5]]]
+                            for edge in
+                            tracking[i][str(step)]["sampled_edges"]]
+                        tracking[i][str(step)]["selected_edges(semantics)"] = [
+                            [contents.id2entity[edge[1]], str(edge[2]),
+                             contents.id2entity[edge[3]], str(edge[4]),
+                             contents.id2relation[edge[5]]]
+                            for edge in
+                            tracking[i][str(step)]["selected_edges"]]
+                        tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])]
+                                                                                  for
+                                                                                  n in tracking[i][str(step)][
+                                                                                      "new_sampled_nodes"]]
+                        tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])]
+                                                                                 for n
+                                                                                 in
+                                                                                 tracking[i][str(step)][
+                                                                                     "new_source_nodes"]]
+                    tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
+                                                                  tracking[i]['entity_candidate']]
+                    tracking[i]['epoch'] = epoch
+                    tracking[i]['batch_idx'] = batch_ndx
+                    dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
             optimizer.zero_grad()
             model.zero_grad()
             model.train()
@@ -309,7 +342,6 @@ if __name__ == "__main__":
             mean_degree = 0
             mean_degree_found = 0
 
-            val_inputs = prepare_inputs(contents, dataset='valid', tc=time_cost)
             val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                          pin_memory=False, shuffle=True)
 
@@ -399,13 +431,10 @@ if __name__ == "__main__":
                            hit_3 / num_query,
                            hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
                            hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
-            if args.sqlite:
-                sqlite_conn = create_connection(os.path.join(save_dir, 'tKGR.db'))
-                insert_into_logging_table(sqlite_conn, checkpoint_dir, epoch, performance)
-            if args.mongo:
-                insert_a_evaluation_mongo(mongodb, checkpoint_dir, epoch, performance)
+
+            dbDriver.log_evaluation(checkpoint_dir, epoch, performance)
 
 
-    mongodb.close()
+    dbDriver.close()
     print("finished Training")
 #     os.umask(oldmask)

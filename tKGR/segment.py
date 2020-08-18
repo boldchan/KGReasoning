@@ -1,4 +1,5 @@
 import time
+from itertools import product
 
 import numpy as np
 import torch
@@ -141,6 +142,14 @@ def segment_max(logits, segment_ids, keep_length=True):
 
 
 def segment_softmax_op_v2(logits, segment_ids, tc=None):
+    """
+
+    :param logits:
+    :param segment_ids: numpy array, same length as logits, logits[i] belongs to segment segment_ids[i]
+    logits in the same segment should aranged in a continuous block
+    :param tc:
+    :return:
+    """
     device = logits.get_device()
     if device == -1:
         device = torch.device('cpu')
@@ -201,6 +210,52 @@ def segment_norm_l1(logits, segment_ids, tc=None):
 
     norm_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, logits.unsqueeze(1)))
     return logits / norm_den
+
+
+def segment_norm_l1_part(logits, logits_ids, segment_ids, tc=None):
+    """
+    apply segment l1 norm on logits[start:]
+    :param logits_ids: apply l1 norm on which logits
+    :param logits:
+    :param start:
+    :param end:
+    :param segment_idx: segment indicator for logits specified by logits_ids
+    :param tc:
+    :return:
+    """
+    device = logits.get_device()
+    if device == -1:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda:{}'.format(device))
+
+    len_logits = len(logits)
+    if tc:
+        t_start = time.time()
+
+    mask = segment_ids[1:] != segment_ids[:-1]
+    segment_start = np.concatenate([np.array([0]),
+                                    np.arange(1, len(segment_ids))[mask],
+                                    np.array([len(segment_ids)])])
+    sparse_index_l = []
+    for start, end in zip(segment_start[:-1], segment_start[1:]):
+        sparse_index_l += [[x, y] for x, y in product(logits_ids[start:end], repeat=2)]
+
+    sparse_index_np = np.array(sparse_index_l).T
+
+    if tc:
+        tc['model']['DP_attn_softmax_trans_matrix'] = time.time() - t_start
+
+    sparse_index = torch.LongTensor(sparse_index_np)
+    sparse_value = torch.ones(sparse_index_np.shape[1], dtype=torch.float)
+
+    trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                      torch.Size([len_logits, len_logits])).to(device)
+
+    norm_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, logits.unsqueeze(1)))
+    res = logits / norm_den
+    res[res != res] = 0 # res != res inidcates where NaNs (0/0) are
+    return res
 
 
 def segment_topk(t, segment_idx, k, sorted=False):
