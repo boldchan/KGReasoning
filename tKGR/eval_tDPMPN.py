@@ -207,6 +207,8 @@ parser.add_argument('--gradient_iters_per_update', type=int, default=1,
                     help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
+parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
+parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
 args = parser.parse_args()
 
 if __name__ == "__main__":
