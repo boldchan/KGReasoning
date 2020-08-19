@@ -660,6 +660,8 @@ class tDPMPN(torch.nn.Module):
             #            print("{}-th DP step".format(step))
             attended_nodes, visited_nodes, visited_node_score, visited_node_representation = \
                 self._flow(attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step)
+            # pdb.set_trace()
+            visited_node_score = segment_norm_l1(visited_node_score, visited_nodes[:, 0])
         entity_att_score, entities = self.get_entity_attn_score(visited_node_score[attended_nodes[:, -1]],
                                                                 attended_nodes)
 
@@ -681,6 +683,7 @@ class tDPMPN(torch.nn.Module):
                                               attended_nodes_i[:, 3]].tolist()}
             attended_nodes, visited_nodes, visited_node_score, visited_node_representation, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, updated_edge_attention = self._analyse_flow(
                 attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step=step)
+            visited_node_score = segment_norm_l1(visited_node_score, visited_nodes[:, 0])
             for i in range(batch_size):
                 mask = sampled_edges[:, 0] == i
                 tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist()

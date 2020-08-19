@@ -185,8 +185,9 @@ def segment_softmax_op_v2(logits, segment_ids, tc=None):
     return out
 
 
-def segment_norm_l1(logits, segment_ids, tc=None):
+def segment_norm_l1_ordered(logits, segment_ids, tc=None):
     """
+    segment_ids has to be ordered
     logits: Tensor 1d
     segment_ids: numpy.array 1d
     """
@@ -210,6 +211,40 @@ def segment_norm_l1(logits, segment_ids, tc=None):
 
     norm_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, logits.unsqueeze(1)))
     return logits / norm_den
+
+
+def segment_norm_l1(logits, segment_ids):
+    """
+    segment_ids doesn't have to be ordered
+    :param logits: Tensor
+    :param segment_ids: 1-d numpy array
+    :return:
+    """
+    device = logits.get_device()
+    if device == -1:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda:{}'.format(device))
+
+    N_segment = max(segment_ids) + 1
+    # get denominator by multiplication logits with a matrix
+    # get a 1-d tensor with a length of N_segment
+    sparse_index = torch.LongTensor(np.vstack([segment_ids, np.arange(len(segment_ids))]))
+    sparse_value = torch.ones(len(segment_ids), dtype=torch.float)
+    trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                      torch.Size([N_segment, len(segment_ids)])).to(device)
+    norm_den = torch.sparse.mm(trans_matrix_sparse_th, logits.unsqueeze(1))
+
+    # copy denominator so that it has the same lenghth as the logits and the dominator lies in the same position
+    # ie den[i] is the denominator for segment_ids[i]
+    sparse_index = torch.LongTensor(np.vstack([np.arange(len(segment_ids)), segment_ids]))
+    sparse_value = torch.ones(len(segment_ids), dtype=torch.float)
+    trans_matrix_sparse_th = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                      torch.Size([len(segment_ids), N_segment])).to(device)
+    den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, norm_den))
+    res = logits / den
+    res[res != res] = 0  # res != res inidcates where NaNs (0/0) are
+    return res
 
 
 def segment_norm_l1_part(logits, logits_ids, segment_ids, tc=None):
