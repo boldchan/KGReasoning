@@ -427,12 +427,15 @@ if __name__ == "__main__":
             else:
                 print('No subgraph found the ground truth!!')
 
+            performance_key = ['HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
+                               'HITS_INF', 'MRR_raw', 'HITS_1_found', 'HITS_3_found', 'HITS_10_found', 'MRR_found']
             performance = [running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
                            hit_3 / num_query,
                            hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
                            hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
+            performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
 
-            dbDriver.log_evaluation(checkpoint_dir, epoch, performance)
+            dbDriver.log_evaluation(checkpoint_dir, epoch, performance_dict)
 
 
     dbDriver.close()
