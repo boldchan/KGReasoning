@@ -660,7 +660,7 @@ class tDPMPN(torch.nn.Module):
             #            print("{}-th DP step".format(step))
             attended_nodes, visited_nodes, visited_node_score, visited_node_representation = \
                 self._flow(attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step)
-            pdb.set_trace()
+#            pdb.set_trace()
             visited_node_score = segment_norm_l1(visited_node_score, visited_nodes[:, 0])
         entity_att_score, entities = self.get_entity_attn_score(visited_node_score[attended_nodes[:, -1]],
                                                                 attended_nodes)
