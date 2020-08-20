@@ -660,7 +660,7 @@ class tDPMPN(torch.nn.Module):
             #            print("{}-th DP step".format(step))
             attended_nodes, visited_nodes, visited_node_score, visited_node_representation = \
                 self._flow(attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step)
-            # pdb.set_trace()
+            pdb.set_trace()
             visited_node_score = segment_norm_l1(visited_node_score, visited_nodes[:, 0])
         entity_att_score, entities = self.get_entity_attn_score(visited_node_score[attended_nodes[:, -1]],
                                                                 attended_nodes)
@@ -880,7 +880,7 @@ class tDPMPN(torch.nn.Module):
 
         hidden_node = self.get_ent_emb(src_idx_l, self.device)
         if self.use_time_embedding:
-            cut_time_l = cut_time_l - self.cut_time_l[eg_idx]
+            cut_time_l = (cut_time_l - self.cut_time_l[eg_idx])/self.ngh_finder.time_granularity
             if self.ent_spec_time_embed:
                 hidden_time = self.time_encoder(torch.from_numpy(cut_time_l[:, np.newaxis]).to(self.device),
                                                 entities=src_idx_l)
