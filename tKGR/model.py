@@ -855,6 +855,7 @@ class tDPMPN(torch.nn.Module):
             np.array([int(v == target_idx_l[eg_idx]) for eg_idx, v in entities], dtype=np.float32)).to(self.device)
         try:
             assert gradient_iters_per_update > 0
+            entity_att_score = entity_att_score*0.999+0.0009
             if loss_fn == 'BCE':
                 if gradient_iters_per_update == 1:
                     loss = torch.nn.BCELoss()(entity_att_score, one_hot_label)
