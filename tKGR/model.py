@@ -686,10 +686,14 @@ class tDPMPN(torch.nn.Module):
             visited_node_score = segment_norm_l1(visited_node_score, visited_nodes[:, 0])
             for i in range(batch_size):
                 mask = sampled_edges[:, 0] == i
-                tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist()
+                tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist() # sampled edges here mean the total edges sampled from the neighborhood of last attended_nodes
                 tracking[i][str(step)]["sampled_edges_attention"] = edge_attn_before_pruning[mask].tolist()
                 tracking[i][str(step)]["selected_edges"] = self.sampled_edges_l[-1][
-                    self.sampled_edges_l[-1][:, 0] == i].tolist()
+                    self.sampled_edges_l[-1][:, 0] == i].tolist() # selected edges here mean the edges left after prunning, it's different than the variable name.
+                selected_edge_attention = updated_edge_attention[-1].cpu().detach().numpy()[mask]
+                selected_edge_source_score = visited_node_score.cpu().detach().numpy()[sampled_edges[:, -2][mask]]
+                contribution_score = selected_edge_source_score * selected_edge_attention
+                tracking[i][str(step)]["contribution_score"] = contribution_score.tolist()
                 for st, (selected_edges, selected_edge_att) in enumerate(
                         zip(self.sampled_edges_l, updated_edge_attention)):
                     mask = selected_edges[:, 0] == i
