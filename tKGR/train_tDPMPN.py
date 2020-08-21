@@ -427,7 +427,7 @@ if __name__ == "__main__":
             else:
                 print('No subgraph found the ground truth!!')
 
-            performance_key = ['HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
+            performance_key = ['training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
                                'HITS_INF', 'MRR_raw', 'HITS_1_found', 'HITS_3_found', 'HITS_10_found', 'MRR_found']
             performance = [running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
                            hit_3 / num_query,
