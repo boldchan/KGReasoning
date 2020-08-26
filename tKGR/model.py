@@ -895,10 +895,10 @@ class tDPMPN(torch.nn.Module):
         num_nodes = len(nodes)
         entities, entities_idx = np.unique(nodes[:, :2], axis=0, return_inverse=True)
         sparse_index = torch.LongTensor(np.stack([entities_idx, np.arange(num_nodes)]))
-        sparse_value = torch.ones(num_nodes, dtype=torch.float)
+        sparse_value = torch.ones(num_nodes, dtype=torch.float))
         if aggr == 'mean':
             c = Counter([(node[0], node[1]) for node in nodes[:, :2]])
-            target_node_cnt = torch.tensor([c[(_[0], _[1])] for _ in nodes[:, :2]]).to(device)
+            target_node_cnt = torch.tensor([c[(_[0], _[1])] for _ in nodes[:, :2]])
             sparse_value = torch.div(sparse_value, target_node_cnt)
 
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
