@@ -130,6 +130,7 @@ parser.add_argument('--max_attended_edges', type=int, default=20, help='max numb
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight')
 parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
+parser.add_argument('--ent_score_aggregation', type=str, default='sum', choices=['sum', 'mean'])
 parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
 parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
 parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
@@ -183,8 +184,8 @@ if __name__ == "__main__":
         # construct model
         model = tDPMPN(nf, contents.num_entities, contents.num_relations, args.emb_dim, DP_steps=args.DP_steps,
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-                       node_score_aggregation=args.node_score_aggregation, ratio_update=args.ratio_update,
-                       device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
+                       node_score_aggregation=args.node_score_aggregation, ent_score_aggregation=args.ent_score_aggregation,
+                       ratio_update=args.ratio_update, device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
                        update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
