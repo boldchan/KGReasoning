@@ -659,8 +659,14 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
 
         adj = contents.get_adj_dict()
         max_time = max(contents.data[:, 3])
+
+        if 'yago' in args.dataset.lower():
+            time_granularity = 1
+        elif 'icews' in args.dataset.lower():
+            time_granularity = 24
+
         nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity),
-                            weight_factor=args.weight_factor)
+                            weight_factor=args.weight_factor, time_granularity=time_granularity)
 #        model = tDPMPN(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
 #                       DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
 #                       recalculate_att_after_prun=args.recalculate_att_after_prun,
