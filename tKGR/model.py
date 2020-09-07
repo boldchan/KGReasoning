@@ -15,38 +15,6 @@ sys.path.insert(1, PackageDir)
 from segment import segment_softmax_op_v2, segment_topk, segment_norm_l1_part, segment_norm_l1
 
 
-def _aggregate_op_entity(logits, nodes):
-    """aggregate attention score of same entity, i.e. same (eg_idx, v)
-
-    Arguments:
-        logits {Tensor} -- attention score
-        nodes {numpy.array} -- shape len(logits) x 3, (eg_idx, v, t), sorted by eg_idx, v, t
-    return:
-        entity_att_score {Tensor}: shape num_entity
-        entities: numpy.array -- shape num_entity x 2, (eg_idx, v)
-        att_score[i] if the attention score of entities[i]
-    """
-    device = logits.get_device()
-    if device == -1:
-        device = torch.device('cpu')
-    else:
-        device = torch.device('cuda:{}'.format(device))
-
-    num_nodes = len(nodes)
-    entities, entities_idx = np.unique(nodes[:, :2], axis=0, return_inverse=True)
-    sparse_index = torch.LongTensor(np.stack([entities_idx, np.arange(num_nodes)]))
-    sparse_value = torch.ones(num_nodes, dtype=torch.float)
-    trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
-                                                   torch.Size([len(entities), num_nodes])).to(device)
-    entity_att_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1)))
-    # entity_att_score = torch.zeros(len(entities), dtype=torch.float32).to(device)
-
-    # for i in range(len(entities)):
-    #     entity_att_score[i] = torch.sum(logits[entities_idx == i])
-
-    return entity_att_score, entities
-
-
 class TimeEncode(torch.nn.Module):
     '''
     This class implemented the Bochner's time embedding
@@ -526,8 +494,8 @@ class tDPMPN(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim: List[int] = None,
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
-                 node_score_aggregation='sum', max_attended_edges=20, ratio_update=0, update_prev_edges=True,
-                 device='cpu', analysis=False, use_time_embedding=True, **kwargs):
+                 node_score_aggregation='sum', ent_score_aggregation='sum', max_attended_edges=20, ratio_update=0,
+                 update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True, **kwargs):
         """[summary]
 
         Arguments:
@@ -593,6 +561,7 @@ class tDPMPN(torch.nn.Module):
 
         self.device = device
         self.analysis = analysis
+        self.ent_score_aggregation = ent_score_aggregation
 
     def set_init(self, src_idx_l, rel_idx_l, cut_time_l):
         # save query information
@@ -686,10 +655,10 @@ class tDPMPN(torch.nn.Module):
             visited_node_score = segment_norm_l1(visited_node_score, visited_nodes[:, 0])
             for i in range(batch_size):
                 mask = sampled_edges[:, 0] == i
-                tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist() # sampled edges here mean the total edges sampled from the neighborhood of last attended_nodes
+                tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist() # sampled_edges here mean the total edges sampled from the neighborhood of last attended_nodes
                 tracking[i][str(step)]["sampled_edges_attention"] = edge_attn_before_pruning[mask].tolist()
                 tracking[i][str(step)]["selected_edges"] = self.sampled_edges_l[-1][
-                    self.sampled_edges_l[-1][:, 0] == i].tolist() # selected edges here mean the edges left after prunning, it's different than the variable name.
+                    self.sampled_edges_l[-1][:, 0] == i].tolist() # self.sampled_edges is a list of sampled edges left after prunning, it's different than what the variable name means.
                 mask = self.sampled_edges_l[-1][:, 0] == i
                 selected_edge_source_score = visited_node_score.cpu().detach().numpy()[self.sampled_edges_l[-1][:, -2][mask]]
                 selected_edge_attention = updated_edge_attention[-1].cpu().detach().numpy()[mask]
@@ -899,12 +868,48 @@ class tDPMPN(torch.nn.Module):
     def get_entity_attn_score(self, logits, nodes, tc=None):
         if tc:
             t_start = time.time()
-        entity_attn_score, entities = _aggregate_op_entity(logits, nodes)
+        entity_attn_score, entities = self._aggregate_op_entity(logits, nodes, self.ent_score_aggregation)
         #        # normalize entity prediction score
         #        entity_attn_score = segment_norm_l1(entity_attn_score, entities[:, 0])
         if tc:
             tc['model']['entity_attn'] = time.time() - t_start
         return entity_attn_score, entities
+
+    def _aggregate_op_entity(self, logits, nodes, aggr='sum'):
+        """aggregate attention score of same entity, i.e. same (eg_idx, v)
+
+        Arguments:
+            logits {Tensor} -- attention score
+            nodes {numpy.array} -- shape len(logits) x 3, (eg_idx, v, t), sorted by eg_idx, v, t
+        return:
+            entity_att_score {Tensor}: shape num_entity
+            entities: numpy.array -- shape num_entity x 2, (eg_idx, v)
+            att_score[i] if the attention score of entities[i]
+        """
+        device = logits.get_device()
+        if device == -1:
+            device = torch.device('cpu')
+        else:
+            device = torch.device('cuda:{}'.format(device))
+
+        num_nodes = len(nodes)
+        entities, entities_idx = np.unique(nodes[:, :2], axis=0, return_inverse=True)
+        sparse_index = torch.LongTensor(np.stack([entities_idx, np.arange(num_nodes)]))
+        sparse_value = torch.ones(num_nodes, dtype=torch.float)
+        if aggr == 'mean':
+            c = Counter([(node[0], node[1]) for node in nodes[:, :2]])
+            target_node_cnt = torch.tensor([c[(_[0], _[1])] for _ in nodes[:, :2]])
+            sparse_value = torch.div(sparse_value, target_node_cnt)
+
+        trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
+                                                       torch.Size([len(entities), num_nodes])).to(device)
+        entity_att_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1)))
+        # entity_att_score = torch.zeros(len(entities), dtype=torch.float32).to(device)
+
+        # for i in range(len(entities)):
+        #     entity_att_score[i] = torch.sum(logits[entities_idx == i])
+
+        return entity_att_score, entities
 
     def _get_sampled_edges(self, attended_nodes, num_neighbors: int = 20, step=None, add_self_loop=True, tc=None):
         """[summary]
