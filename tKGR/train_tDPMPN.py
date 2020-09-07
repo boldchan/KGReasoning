@@ -165,6 +165,7 @@ if __name__ == "__main__":
     # init model and checkpoint folder
     start_time = time.time()
     struct_time = time.gmtime(start_time)
+    epoch_command = args.epoch
 
     if args.load_checkpoint is None:
         checkpoint_dir, CHECKPOINT_PATH = new_checkpoint(save_dir, struct_time)
@@ -199,6 +200,7 @@ if __name__ == "__main__":
         CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
         model, optimizer, start_epoch, contents, args = load_checkpoint(
             os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
+        args.epoch = epoch_command
         start_epoch += 1
         print("Load checkpoints {}".format(CHECKPOINT_PATH))
 
