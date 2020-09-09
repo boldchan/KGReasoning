@@ -35,12 +35,6 @@ from database_op import DBDriver
 
 save_dir = local_config.save_dir
 
-# Reproducibility
-torch.manual_seed(1)
-np.random.seed(1)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-
 
 def reset_time_cost():
     return {'model': defaultdict(float), 'graph': defaultdict(float), 'grad': defaultdict(float),
@@ -147,9 +141,16 @@ parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update:
                                                                   'if ratio==0, GCN style, ratio==1, no node representation update')
 parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
+parser.add_argument('--random_seed', type=int, default=1)
 args = parser.parse_args()
 
 if __name__ == "__main__":
+    # Reproducibility
+    torch.manual_seed(args.random_seed)
+    np.random.seed(args.random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     print(args)
 
     # check cuda
