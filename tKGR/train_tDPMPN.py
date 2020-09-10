@@ -222,6 +222,8 @@ if __name__ == "__main__":
                                  pin_memory=False, shuffle=True)
     analysis_batch = next(iter(analysis_data_loader))
 
+    best_epoch = 0
+    best_val = 0
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
         # load data
@@ -440,8 +442,13 @@ if __name__ == "__main__":
             performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
 
             dbDriver.log_evaluation(checkpoint_dir, epoch, performance_dict)
+            if performance[2] > best_val:
+                best_val = performance[2]
+                best_epoch = epoch
 
 
     dbDriver.close()
     print("finished Training")
 #     os.umask(oldmask)
+    print("start evaluation on test set")
+    os.system("python eval_tDPMPN.py --load_checkpoint {} --mongo --device 0".format('/'.join(checkpoint_dir, best_epoch)))
