@@ -96,7 +96,6 @@ class F(torch.nn.Module):
             x = l(x)
         return x
 
-
 class G(torch.nn.Module):
     def __init__(self, left_dims, right_dims, output_dims):
         """[summary]
@@ -134,8 +133,7 @@ class G(torch.nn.Module):
             self.left_act(self.left_dense(left_x)) * self.center_dense(self.right_act(self.right_dense(right_x))),
             dim=-1)
 
-
-class G2(torch.nn.Module):
+class G2(torch.nn.Module):  # No center_dense layer
     def __init__(self, dim_in, dim_out):
         """[summary]
         bilinear mapping along last dimension of x and y:
@@ -147,10 +145,12 @@ class G2(torch.nn.Module):
             output_dims {[type]} -- [description]
         """
         super(G2, self).__init__()
-        self.query_proj = nn.Linear(dim_in, dim_out)
-        nn.init.normal_(self.queery_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
-        self.key_proj = nn.Linear(dim_in, dim_out)
+        self.query_proj = nn.Linear(dim_in, dim_out, bias=False)
+        nn.init.normal_(self.query_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
+        self.key_proj = nn.Linear(dim_in, dim_out, bias=False)
         nn.init.normal_(self.right_dense.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
+        self.left_act = nn.LeakyReLU()
+        self.right_act = nn.LeakyReLU()
 
     def forward(self, inputs):
         """[summary]
@@ -165,11 +165,71 @@ class G2(torch.nn.Module):
         # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
         # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
         return torch.sum(
-            self.query_proj(left_x) * self.key_proj(right_x),
-            dim=-1) / np.sqrt(self.dim_in)
+            self.left_act(self.query_proj(left_x)) * self.right_act(self.key_proj(right_x)), dim=-1)
 
+class G3(torch.nn.Module):  # mimic Transformer
+    def __init__(self, dim_in, dim_out):
+        """[summary]
+        bilinear mapping along last dimension of x and y:
+        output = MLP_1(x)^T A MLP_2(y), where A is two-dimenion matrix
 
-class G3(torch.nn.Module):
+        Arguments:
+            left_dims {[type]} -- input dims of MLP_1
+            right_dims {[type]} -- input dims of MLP_2
+            output_dims {[type]} -- [description]
+        """
+        super(G3, self).__init__()
+        self.dim_out = dim_out
+        self.query_proj = nn.Linear(dim_in, dim_out, bias=False)
+        nn.init.normal_(self.query_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
+        self.key_proj = nn.Linear(dim_in, dim_out, bias=False)
+        nn.init.normal_(self.right_dense.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
+
+    def forward(self, inputs):
+        """[summary]
+        Arguments:
+            inputs: (left, right)
+            left[i] -- tensor, bs x ... x left_dims
+            right[i] -- tensor, bs x ... x right_dims
+        """
+        vi, vj = inputs
+        left_x = torch.cat(vi, dim=-1)
+        right_x = torch.cat(vj, dim=-1)
+        # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
+        # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
+        return torch.sum(self.query_proj(left_x) * self.key_proj(right_x), dim=-1) / np.sqrt(self.dim_out)
+
+class G4(torch.nn.Module):  # mimic GAT TODO: how to understand the a(.) functino in GAT?
+    def __init__(self, dim_in, dim_out):
+        """[summary]
+        bilinear mapping along last dimension of x and y:
+        output = MLP_1(x)^T A MLP_2(y), where A is two-dimenion matrix
+
+        Arguments:
+            left_dims {[type]} -- input dims of MLP_1
+            right_dims {[type]} -- input dims of MLP_2
+            output_dims {[type]} -- [description]
+        """
+        super(G4, self).__init__()
+        self.dim_out = dim_out
+        self.proj = nn.Linear(dim_in, dim_out, bias=False)
+        nn.init.normal_(self.proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
+
+    def forward(self, inputs):
+        """[summary]
+        Arguments:
+            inputs: (left, right)
+            left[i] -- tensor, bs x ... x left_dims
+            right[i] -- tensor, bs x ... x right_dims
+        """
+        vi, vj = inputs
+        left_x = torch.cat(vi, dim=-1)
+        right_x = torch.cat(vj, dim=-1)
+        # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
+        # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
+        return torch.sum(self.proj(left_x) * self.proj(right_x), dim=-1) / np.sqrt(self.dim_out)
+
+class G_deprecated(torch.nn.Module):  # Problematic
     def __init__(self, emb_dims, num_rel):
         """[summary]
         model different relation
@@ -180,7 +240,7 @@ class G3(torch.nn.Module):
             right_dims {[type]} -- input dims of MLP_2
             output_dims {[type]} -- [description]
         """
-        super(G, self).__init__()
+        super(G_deprecated, self).__init__()
         self.left_dense = nn.Linear(emb_dims, emb_dims)
         nn.init.normal_(self.left_dense.weight, mean=0, std=np.sqrt(2.0 / (emb_dims)))
         self.right_dense = nn.Linear(emb_dims, emb_dims)
@@ -210,7 +270,7 @@ class G3(torch.nn.Module):
 
 class AttentionFlow(nn.Module):
     def __init__(self, n_dims_in, n_dims_out, ratio_update=0, update_prev_edges=True, node_score_aggregation='sum',
-                 device='cpu'):
+                 device='cpu', attention_func = 'G'):
         """[summary]
 
         Arguments:
@@ -220,7 +280,16 @@ class AttentionFlow(nn.Module):
         """
         super(AttentionFlow, self).__init__()
 
-        self.transition_fn = G(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)  # ? followup
+        if attention_func == 'G':
+            self.transition_fn = G(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
+        elif attention_func == 'G2':
+            self.transition_fn = G2(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
+        elif attention_func == 'G3':
+            self.transition_fn = G3(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
+        elif attention_func == 'G4':
+            self.transition_fn = G4(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
+        else:
+            raise KeyError
 
         # dense layer between steps
         self.linear_between_steps = nn.Linear(n_dims_in, n_dims_out)
@@ -495,7 +564,7 @@ class tDPMPN(torch.nn.Module):
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
                  node_score_aggregation='sum', ent_score_aggregation='sum', max_attended_edges=20, ratio_update=0,
-                 update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True, **kwargs):
+                 update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True, attention_func = 'G', **kwargs):
         """[summary]
 
         Arguments:
@@ -544,7 +613,7 @@ class tDPMPN(torch.nn.Module):
                                                           node_score_aggregation=node_score_aggregation,
                                                           ratio_update=ratio_update,
                                                           update_prev_edges=update_prev_edges,
-                                                          device=device)
+                                                          device=device, attention_func = 'G')
                                             for _ in range(DP_steps)])
         if use_time_embedding:
             self.node_emb_proj = nn.Linear(2 * emb_dim[0], emb_dim[0])
