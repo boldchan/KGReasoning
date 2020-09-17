@@ -142,6 +142,7 @@ parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update:
 parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
 parser.add_argument('--random_seed', type=int, default=1)
+parser.add_argument('--attention_func', type=str, default='G', help='choice of attention functions')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -188,7 +189,8 @@ if __name__ == "__main__":
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation, ent_score_aggregation=args.ent_score_aggregation,
                        ratio_update=args.ratio_update, device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
-                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding)
+                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding,
+                       attention_func = args.attention_func)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
