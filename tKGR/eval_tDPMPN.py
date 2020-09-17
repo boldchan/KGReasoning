@@ -225,6 +225,7 @@ if __name__ == "__main__":
         time_cost = reset_time_cost()
 
     analysis = args.explainability_analysis
+    eval_batch_size = args.batch_size
 
     dbDriver = DBDriver(useMongo=True, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer,
                         sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
@@ -262,7 +263,7 @@ if __name__ == "__main__":
     mean_degree_found = 0
 
     test_inputs = prepare_inputs(contents, dataset='test', tc=time_cost)
-    test_data_loader = DataLoader(test_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+    test_data_loader = DataLoader(test_inputs, batch_size=eval_batch_size, collate_fn=collate_wrapper,
                                   pin_memory=False, shuffle=True)
 
     print("Start Evaluation")

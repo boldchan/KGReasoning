@@ -129,13 +129,14 @@ def segment_max(logits, segment_ids, keep_length=True):
     :return:
     1d Tensor
     """
+    device = logits.get_device()
     n_logits = len(segment_ids)
     mask = segment_ids[1:] != segment_ids[:-1]
     seg_head_ids = np.concatenate([np.array([0]),
                                    np.arange(1, n_logits)[mask],
                                    np.array([n_logits])]).astype(np.int64)
     if keep_length:
-        seg_max_ind = torch.cat([(torch.argmax(logits[torch.arange(head, tail).to(torch.int64)]) + torch.tensor([head]).to(torch.int64)).repeat(tail - head) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
+        seg_max_ind = torch.cat([(torch.argmax(logits[torch.arange(head, tail).to(torch.int64).to(device)]) + torch.tensor([head]).to(torch.int64).to(device)).repeat(tail - head) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
     else:
         seg_max_ind = torch.cat([torch.argmax(logits[torch.arange(head, tail).to(torch.int64)]) + torch.tensor([head]).to(torch.int64) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
     return logits[seg_max_ind]
