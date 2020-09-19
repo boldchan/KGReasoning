@@ -453,4 +453,4 @@ if __name__ == "__main__":
     print("finished Training")
 #     os.umask(oldmask)
     print("start evaluation on test set")
-    os.system("python eval_tDPMPN.py --load_checkpoint {} --mongo --device 0".format('/'.join(checkpoint_dir, best_epoch)))
+    os.system("python eval_tDPMPN.py --load_checkpoint {}/checkpoint_{}.pt --mongo --device 0 --explainability_analysis".format(checkpoint_dir, best_epoch))
