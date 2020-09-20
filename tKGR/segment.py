@@ -99,7 +99,7 @@ def segment_sum(logits, segment_ids, keep_length=True):
     logits_len = len(segment_ids)
     num_segments = max(segment_ids) + 1
 
-    # calculate summation of exponential of logits value for each group
+    # calculate summation of logits value for each group
     sparse_index = torch.LongTensor(np.stack([segment_ids, np.arange(logits_len)]))
     sparse_value = torch.ones(logits_len, dtype=torch.float)
     trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
@@ -108,7 +108,7 @@ def segment_sum(logits, segment_ids, keep_length=True):
     if not keep_length:
         return seg_sum
 
-    # repeat softmax denominator to have the same length as logits
+    # repeat summation to have the same length as logits
     sparse_index2 = torch.LongTensor(np.stack([np.arange(logits_len), segment_ids]))
     sparse_value2 = torch.ones(logits_len, dtype=torch.float)
     trans_matrix_sparse2 = torch.sparse.FloatTensor(sparse_index2, sparse_value2,

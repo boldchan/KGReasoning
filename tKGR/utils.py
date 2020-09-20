@@ -231,7 +231,7 @@ class NeighborFinder:
         node_idx_l: List[int]
         node_ts_l: List[int]
         off_set_l: List[int], such that node_idx_l[off_set_l[i]:off_set_l[i + 1]] = adjacent_list[i][:,0]
-        off_set_t_l: node_idx_l[off_set_l[i]:off_set_l[i + 1]][:off_set_t_l[i][cut_time/24]] --> object of entity i that happen before cut time
+        off_set_t_l: node_idx_l[off_set_l[i]:off_set_l[i + 1]][:off_set_t_l[i][cut_time/time_granularity]] --> object of entity i that happen before cut time
         num_entities: number of entities, if adj is dict it cannot be None
         weight_factor: if sampling==3, use weight_factor to scale the time difference
         """
@@ -498,6 +498,19 @@ class NeighborFinder:
                     out_ngh_node_batch[i, num_neighbors - len(sampled_idx):] = ngh_idx[sampled_idx]
                     out_ngh_t_batch[i, num_neighbors - len(sampled_idx):] = ngh_ts[sampled_idx]
                     out_ngh_eidx_batch[i, num_neighbors - len(sampled_idx):] = ngh_eidx[sampled_idx]
+                elif self.sampling == 4:
+                    weights = (ngh_ts + 1) / sum(ngh_ts + 1)
+
+                    if len(ngh_idx) >= num_neighbors:
+                        sampled_idx = np.random.choice(len(ngh_idx), num_neighbors, replace=False, p=weights)
+                    else:
+                        sampled_idx = np.random.choice(len(ngh_idx), len(ngh_idx), replace=False, p=weights)
+
+                    sampled_idx = np.sort(sampled_idx)
+                    out_ngh_node_batch[i, num_neighbors - len(sampled_idx):] = ngh_idx[sampled_idx]
+                    out_ngh_t_batch[i, num_neighbors - len(sampled_idx):] = ngh_ts[sampled_idx]
+                    out_ngh_eidx_batch[i, num_neighbors - len(sampled_idx):] = ngh_eidx[sampled_idx]
+
                 elif self.sampling == -1: # use whole neighborhood
                     full_ngh_node.append(ngh_idx[-300:])
                     full_ngh_t.append(ngh_ts[-300:])
