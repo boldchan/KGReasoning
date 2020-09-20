@@ -186,8 +186,8 @@ parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda d
 parser.add_argument('--sampling', type=int, default=3,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
 parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
-parser.add_argument('--DP_num_neighbors', type=int, default=40, help='number of neighbors sampled for sampling horizon')
-parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of nodes in attending from horizon')
+parser.add_argument('--DP_num_neighbors', type=int, default=15, help='number of neighbors sampled for sampling horizon')
+parser.add_argument('--max_attended_edges', type=int, default=40, help='max number of nodes in attending from horizon')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
 parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight')
 parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
@@ -225,11 +225,15 @@ if __name__ == "__main__":
         time_cost = reset_time_cost()
 
     analysis = args.explainability_analysis
+    eval_batch_size = args.batch_size
 
     dbDriver = DBDriver(useMongo=True, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer,
                         sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
 
     checkpoint = args.load_checkpoint
+    DP_num_neighbors = args.DP_num_neighbors
+    max_attended_edges = args.max_attended_edges
+
     mongodb_analysis_collection_name = 'analysis_' + checkpoint
 
     if args.load_checkpoint is None:
@@ -237,6 +241,8 @@ if __name__ == "__main__":
     else:
         model, optimizer, start_epoch, contents, args = load_checkpoint(
             os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
+        args.DP_num_neighbors = DP_num_neighbors
+        args.max_attended_edges = max_attended_edges
         sp2o = contents.get_sp2o()
         test_spt2o = contents.get_spt2o('test')
 
@@ -257,7 +263,7 @@ if __name__ == "__main__":
     mean_degree_found = 0
 
     test_inputs = prepare_inputs(contents, dataset='test', tc=time_cost)
-    test_data_loader = DataLoader(test_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+    test_data_loader = DataLoader(test_inputs, batch_size=eval_batch_size, collate_fn=collate_wrapper,
                                   pin_memory=False, shuffle=True)
 
     print("Start Evaluation")

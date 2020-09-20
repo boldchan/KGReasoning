@@ -35,12 +35,6 @@ from database_op import DBDriver
 
 save_dir = local_config.save_dir
 
-# Reproducibility
-torch.manual_seed(1)
-np.random.seed(1)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-
 
 def reset_time_cost():
     return {'model': defaultdict(float), 'graph': defaultdict(float), 'grad': defaultdict(float),
@@ -147,9 +141,17 @@ parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update:
                                                                   'if ratio==0, GCN style, ratio==1, no node representation update')
 parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
+parser.add_argument('--random_seed', type=int, default=1)
+parser.add_argument('--attention_func', type=str, default='G', help='choice of attention functions')
 args = parser.parse_args()
 
 if __name__ == "__main__":
+    # Reproducibility
+    torch.manual_seed(args.random_seed)
+    np.random.seed(args.random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     print(args)
 
     # check cuda
@@ -166,6 +168,7 @@ if __name__ == "__main__":
     # init model and checkpoint folder
     start_time = time.time()
     struct_time = time.gmtime(start_time)
+    epoch_command = args.epoch
 
     if args.load_checkpoint is None:
         checkpoint_dir, CHECKPOINT_PATH = new_checkpoint(save_dir, struct_time)
@@ -186,7 +189,8 @@ if __name__ == "__main__":
                        DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation, ent_score_aggregation=args.ent_score_aggregation,
                        ratio_update=args.ratio_update, device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
-                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding)
+                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding,
+                       attention_func = args.attention_func)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
@@ -200,6 +204,7 @@ if __name__ == "__main__":
         CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
         model, optimizer, start_epoch, contents, args = load_checkpoint(
             os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
+        args.epoch = epoch_command
         start_epoch += 1
         print("Load checkpoints {}".format(CHECKPOINT_PATH))
 
@@ -219,6 +224,8 @@ if __name__ == "__main__":
                                  pin_memory=False, shuffle=True)
     analysis_batch = next(iter(analysis_data_loader))
 
+    best_epoch = 0
+    best_val = 0
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
         # load data
@@ -437,8 +444,13 @@ if __name__ == "__main__":
             performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
 
             dbDriver.log_evaluation(checkpoint_dir, epoch, performance_dict)
+            if performance[2] > best_val:
+                best_val = performance[2]
+                best_epoch = epoch
 
 
     dbDriver.close()
     print("finished Training")
 #     os.umask(oldmask)
+    print("start evaluation on test set")
+    os.system("python eval_tDPMPN.py --load_checkpoint {}/checkpoint_{}.pt --mongo --device 0 --explainability_analysis".format(checkpoint_dir, best_epoch))
