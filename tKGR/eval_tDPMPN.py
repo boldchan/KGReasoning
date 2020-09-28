@@ -256,6 +256,8 @@ if __name__ == "__main__":
     MR_found = 0
     MRR_total = 0
     MRR_found = 0
+    MR_total_fil = 0
+    MR_total_fil_t = 0
     MRR_total_fil = 0
     MRR_total_fil_t = 0
     num_query = 0
@@ -358,6 +360,8 @@ if __name__ == "__main__":
         MRR_total += np.sum(1 / target_rank_l)
         MRR_found += len(found_mask) and np.sum(
             1 / target_rank_l[found_mask])  # if no subgraph contains ground truth, MRR_found = 0 for this batch
+        MR_total_fil += np.sum(target_rank_fil_l)
+        MR_total_fil_t += np.sum(target_rank_fil_t_l)
         MRR_total_fil += np.sum(1 / target_rank_fil_l)
         MRR_total_fil_t += np.sum(1 / target_rank_fil_t_l)
     print(
@@ -392,12 +396,14 @@ if __name__ == "__main__":
     else:
         print('No subgraph found the ground truth!!')
 
-    performance_key = ['HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
-                       'HITS_INF', 'MRR_raw', 'HITS_1_found', 'HITS_3_found', 'HITS_10_found', 'MRR_found']
-    performance = [hit_1 / num_query,
-                   hit_3 / num_query,
-                   hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1 / found_cnt,
-                   hit_3 / found_cnt, hit_10 / found_cnt, MRR_found / found_cnt]
+    performance_key = ['HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw', 'HITS_INF', 'MRR_raw', 'MR_raw',
+                       'HITS_1_found', 'HITS_3_found', 'HITS_10_found', 'MRR_found',
+                       'HITS_1_fil', 'HITS_3_fil', 'HITS_10_fil', 'MRR_fil', 'MR_fil',
+                       'HITS_1_fil_t', 'HITS_3_fil_t', 'HITS_10_fil_t', 'MRR_fil_t', 'MR_fil_t']
+    performance = [hit_1 / num_query, hit_3 / num_query, hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, MR_total/num_query,
+                   hit_1 / found_cnt, hit_3 / found_cnt, hit_10 / found_cnt, MRR_found / found_cnt,
+                   hit_1_fil / num_query, hit_3_fil / num_query, hit_10_fil / num_query, MRR_total_fil / num_query, MR_total_fil / num_query,
+                   hit_1_fil_t / num_query, hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query, MR_total_fil_t / num_query]
     performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
     checkpoint_dir = os.path.dirname(checkpoint)
     _, epoch = os.path.basename(checkpoint).split("_")
