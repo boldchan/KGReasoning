@@ -379,8 +379,8 @@ def segment_rank_fil(t, entities, target_idx_l, sp2o, spt2o, queries_sub, querie
             rank_pred_com1 = torch.sum(t[s:e] > t[s:e][torch.from_numpy(arg_target)]).item()
             rank_pred_com2 = torch.sum(t[s:e] == t[s:e][torch.from_numpy(arg_target)]).item()
             rank.append(rank_pred_com1 + ((rank_pred_com2 - 1) / 2) + 1)
-            fil = [ent not in obj_exist for ent in entities[s:e, 1]]
-            fil_t = [ent not in obj_exist_t for ent in entities[s:e, 1]]
+            fil = [ent not in np.setdiff1d(obj_exist, [target_idx_l[i]]) for ent in entities[s:e, 1]]
+            fil_t = [ent not in np.setdiff1d(obj_exist_t, [target_idx_l[i]]) for ent in entities[s:e, 1]]
             rank_pred_com1_fil = torch.sum(t[s:e][fil] > t[s:e][torch.from_numpy(arg_target)]).item()
             rank_pred_com2_fil = torch.sum(t[s:e][fil] == t[s:e][torch.from_numpy(arg_target)]).item()
             rank_fil.append(rank_pred_com1_fil + ((rank_pred_com2_fil - 1) / 2) + 1)
