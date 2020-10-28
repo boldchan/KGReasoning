@@ -181,7 +181,10 @@ if __name__ == "__main__":
             time_granularity = 1
         elif 'icews' in args.dataset.lower():
             time_granularity = 24
-
+        elif 'gdelt' in args.dataset.lower():
+            time_granularity = 24
+        else:
+            raise ValueError
         nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=contents.num_entities,
                             weight_factor=args.weight_factor, time_granularity=time_granularity)
         # construct model
