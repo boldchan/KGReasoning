@@ -559,7 +559,7 @@ class AttentionFlow(nn.Module):
         return self.act_between_steps(self.linear_between_steps(embedding))
 
 
-class tDPMPN(torch.nn.Module):
+class tERTKG(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim: List[int] = None,
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
@@ -574,7 +574,7 @@ class tDPMPN(torch.nn.Module):
         Keyword Arguments:
             num_entity {[type]} -- [description] (default: {None})
             num_rel {[type]} -- [description] (default: {None})
-            embed_dim {[type]} -- [dimension of DPMPN embedding] (default: {None})
+            embed_dim {[type]} -- [dimension of ERTKG embedding] (default: {None})
             attn_mode {str} -- [currently only prod is supported] (default: {'prod'})
             use_time {str} -- [use time embedding] (default: {'time'})
             agg_method {str} -- [description] (default: {'attn'})
@@ -588,7 +588,7 @@ class tDPMPN(torch.nn.Module):
             update_prev_edges: if update node representation along previous selected edges
             device {str} -- [description] (default: {'cpu'})
         """
-        super(tDPMPN, self).__init__()
+        super(tERTKG, self).__init__()
         assert len(emb_dim) == DP_steps + 1
 
         self.DP_num_neighbors = DP_num_neighbors
@@ -987,7 +987,7 @@ class tDPMPN(torch.nn.Module):
         attended nodes: nodes in the current subgraph
         Arguments:
             attended_nodes {numpy.array} shape: num_attended_nodes x 4 (eg_idx, vi, ti, node_idx), dtype int32
-            -- [nodes (with time) in attended from horizon, for detail refer to DPMPN paper]
+            -- [nodes (with time) in attended from horizon, for detail refer to ERTKG paper]
 
         Returns:
             sampled_edges: {numpy.array, num_edges x 8} -- (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj) (default: {None}), sorted ascending by eg_idx, ti, vi, tj, vj, rel dtype int32

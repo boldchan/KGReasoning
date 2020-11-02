@@ -1,51 +1,60 @@
 import os
+# the mode argument of the os.makedirs function may be ignored on some systems
+# umask (user file-creation mode mask) specify the default denial value of variable mode,
+# which means if this value is passed to makedirs function,
+# it will be ignored and a folder/file with d_________ will be created
+# we can either set the umask or specify mode in makedirs
+
+# oldmask = os.umask(0o770)
+
 import sys
+import gc
 
 from collections import defaultdict
 import argparse
 import time
 import copy
 import pdb
+from collections import defaultdict
 
 import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
-from sklearn.metrics import roc_auc_score, average_precision_score, f1_score
 
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from utils import Data, NeighborFinder, Measure, save_config
-from module import TGAN
+from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit, load_checkpoint, new_checkpoint
+from model import tERTKG
 import config
 import local_config
+from segment import *
+from database_op import DBDriver
 
 save_dir = local_config.save_dir
 
-# Reproducibility
-torch.manual_seed(0)
-np.random.seed(0)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
+
+def reset_time_cost():
+    return {'model': defaultdict(float), 'graph': defaultdict(float), 'grad': defaultdict(float),
+            'data': defaultdict(float)}
 
 
-def load_checkpoint(model, optimizer, checkpoint_dir):
-    if os.path.isfile(checkpoint_dir):
-        print("=> loading checkpoint '{}'".format(checkpoint_dir))
-        checkpoint = torch.load(checkpoint_dir)
-        start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        print("=> loaded checkpoint '{}' (epoch {})".format(checkpoint_dir, checkpoint['epoch']))
+def str_time_cost(tc):
+    if tc is not None:
+        data_tc = ', '.join('data.{} {:3f}'.format(k, v) for k, v in tc['data'].items())
+        model_tc = ', '.join('m.{} {:3f}'.format(k, v) for k, v in tc['model'].items())
+        graph_tc = ', '.join('g.{} {:3f}'.format(k, v) for k, v in tc['graph'].items())
+        grad_tc = ', '.join('d.{} {:3f}'.format(k, v) for k, v in tc['grad'].items())
+        return model_tc + ', ' + graph_tc + ', ' + grad_tc
     else:
-        raise IOError("=> no checkpoint found at '{}'".format(checkpoint_dir))
+        return ''
 
-    return model, optimizer, start_epoch
 
-def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
+def prepare_inputs(contents, dataset='train', start_time=0, tc=None):
     '''
+    :param tc: time recorder
     :param contents: instance of Data object
     :param num_neg_sampling: how many negtive sampling of objects for each event
     :param start_time: neg sampling for events since start_time (inclusive)
@@ -53,6 +62,7 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
     :return:
     events concatenated with negative sampling
     '''
+    t_start = time.time()
     if dataset == 'train':
         contents_dataset = contents.train_data
         assert start_time < max(contents_dataset[:, 3])
@@ -65,283 +75,385 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0):
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
     events = np.vstack([np.array(event) for event in contents_dataset if event[3] >= start_time])
-    neg_obj_idx = contents.neg_sampling_object(num_neg_sampling, dataset=dataset, start_time=start_time)
-    return np.concatenate([events, neg_obj_idx], axis=1)
+    if args.timer:
+        tc['data']['load_data'] += time.time() - t_start
+    return events
 
 
 # help Module for custom Dataloader
 class SimpleCustomBatch:
     def __init__(self, data):
         transposed_data = list(zip(*data))
-        self.src_idx = np.array(transposed_data[0])
-        self.rel_idx = np.array(transposed_data[1])
-        self.obj_idx = np.array(transposed_data[2])
-        self.ts = np.array(transposed_data[3])
-        self.neg_idx = np.array(transposed_data[4:]).T
+        self.src_idx = np.array(transposed_data[0], dtype=np.int32)
+        self.rel_idx = np.array(transposed_data[1], dtype=np.int32)
+        self.target_idx = np.array(transposed_data[2], dtype=np.int32)
+        self.ts = np.array(transposed_data[3], dtype=np.int32)
+        self.event_idx = np.array(transposed_data[-1], dtype=np.int32)
 
     # custom memory pinning method on custom type
     def pin_memory(self):
         self.src_idx = self.src_idx.pin_memory()
         self.rel_idx = self.rel_idx.pin_memory()
-        self.obj_idx = self.obj_idx.pin_memory()
-        self.neg_idx = self.neg_idx.pin_memory()
+        self.target_idx = self.target_idx.pin_memory()
         self.ts = self.ts.pin_memory()
+        self.event_idx = self.event_idx.pin_memory()
 
         return self
 
+    def __str__(self):
+        return "Batch Information:\nsrc_idx: {}\nrel_idx: {}\ntarget_idx: {}\nts: {}".format(self.src_idx, self.rel_idx, self.target_idx, self.ts)
 
-# help function for custom Dataloader
+
 def collate_wrapper(batch):
     return SimpleCustomBatch(batch)
 
 
-def val_loss_acc(tgan, valid_dataloader, num_neighbors, cal_acc: bool = False, sp2o=None, spt2o=None, num_batches=1e8):
-    '''
-
-    :param spt2o: if sp2o is None and spt2o is not None, a stricter evaluation on object prediction is performed
-    :param sp2o: if sp2o is not None, a looser evaluation on object prediction is performed, in this case spt2o is ignored
-    :param tgan:
-    :param valid_dataloader:
-    :param num_neighbors:
-    :param num_batches: how many batches are used to calculate **accuracy**
-    :return:
-    '''
-    val_loss = 0
-    measure = Measure()
-
-    with torch.no_grad():
-        tgan = tgan.eval()
-        num_events = 0
-        num_neg_events = 0
-        for batch_idx, sample in enumerate(valid_dataloader):
-            src_idx_l = sample.src_idx
-            obj_idx_l = sample.obj_idx
-            rel_idx_l = sample.rel_idx
-            ts_l = sample.ts
-            neg_idx_l = sample.neg_idx
-            num_events += len(src_idx_l)
-
-            src_embed, target_embed, neg_embed = tgan.forward(src_idx_l, obj_idx_l, neg_idx_l, ts_l, num_neighbors)
-
-            rel_idx_t = torch.from_numpy(rel_idx_l).detach_().to(device)
-            rel_embed = model.edge_raw_embed(rel_idx_t)
-
-            # rel_embed_diag = torch.diag_embed(rel_embed)
-            # loss_pos_term = -torch.nn.LogSigmoid()(
-            #     -torch.bmm(
-            #         torch.bmm(torch.unsqueeze(src_embed, 1), rel_embed_diag),
-            #         torch.unsqueeze(target_embed, 2)))  # Bx1
-            # loss_neg_term = torch.nn.LogSigmoid()(
-            #     torch.bmm(torch.bmm(neg_embed, rel_embed_diag), torch.unsqueeze(src_embed, 2)).view(-1, 1))  # BxQx1
-            #
-            # loss = torch.sum(loss_pos_term) - torch.sum(loss_neg_term)
-            # val_loss.append(loss.item()/(len()))
-
-            with torch.no_grad():
-                pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
-                neg_label = torch.zeros(neg_embed.shape[0] * neg_embed.shape[1], dtype=torch.float, device=device)
-
-            pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
-            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed,
-                                  dim=2).view(-1)  # [batch_size x num_neg_sampling]
-
-            loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
-            loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
-            val_loss += loss.item()
-
-            num_neg_events += len(neg_score)
-
-            # prediction accuracy
-            if cal_acc and batch_idx < num_batches:
-                for src_idx, rel_idx, obj_idx, ts in list(zip(src_idx_l, rel_idx_l, obj_idx_l, ts_l)):
-                    if sp2o is not None:
-                        obj_candidate = sp2o[(src_idx, rel_idx)]
-                        pred_score = tgan.obj_predict(src_idx, rel_idx, ts, obj_candidate).cpu().numpy()
-                        rank = np.sum(pred_score > pred_score[obj_candidate.index(obj_idx)]) + 1
-                        measure.update(rank, 'fil')
-                    else:
-                        pred_score = tgan.obj_predict(src_idx, rel_idx, ts).cpu().numpy()
-                        if spt2o is not None:
-                            mask = np.ones_like(pred_score, dtype=bool)
-                            np.put(mask, spt2o[(src_idx, rel_idx, ts)],
-                                   False)  # exclude all event with same (s,p,t) even the one with current object
-                            rank = np.sum(pred_score[mask] > pred_score[obj_idx]) + 1
-                            measure.update(rank, 'fil')
-                    rank = np.sum(pred_score > pred_score[obj_idx]) + 1  # int
-                    measure.update(rank, 'raw')
-
-        measure.normalize(num_events)
-        val_loss /= (num_neg_events + num_events)
-    return val_loss, measure
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
-parser.add_argument('--num_neg_sampling', type=int, default=None,
-                    help="number of negative sampling of objects for each event")
-parser.add_argument('--num_layers', type=int, default=None, help='number of TGAN layers')
-parser.add_argument('--warm_start_time', type=int, default=None, help="training data start from what timestamp")
-parser.add_argument('--node_feat_dim', type=int, default=None, help='dimension of embedding for node')
-parser.add_argument('--edge_feat_dim', type=int, default=None, help='dimension of embedding for edge')
-parser.add_argument('--lr', type=float, default=None)
-parser.add_argument('--epoch', type=int, default=None)
-parser.add_argument('--batch_size', type=int, default=None)
-parser.add_argument('--num_neighbors', type=int, default=None, help='how many neighbors to aggregate information from, '
-                                                                  'check paper Inductive Representation Learning '
-                                                                  'for Temporal Graph for detail')
-parser.add_argument('--looking_afterwards', action='store_true', default=None,
-        help='if NeighborFinder can find neighbors from events happened later, but still before query time')
+parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
+parser.add_argument('--emb_dim', type=int, default=[256, 128, 64, 32], nargs='+', help='dimension of embedding for node, realtion and time')
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--epoch', type=int, default=20)
+parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
-parser.add_argument('--sampling', type=int, default=None, help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
-parser.add_argument('--')
-# parser.add_argument('--val_num_batch', type=int, default=1e8,
-#                     help='how many validation batches are used for calculating accuracy '
-#                          'specify a really large integer to use all validation set')
-# parser.add_argument('--evaluation_level', type=int, default=1, choices=[0, 1],
-#                     help="0: a looser 'fil' evaluation on object prediction,"
-#                          "prediction score is ranked among objects that "
-#                          "don't exist in whole data set. sp2o will be used"
-#                          "1: a stricter 'fil' evaluation on object prediction"
-#                          "prediction score is ranked among objects that"
-#                          "don't exist in the current timestamp. spt2o is "
-#                          "used")
-parser.add_argument('--add_reverse', action='store_true', default=None)
+parser.add_argument('--sampling', type=int, default=3,
+                    help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
+parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
+parser.add_argument('--DP_num_neighbors', type=int, default=40, help='number of neighbors sampled for sampling horizon')
+parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of nodes in attending from horizon')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
-hparams = parser.parse_args()
+parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight')
+parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
+parser.add_argument('--ent_score_aggregation', type=str, default='sum', choices=['sum', 'mean'])
+parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
+parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
+parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
+parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
+parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
+parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
+parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
+parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
+parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
+parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
+parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
+parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
+                                                                  'ratio * self representation + (1 - ratio) * neighbors, '
+                                                                  'if ratio==0, GCN style, ratio==1, no node representation update')
+parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
+parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
+parser.add_argument('--random_seed', type=int, default=1)
+parser.add_argument('--attention_func', type=str, default='G', help='choice of attention functions')
+args = parser.parse_args()
 
-if __name__ == '__main__':
-    default_parser = config.get_default_config(hparams.dataset)
-    args = copy.deepcopy(default_parser.parse_args())
-    for param in vars(hparams):
-        attr = getattr(hparams, param)
-        if attr is not None:
-            setattr(args, param, attr)
-    assert args.node_feat_dim == args.edge_feat_dim
+if __name__ == "__main__":
+    # Reproducibility
+    torch.manual_seed(args.random_seed)
+    np.random.seed(args.random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
-    start_time = time.time()
-    struct_time = time.gmtime(start_time)
+    print(args)
 
-    if args.load_checkpoint is None:
-        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', 'checkpoints_{}_{}_{}_{}_{}_{}'.format(
-                    struct_time.tm_year,
-                    struct_time.tm_mon,
-                    struct_time.tm_mday,
-                    struct_time.tm_hour,
-                    struct_time.tm_min,
-                    struct_time.tm_sec))
-        if not os.path.exists(CHECKPOINT_PATH):
-            os.makedirs(CHECKPOINT_PATH)
-    else:
-        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
-
-    print("Save checkpoints under {}".format(CHECKPOINT_PATH))
-    save_config(args, CHECKPOINT_PATH)
-    print("Log configuration under {}".format(CHECKPOINT_PATH))
-
+    # check cuda
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
     else:
         device = 'cpu'
-    # load dataset
-    contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
 
-    # mapping between (s,p,t) -> o, will be used by evaluating object-prediction
+    # profile time consumption
+    time_cost = None
+    if args.timer:
+        time_cost = reset_time_cost()
+
+    # init model and checkpoint folder
+    start_time = time.time()
+    struct_time = time.gmtime(start_time)
+    epoch_command = args.epoch
+
+    if args.load_checkpoint is None:
+        checkpoint_dir, CHECKPOINT_PATH = new_checkpoint(save_dir, struct_time)
+        contents = Data(dataset=args.dataset, add_reverse_relation=args.add_reverse)
+
+        adj = contents.get_adj_dict()
+        max_time = max(contents.data[:, 3])
+        # construct NeighborFinder
+        if 'yago' in args.dataset.lower():
+            time_granularity = 1
+        elif 'icews' in args.dataset.lower():
+            time_granularity = 24
+        elif 'gdelt' in args.dataset.lower():
+            time_granularity = 24
+        else:
+            raise ValueError
+        nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=contents.num_entities,
+                            weight_factor=args.weight_factor, time_granularity=time_granularity)
+        # construct model
+        model = tERTKG(nf, contents.num_entities, contents.num_relations, args.emb_dim, DP_steps=args.DP_steps,
+                       DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
+                       node_score_aggregation=args.node_score_aggregation, ent_score_aggregation=args.ent_score_aggregation,
+                       ratio_update=args.ratio_update, device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
+                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding,
+                       attention_func = args.attention_func)
+        # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
+        model.to(device)
+        model.entity_raw_embed.cpu()
+        model.relation_raw_embed.cpu()
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+        start_epoch = 0
+        if not args.debug:
+            print("Save checkpoints under {}".format(CHECKPOINT_PATH))
+    else:
+        checkpoint_dir = os.path.dirname(args.load_checkpoint)
+        CHECKPOINT_PATH = os.path.join(save_dir, 'Checkpoints', os.path.dirname(args.load_checkpoint))
+        model, optimizer, start_epoch, contents, args = load_checkpoint(
+            os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device=device)
+        args.epoch = epoch_command
+        start_epoch += 1
+        print("Load checkpoints {}".format(CHECKPOINT_PATH))
+
+    # save configuration to database and file system
+    if not args.debug:
+        dbDriver = DBDriver(useMongo=args.mongo, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer, sqlite_dir=os.path.join(save_dir, 'tKGR.db'))
+        git_hash = get_git_version_short_hash()
+        git_comment = get_git_description_last_commit()
+        dbDriver.log_task(args, checkpoint_dir, git_hash=git_hash, git_comment=git_comment, device=local_config.AWS_device)
+        save_config(args, CHECKPOINT_PATH)
+
     sp2o = contents.get_sp2o()
     val_spt2o = contents.get_spt2o('valid')
-    test_spt2o = contents.get_spt2o('test')
+    train_inputs = prepare_inputs(contents, start_time=args.warm_start_time, tc=time_cost)
+    val_inputs = prepare_inputs(contents, dataset='valid', tc=time_cost)
+    analysis_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                 pin_memory=False, shuffle=True)
+    analysis_batch = next(iter(analysis_data_loader))
 
-    # init NeighborFinder, contains events in training, val, test data
-    # when we add reversed events, each row, i.e. adj_list[i], is a list of (o, p, t), which, combined with subject i,
-    # are events in data set, row index is the node index.
-    # when we don't add reversed events, since some entities are never subject, we use dict to map subject to the list
-    # of its (o, p, t), i.e. adj_dict[entity_index] = [(o,p,t), ...]
-    adj = contents.get_adj_list() if args.add_reverse else contents.get_adj_dict()
-    max_time = max(contents.data[:, 3])
-    nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity))
-
-    model = TGAN(nf, contents.num_entities, contents.num_relations, args.node_feat_dim, num_layers=args.num_layers,
-                 device=device)
-    model.to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)  # optimizer
-
-    start_epoch = 0
-
-    if args.load_checkpoint is not None:
-        model, optimizer, start_epoch = load_checkpoint(model, optimizer, os.path.join(save_dir, 'Checkpoints', args.load_checkpoint))
-        start_epoch += 1
-
+    best_epoch = 0
+    best_val = 0
     for epoch in range(start_epoch, args.epoch):
-        running_loss = 0.0
-        # prepare training data
-        train_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling,
-                                      start_time=args.warm_start_time)
-        # test_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='test')
-
-        # DataLoader
+        print("epoch: ", epoch)
+        # load data
+        train_inputs = prepare_inputs(contents, start_time=args.warm_start_time, tc=time_cost)
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
                                        pin_memory=False, shuffle=True)
 
+        running_loss = 0.
+
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
-            # zero the parameter gradients
+            if args.explainability_analysis and batch_ndx % 50 == 0:
+                assert args.mongo
+                mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
+                src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
+                mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
+                                                cut_time_l,
+                                                target_idx_l, vars(args), contents.id2entity, contents.id2relation)
+                model.eval()
+                entity_att_score, entities, tracking = model(analysis_batch, analysis=True)
+                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(
+                    entity_att_score,
+                    entities,
+                    target_idx_l,
+                    sp2o,
+                    val_spt2o,
+                    src_idx_l,
+                    rel_idx_l,
+                    cut_time_l)
+                for i in range(args.batch_size):
+                    for step in range(args.DP_steps):
+                        tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n
+                                                                             in
+                                                                             tracking[i][str(step)]["source_nodes"]]
+                        tracking[i][str(step)]["sampled_edges(semantics)"] = [
+                            [contents.id2entity[edge[1]], str(edge[2]),
+                             contents.id2entity[edge[3]], str(edge[4]),
+                             contents.id2relation[edge[5]]]
+                            for edge in
+                            tracking[i][str(step)]["sampled_edges"]]
+                        tracking[i][str(step)]["selected_edges(semantics)"] = [
+                            [contents.id2entity[edge[1]], str(edge[2]),
+                             contents.id2entity[edge[3]], str(edge[4]),
+                             contents.id2relation[edge[5]]]
+                            for edge in
+                            tracking[i][str(step)]["selected_edges"]]
+                        tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])]
+                                                                                  for
+                                                                                  n in tracking[i][str(step)][
+                                                                                      "new_sampled_nodes"]]
+                        tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])]
+                                                                                 for n
+                                                                                 in
+                                                                                 tracking[i][str(step)][
+                                                                                     "new_source_nodes"]]
+                    tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
+                                                                  tracking[i]['entity_candidate']]
+                    tracking[i]['epoch'] = epoch
+                    tracking[i]['batch_idx'] = batch_ndx
+                    dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
             optimizer.zero_grad()
+            model.zero_grad()
             model.train()
 
-            # forward + backward + optimize
-            src_embed, target_embed, neg_embed = model.forward(
-                sample.src_idx, sample.obj_idx, sample.neg_idx, sample.ts, num_neighbors=args.num_neighbors)
-            sample_rel_idx_t = torch.from_numpy(sample.rel_idx).detach_().to(device)
-            rel_embed = model.edge_raw_embed(sample_rel_idx_t)
+            entity_att_score, entities = model(sample)
+            target_idx_l = sample.target_idx
 
-            with torch.no_grad():
-                pos_label = torch.ones(len(src_embed), dtype=torch.float, device=device)
-                neg_label = torch.zeros(neg_embed.shape[0] * neg_embed.shape[1], dtype=torch.float, device=device)
-
-            pos_score = torch.sum(src_embed * rel_embed * target_embed, dim=1)  # [batch_size, ]
-            neg_score = torch.sum(torch.unsqueeze(src_embed, 1) * torch.unsqueeze(rel_embed, 1) * neg_embed,
-                                  dim=2).view(-1)  # [batch_size x num_neg_sampling, ]
-
-            loss = torch.nn.BCELoss(reduction='sum')(pos_score.sigmoid(), pos_label)
-            loss += torch.nn.BCELoss(reduction='sum')(neg_score.sigmoid(), neg_label)
-            loss /= len(pos_score) + len(neg_score)
-
+            loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size, args.gradient_iters_per_update, args.loss_fn)
+            if args.timer:
+                t_start = time.time()
             loss.backward()
-            optimizer.step()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+            if args.timer:
+                time_cost['grad']['comp'] += time.time() - t_start
 
-            # print statistics
+            if args.timer:
+                t_start = time.time()
+            if (batch_ndx+1) % args.gradient_iters_per_update == 0:
+                optimizer.step()
+                model.zero_grad()
+            if args.timer:
+                time_cost['grad']['apply'] += time.time() - t_start
+
             running_loss += loss.item()
-            if batch_ndx % 50 == 49:
-                # val_loss, hit1, hit3, hit10, mr, mrr = val_loss_acc(model, val_data_loader, num_neighbors=args.num_neighbors, cal_acc=False, spt2o=val_spt2o)
-                # print('[%d, %5d] training loss: %.3f, validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f'%
-                #       (epoch + 1, batch_ndx + 1, running_loss / 2000, val_loss, hit1, hit3, hit10, mr, mrr))
-                print('[%d, %5d] training loss: %.3f' % (epoch + 1, batch_ndx + 1, running_loss / 50))
-                running_loss = 0.0
 
-        # if epoch%5 == 4:
-        #     # prepare validation data
-        #     val_inputs = prepare_inputs(contents, num_neg_sampling=args.num_neg_sampling, dataset='valid')
-        #     val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
-        #                                  pin_memory=False, shuffle=True)
-        #     if args.evaluation_level == 0:
-        #         val_loss, measure= val_loss_acc(model, val_data_loader,
-        #                                                             num_neighbors=args.num_neighbors,
-        #                                                             cal_acc=True, sp2o=sp2o, spt2o=None)
-        #     elif args.evaluation_level == 1:
-        #         val_loss, measure= val_loss_acc(model, val_data_loader,
-        #                                                             num_neighbors=args.num_neighbors,
-        #                                                             cal_acc=True, sp2o=None, spt2o=val_spt2o)
-        #     else:
-        #         raise ValueError("evaluation_level should be 0 or 1")
-        #     print('[END of %d-th Epoch]validation loss: %.3f Hit@1: %.3f, Hit@3: %.3f, Hit@10: %.3f, mr: %.3f, mrr: %.3f' %
-        #           (epoch + 1, val_loss, measure.hit1[], measure.hit1, measure.hit10, measure.mr, measure.mrr))
+            # if batch_ndx % 1 == 0:
+            #     print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
+            #     running_loss = 0.0
+            print(str_time_cost(time_cost))
+            if args.timer:
+                time_cost = reset_time_cost()
+
+            # for obj in gc.get_objects():
+            #     try:
+            #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+            #             print(type(obj), obj.size())
+            #     except:
+            #         pass
+        running_loss /= batch_ndx + 1
+
         model.eval()
-        torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'loss': loss,
-            'entity_embedding': model.node_raw_embed,
-            'relation_embedding': model.edge_raw_embed,
-            'time_embedding': model.time_encoder
-        }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
+        if not args.debug:
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss,
+                'args': args
+            }, os.path.join(CHECKPOINT_PATH, 'checkpoint_{}.pt'.format(epoch)))
 
-    print("Finished Training")
+        if epoch % 1 == 0:
+            hit_1 = hit_3 = hit_10 = 0
+            hit_1_fil = hit_3_fil = hit_10_fil = 0
+            hit_1_fil_t = hit_3_fil_t = hit_10_fil_t = 0
+            found_cnt = 0
+            MR_total = 0
+            MR_found = 0
+            MRR_total = 0
+            MRR_found = 0
+            MRR_total_fil = 0
+            MRR_total_fil_t = 0
+            num_query = 0
+            mean_degree = 0
+            mean_degree_found = 0
+
+            val_data_loader = DataLoader(val_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
+                                         pin_memory=False, shuffle=True)
+
+            val_running_loss = 0
+            for batch_ndx, sample in enumerate(val_data_loader):
+                model.eval()
+
+                src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
+                num_query += len(src_idx_l)
+                degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
+                mean_degree += sum(degree_batch)
+
+                entity_att_score, entities = model(sample)
+
+                loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
+                                  args.gradient_iters_per_update, args.loss_fn)
+
+                val_running_loss += loss.item()
+
+                # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
+                # for i, target in enumerate(target_idx_l):
+                #     top10 = entities[indices[i]]
+                #     hit_1 += target == top10[0, 1]
+                #     hit_3 += target in top10[:3, 1]
+                #     hit_10 += target in top10[:, 1]
+                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score,
+                                                                                                     entities,
+                                                                                                     target_idx_l,
+                                                                                                     sp2o,
+                                                                                                     val_spt2o,
+                                                                                                     src_idx_l,
+                                                                                                     rel_idx_l,
+                                                                                                     cut_time_l)
+                # print(target_rank_l)
+                mean_degree_found += sum(degree_batch[found_mask])
+                hit_1 += np.sum(target_rank_l == 1)
+                hit_3 += np.sum(target_rank_l <= 3)
+                hit_10 += np.sum(target_rank_l <= 10)
+                hit_1_fil += np.sum(target_rank_fil_l <= 1) # unique entity with largest node score
+                hit_3_fil += np.sum(target_rank_fil_l <= 3)
+                hit_10_fil += np.sum(target_rank_fil_l <= 10)
+                hit_1_fil_t += np.sum(target_rank_fil_t_l <= 1) # unique entity with largest node score
+                hit_3_fil_t += np.sum(target_rank_fil_t_l <= 3)
+                hit_10_fil_t += np.sum(target_rank_fil_t_l <= 10)
+                found_cnt += np.sum(found_mask)
+                MR_total += np.sum(target_rank_l)
+                MR_found += len(found_mask) and np.sum(
+                    target_rank_l[found_mask])  # if no subgraph contains ground truch, MR_found = 0 for this batch
+                MRR_total += np.sum(1 / target_rank_l)
+                MRR_found += len(found_mask) and np.sum(
+                    1 / target_rank_l[found_mask])  # if no subgraph contains ground truth, MRR_found = 0 for this batch
+                MRR_total_fil += np.sum(1 / target_rank_fil_l)
+                MRR_total_fil_t += np.sum(1 / target_rank_fil_t_l)
+            print(
+                "Filtered performance (time dependent): Hits@1: {}, Hits@3: {}, Hits@10: {}, MRR: {}".format(
+                    hit_1_fil_t / num_query,
+                    hit_3_fil_t / num_query,
+                    hit_10_fil_t / num_query,
+                    MRR_total_fil_t / num_query))
+            print(
+                "Filtered performance (time independent): Hits@1: {}, Hits@3: {}, Hits@10: {}, MRR: {}".format(
+                    hit_1_fil / num_query,
+                    hit_3_fil / num_query,
+                    hit_10_fil / num_query,
+                    MRR_total_fil / num_query))
+            print(
+                "Raw performance: Hits@1: {}, Hits@3: {}, Hits@10: {}, Hits@Inf: {}, MR: {}, MRR: {}, degree: {}".format(
+                    hit_1 / num_query,
+                    hit_3 / num_query,
+                    hit_10 / num_query,
+                    found_cnt / num_query,
+                    MR_total / num_query,
+                    MRR_total / num_query,
+                    mean_degree / num_query))
+            if found_cnt:
+                print("Among Hits@Inf: Hits@1: {}, Hits@3: {}, Hits@10: {}, MR: {}, MRR: {}, degree: {}".format(
+                    hit_1 / found_cnt,
+                    hit_3 / found_cnt,
+                    hit_10 / found_cnt,
+                    MR_found / found_cnt,
+                    MRR_found / found_cnt,
+                    mean_degree_found / found_cnt))
+            else:
+                print('No subgraph found the ground truth!!')
+
+            performance_key = ['training_loss', 'validation_loss', 'HITS_1_raw', 'HITS_3_raw', 'HITS_10_raw',
+                               'HITS_INF', 'MRR_raw', 'HITS_1_found', 'HITS_3_found', 'HITS_10_found', 'MRR_found']
+            performance = [running_loss, val_running_loss / (batch_ndx + 1), hit_1 / num_query,
+                           hit_3 / num_query,
+                           hit_10 / num_query, found_cnt / num_query, MRR_total / num_query, hit_1_fil_t / num_query,
+                           hit_3_fil_t / num_query, hit_10_fil_t / num_query, MRR_total_fil_t / num_query]
+            performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
+
+            dbDriver.log_evaluation(checkpoint_dir, epoch, performance_dict)
+            if performance[2] > best_val:
+                best_val = performance[2]
+                best_epoch = epoch
+
+
+    dbDriver.close()
+    print("finished Training")
+#     os.umask(oldmask)
+    print("start evaluation on test set")
+    os.system("python eval_tERTKG.py --load_checkpoint {}/checkpoint_{}.pt --mongo --device 0 --explainability_analysis".format(checkpoint_dir, best_epoch))
