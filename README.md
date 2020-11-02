@@ -35,7 +35,7 @@ save_dir = Path(__file__).parent.absolute()
 #### Run:
 Training:
 ```
-python train_tDPMPN.py --warm_start_time 48 --emb_dim 256 128 64 32 --batch_size 128 --lr 0.0002 --dataset ICEWS14_forecasting --epoch 20 --sampling 3 --device 0 --DP_steps 3 --DP_num_neighbors 15 --max_attended_edges 40 --node_score_aggregation sum --ent_score_aggregation sum --mongo
+python train.py --warm_start_time 48 --emb_dim 256 128 64 32 --batch_size 128 --lr 0.0002 --dataset ICEWS14_forecasting --epoch 20 --sampling 3 --device 0 --DP_steps 3 --DP_num_neighbors 15 --max_attended_edges 40 --node_score_aggregation sum --ent_score_aggregation sum --mongo
 ```
 Evaluation:
 ```
