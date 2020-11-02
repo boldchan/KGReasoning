@@ -138,7 +138,7 @@ def segment_max(logits, segment_ids, keep_length=True):
     if keep_length:
         seg_max_ind = torch.cat([(torch.argmax(logits[torch.arange(head, tail).to(torch.int64).to(device)]) + torch.tensor([head]).to(torch.int64).to(device)).repeat(tail - head) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
     else:
-        seg_max_ind = torch.cat([torch.argmax(logits[torch.arange(head, tail).to(torch.int64)]) + torch.tensor([head]).to(torch.int64) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
+        seg_max_ind = torch.cat([torch.argmax(logits[torch.arange(head, tail).to(torch.int64).to(device)]) + torch.tensor([head]).to(torch.int64).to(device) for head, tail in zip(seg_head_ids[:-1], seg_head_ids[1:])])
     return logits[seg_max_ind]
 
 
