@@ -142,7 +142,7 @@ parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update:
 parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
 parser.add_argument('--random_seed', type=int, default=1)
-parser.add_argument('--attention_func', type=str, default='G', help='choice of attention functions')
+parser.add_argument('--attention_func', type=str, default='G3', help='choice of attention functions')
 args = parser.parse_args()
 
 if __name__ == "__main__":

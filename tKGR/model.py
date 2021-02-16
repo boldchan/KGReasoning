@@ -199,7 +199,7 @@ class G3(torch.nn.Module):  # mimic Transformer
         # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
         return torch.sum(self.query_proj(left_x) * self.key_proj(right_x), dim=-1) / np.sqrt(self.dim_out)
 
-class G4(torch.nn.Module):  # mimic GAT TODO: how to understand the a(.) functino in GAT?
+class G4(torch.nn.Module):  # mimic GAT TODO: how to understand the a(.) function in GAT?
     def __init__(self, dim_in, dim_out):
         """[summary]
         bilinear mapping along last dimension of x and y:
@@ -270,7 +270,7 @@ class G_deprecated(torch.nn.Module):  # Problematic
 
 class AttentionFlow(nn.Module):
     def __init__(self, n_dims_in, n_dims_out, ratio_update=0, update_prev_edges=True, node_score_aggregation='sum',
-                 device='cpu', attention_func = 'G'):
+                 device='cpu', attention_func = 'G3'):
         """[summary]
 
         Arguments:
@@ -564,7 +564,7 @@ class tERTKG(torch.nn.Module):
                  DP_num_neighbors=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
                  node_score_aggregation='sum', ent_score_aggregation='sum', max_attended_edges=20, ratio_update=0,
-                 update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True, attention_func = 'G', **kwargs):
+                 update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True, attention_func = 'G3', **kwargs):
         """[summary]
 
         Arguments:
@@ -613,7 +613,7 @@ class tERTKG(torch.nn.Module):
                                                           node_score_aggregation=node_score_aggregation,
                                                           ratio_update=ratio_update,
                                                           update_prev_edges=update_prev_edges,
-                                                          device=device, attention_func = 'G')
+                                                          device=device, attention_func = 'G3')
                                             for _ in range(DP_steps)])
         if use_time_embedding:
             self.node_emb_proj = nn.Linear(2 * emb_dim[0], emb_dim[0])

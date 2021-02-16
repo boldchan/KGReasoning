@@ -13,7 +13,7 @@ import torch
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
-from model import tDPMPN
+from model import tERTKG
 
 # import tKGR.data
 DataDir = os.path.join(os.path.dirname(__file__), 'data')
