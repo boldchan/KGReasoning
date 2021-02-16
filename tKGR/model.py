@@ -148,7 +148,7 @@ class G2(torch.nn.Module):  # No center_dense layer
         self.query_proj = nn.Linear(dim_in, dim_out, bias=False)
         nn.init.normal_(self.query_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
         self.key_proj = nn.Linear(dim_in, dim_out, bias=False)
-        nn.init.normal_(self.right_dense.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
+        nn.init.normal_(self.key_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
         self.left_act = nn.LeakyReLU()
         self.right_act = nn.LeakyReLU()
 
@@ -183,7 +183,7 @@ class G3(torch.nn.Module):  # mimic Transformer
         self.query_proj = nn.Linear(dim_in, dim_out, bias=False)
         nn.init.normal_(self.query_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
         self.key_proj = nn.Linear(dim_in, dim_out, bias=False)
-        nn.init.normal_(self.right_dense.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
+        nn.init.normal_(self.key_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
 
     def forward(self, inputs):
         """[summary]
