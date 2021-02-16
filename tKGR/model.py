@@ -283,11 +283,11 @@ class AttentionFlow(nn.Module):
         if attention_func == 'G':
             self.transition_fn = G(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
         elif attention_func == 'G2':
-            self.transition_fn = G2(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
+            self.transition_fn = G2(4 * n_dims_in, 4 * n_dims_in)
         elif attention_func == 'G3':
-            self.transition_fn = G3(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
+            self.transition_fn = G3(4 * n_dims_in, 4 * n_dims_in)
         elif attention_func == 'G4':
-            self.transition_fn = G4(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
+            self.transition_fn = G4(4 * n_dims_in, 4 * n_dims_in)
         else:
             raise KeyError
 
