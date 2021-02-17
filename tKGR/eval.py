@@ -27,7 +27,7 @@ PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
 from utils import Data, NeighborFinder, Measure, save_config, load_checkpoint
-from model import tDPMPN
+from model import tERTKG
 import config
 import local_config
 from segment import *

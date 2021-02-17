@@ -39,7 +39,7 @@ python train.py --warm_start_time 48 --emb_dim 256 128 64 32 --batch_size 128 --
 ```
 Evaluation:
 ```
-python eval_tDPMPN.py --load_checkpoint checkpoints_2020_8_20_21_31_48/checkpoint_4.pt --mongo
+python eval.py --load_checkpoint checkpoints_2020_8_20_21_31_48/checkpoint_4.pt --mongo
 ```
 different num_neighbors can be specified by adding
 ```
