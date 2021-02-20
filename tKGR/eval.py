@@ -73,10 +73,10 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, 
         contents_dataset = contents.train_data
         assert start_time < max(contents_dataset[:, 3])
     elif dataset == 'valid':
-        contents_dataset = contents.valid_data_seen_entity
+        contents_dataset = contents.valid_data #contents.valid_data_seen_entity
         assert start_time < max(contents_dataset[:, 3])
     elif dataset == 'test':
-        contents_dataset = contents.test_data_seen_entity
+        contents_dataset = contents.test_data #contents.test_data_seen_entity
         assert start_time < max(contents_dataset[:, 3])
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")

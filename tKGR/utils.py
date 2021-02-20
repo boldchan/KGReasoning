@@ -83,8 +83,8 @@ class Data:
                                                               for event in self.test_data_seen_entity])], axis=0)
 
         self.data = np.concatenate([self.train_data, self.valid_data, self.test_data], axis=0)
-        self.refined_data = np.concatenate([self.train_data, self.valid_data_seen_entity, self.valid_data_seen_entity], axis=0)
-        self.refined_data = np.concatenate([self.refined_data, np.arange(len(self.refined_data))[:, np.newaxis]], axis=1)
+        #self.refined_data = np.concatenate([self.train_data, self.valid_data_seen_entity, self.valid_data_seen_entity], axis=0)
+        #self.refined_data = np.concatenate([self.refined_data, np.arange(len(self.refined_data))[:, np.newaxis]], axis=1)
 
         self.timestamps = self._get_timestamps(self.data)
 
@@ -119,7 +119,7 @@ class Data:
             assert start_time < max(self.valid_data_seen_entity[:, 3])
         elif dataset == 'test':
             contents_dataset = self.test_data_seen_entity
-            assert start_time < max(self.test_data_seen_entity)
+            assert start_time < max(self.test_data_seen_entity[:, 3])
         else:
             raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
 

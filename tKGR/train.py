@@ -67,10 +67,10 @@ def prepare_inputs(contents, dataset='train', start_time=0, tc=None):
         contents_dataset = contents.train_data
         assert start_time < max(contents_dataset[:, 3])
     elif dataset == 'valid':
-        contents_dataset = contents.valid_data_seen_entity
+        contents_dataset = contents.valid_data #contents.valid_data_seen_entity
         assert start_time < max(contents_dataset[:, 3])
     elif dataset == 'test':
-        contents_dataset = contents.test_data_seen_entity
+        contents_dataset = contents.valid_data #contents.test_data_seen_entity
         assert start_time < max(contents_dataset[:, 3])
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
@@ -456,4 +456,4 @@ if __name__ == "__main__":
     print("finished Training")
 #     os.umask(oldmask)
     print("start evaluation on test set")
-    os.system("python eval_tERTKG.py --load_checkpoint {}/checkpoint_{}.pt --mongo --device 0 --explainability_analysis".format(checkpoint_dir, best_epoch))
+    os.system("python eval.py --load_checkpoint {}/checkpoint_{}.pt --mongo --device 0".format(checkpoint_dir, best_epoch))
