@@ -117,32 +117,32 @@ parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--sampling', type=int, default=3,
-                    help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
+                    help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors, 3: time-difference weighted')
 parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
-parser.add_argument('--DP_num_neighbors', type=int, default=40, help='number of neighbors sampled for sampling horizon')
-parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of nodes in attending from horizon')
+parser.add_argument('--DP_num_edges', type=int, default=40, help='number of edges at each sampling')
+parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of edges after pruning')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
-parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight')
+parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight') #TODO Did you tune it?
 parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
 parser.add_argument('--ent_score_aggregation', type=str, default='sum', choices=['sum', 'mean'])
 parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
-parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
-parser.add_argument('--simpl_att', action='store_true', help = 'use simplified attention function.')
-parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
-parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
-parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
-parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
-parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
-parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
 parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
                                                                   'ratio * self representation + (1 - ratio) * neighbors, '
                                                                   'if ratio==0, GCN style, ratio==1, no node representation update')
+parser.add_argument('--attention_func', type=str, default='G3', help='choice of attention functions')
 parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
+parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
 parser.add_argument('--random_seed', type=int, default=1)
-parser.add_argument('--attention_func', type=str, default='G3', help='choice of attention functions')
+parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
+parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
+
+parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
+parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
+parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
+parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -189,7 +189,7 @@ if __name__ == "__main__":
                             weight_factor=args.weight_factor, time_granularity=time_granularity)
         # construct model
         model = tERTKG(nf, contents.num_entities, contents.num_relations, args.emb_dim, DP_steps=args.DP_steps,
-                       DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
+                       DP_num_edges=args.DP_num_edges, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation, ent_score_aggregation=args.ent_score_aggregation,
                        ratio_update=args.ratio_update, device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
                        update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding,

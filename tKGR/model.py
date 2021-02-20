@@ -561,7 +561,7 @@ class AttentionFlow(nn.Module):
 
 class tERTKG(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim: List[int] = None,
-                 DP_num_neighbors=40, DP_steps=3,
+                 DP_num_edges=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
                  node_score_aggregation='sum', ent_score_aggregation='sum', max_attended_edges=20, ratio_update=0,
                  update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True, attention_func = 'G3', **kwargs):
@@ -591,13 +591,13 @@ class tERTKG(torch.nn.Module):
         super(tERTKG, self).__init__()
         assert len(emb_dim) == DP_steps + 1
 
-        self.DP_num_neighbors = DP_num_neighbors
+        self.DP_num_edges = DP_num_edges
         self.DP_steps = DP_steps
         self.use_time_embedding = use_time_embedding
         self.ngh_finder = ngh_finder
 
-        if not self.use_time_embedding:
-            emb_static_ratio = 1
+        #if not self.use_time_embedding:
+        #    emb_static_ratio = 1
 
         self.temporal_embed_dim = [int(emb_dim[_] * 2 / (1 + emb_static_ratio)) for _ in range(DP_steps)]
         self.static_embed_dim = [emb_dim[_] * 2 - self.temporal_embed_dim[_] for _ in range(DP_steps)]
@@ -775,7 +775,7 @@ class tERTKG(torch.nn.Module):
         # sampled_edges: (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj)
         # selfloop is added
         sampled_edges, new_sampled_nodes, new_attended_nodes = self._get_sampled_edges(attended_nodes,
-                                                                                       num_neighbors=self.DP_num_neighbors,
+                                                                                       num_neighbors=self.DP_num_edges,
                                                                                        step=step,
                                                                                        add_self_loop=True, tc=tc)
         if len(new_sampled_nodes):
@@ -842,7 +842,7 @@ class tERTKG(torch.nn.Module):
         # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
         # selfloop is added
         sampled_edges, new_sampled_nodes, new_attended_nodes = self._get_sampled_edges(attended_nodes,
-                                                                                       num_neighbors=self.DP_num_neighbors,
+                                                                                       num_neighbors=self.DP_num_edges,
                                                                                        step=step, add_self_loop=True,
                                                                                        tc=tc)
         if len(new_sampled_nodes):
