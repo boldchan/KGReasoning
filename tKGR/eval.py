@@ -58,7 +58,7 @@ def str_time_cost(tc):
         return ''
 
 
-def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, tc=None):
+def prepare_inputs(contents, whole_or_seen, dataset='train', start_time=0, tc=None):
     '''
     :param tc: time recorder
     :param contents: instance of Data object
@@ -73,10 +73,16 @@ def prepare_inputs(contents, num_neg_sampling=5, dataset='train', start_time=0, 
         contents_dataset = contents.train_data
         assert start_time < max(contents_dataset[:, 3])
     elif dataset == 'valid':
-        contents_dataset = contents.valid_data #contents.valid_data_seen_entity
+        if whole_or_seen == 'whole':
+            contents_dataset = contents.valid_data
+        else:
+            contents_dataset = contents.valid_data_seen_entity
         assert start_time < max(contents_dataset[:, 3])
     elif dataset == 'test':
-        contents_dataset = contents.test_data #contents.test_data_seen_entity
+        if whole_or_seen == 'whole':
+            contents_dataset = contents.test_data
+        else:
+            contents_dataset = contents.test_data_seen_entity
         assert start_time < max(contents_dataset[:, 3])
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
@@ -175,10 +181,9 @@ def segment_rank(t, entities, target_idx_l):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
+parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen'], help='test on the whole set or only on seen entities.')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--emb_dim', type=int, default=256, help='dimension of embedding for node, realtion and time')
-parser.add_argument('--emb_dim_sm', type=int, default=48, help='smaller dimension of embedding, '
-                                                               'ease the computation of attention for attending from horizon')
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=128)
@@ -193,11 +198,6 @@ parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, 
 parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
 parser.add_argument('--emb_static_ratio', type=float, default=1,
                     help='ratio of static embedding to time(temporal) embeddings')
-parser.add_argument('--diac_embed', action='store_true',
-                    help='use entity-specific frequency and phase of time embeddings')
-parser.add_argument('--simpl_att', action='store_true', help='use simplified attention function.')
-parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False,
-                    help='in attention module, whether re-calculate attention score after pruning')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
@@ -209,12 +209,17 @@ parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
 parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
+# parser.add_argument('--simpl_att', action='store_true', help='use simplified attention function.')
+# parser.add_argument('--diac_embed', action='store_true',
+#                     help='use entity-specific frequency and phase of time embeddings')
+# parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False,
+#                     help='in attention module, whether re-calculate attention score after pruning')
+# parser.add_argument('--emb_dim_sm', type=int, default=48, help='smaller dimension of embedding, '
+#                                                                'ease the computation of attention for attending from horizon')
 args = parser.parse_args()
 
 if __name__ == "__main__":
     print(args)
-    # sys.settrace(gpu_profile)
-    # check cuda
     if torch.cuda.is_available():
         device = 'cuda:{}'.format(args.device) if args.device >= 0 else 'cpu'
     else:

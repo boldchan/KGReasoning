@@ -65,7 +65,7 @@ class TimeEncode(torch.nn.Module):
         return harmonic
 
 
-class F(torch.nn.Module):
+class F(torch.nn.Module): #TODO: is F used?
     def __init__(self, input_dims, output_dims, n_layers, name=None):
         super(F, self).__init__(name=name)
 

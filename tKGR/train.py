@@ -110,6 +110,7 @@ def collate_wrapper(batch):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
+parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen'], help='test on the whole set or only on seen entities.')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--emb_dim', type=int, default=[256, 128, 64, 32], nargs='+', help='dimension of embedding for node, realtion and time')
 parser.add_argument('--lr', type=float, default=0.001)
@@ -454,6 +455,6 @@ if __name__ == "__main__":
 
     dbDriver.close()
     print("finished Training")
-#     os.umask(oldmask)
     print("start evaluation on test set")
-    os.system("python eval.py --load_checkpoint {}/checkpoint_{}.pt --mongo --device 0".format(checkpoint_dir, best_epoch))
+    os.system("python eval.py --load_checkpoint {}/checkpoint_{}.pt --whole_or_seen {} --device {} --mongo".format(checkpoint_dir,
+                                                    best_epoch, args.whole_or_seen, args.device))
