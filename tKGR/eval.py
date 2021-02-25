@@ -228,7 +228,7 @@ if __name__ == "__main__":
     time_cost = None
     if args.timer:
         time_cost = reset_time_cost()
-
+    whole_or_seen = args.whole_or_seen
     analysis = args.explainability_analysis
     eval_batch_size = args.batch_size
 
@@ -244,6 +244,7 @@ if __name__ == "__main__":
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
     else:
+        # args will be overwritten here
         model, optimizer, start_epoch, contents, args = load_checkpoint(
             os.path.join(save_dir, 'Checkpoints', args.load_checkpoint), device)
         args.DP_num_neighbors = DP_num_neighbors
@@ -269,7 +270,7 @@ if __name__ == "__main__":
     mean_degree = 0
     mean_degree_found = 0
 
-    test_inputs = prepare_inputs(contents, args.whole_or_seen, dataset='test', tc=time_cost)
+    test_inputs = prepare_inputs(contents, whole_or_seen, dataset='test', tc=time_cost)
     test_data_loader = DataLoader(test_inputs, batch_size=eval_batch_size, collate_fn=collate_wrapper,
                                   pin_memory=False, shuffle=True)
 
