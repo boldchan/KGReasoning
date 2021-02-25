@@ -269,7 +269,7 @@ if __name__ == "__main__":
     mean_degree = 0
     mean_degree_found = 0
 
-    test_inputs = prepare_inputs(contents, dataset='test', tc=time_cost)
+    test_inputs = prepare_inputs(contents, args.whole_or_seen, dataset='test', tc=time_cost)
     test_data_loader = DataLoader(test_inputs, batch_size=eval_batch_size, collate_fn=collate_wrapper,
                                   pin_memory=False, shuffle=True)
 
