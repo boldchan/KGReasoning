@@ -197,7 +197,7 @@ class G3(torch.nn.Module):  # mimic Transformer
         right_x = torch.cat(vj, dim=-1)
         # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
         # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
-        return torch.sum(self.query_proj(left_x) * self.key_proj(right_x), dim=-1) / np.sqrt(self.dim_out)
+        return torch.sum(self.query_proj(left_x) * self.key_proj(right_x), dim=-1) #/ np.sqrt(self.dim_out)
 
 class G4(torch.nn.Module):  # mimic GAT TODO: how to understand the a(.) function in GAT?
     def __init__(self, dim_in, dim_out):
