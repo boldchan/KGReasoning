@@ -65,36 +65,36 @@ class TimeEncode(torch.nn.Module):
         return harmonic
 
 
-class F(torch.nn.Module): #TODO: is F used?
-    def __init__(self, input_dims, output_dims, n_layers, name=None):
-        super(F, self).__init__(name=name)
-
-        if n_layers == 1:
-            self.linears = nn.ModuleList([nn.Linear(input_dims, output_dims),
-                                          nn.Tanh()])
-            nn.init.xavier_normal_(self.linears[0])
-        elif n_layers == 2:
-            self.linears = nn.ModuleList([nn.Linear(output_dims, input_dims),
-                                          nn.LeakyReLU(),
-                                          nn.Linear(output_dims),
-                                          nn.Tanh()])
-
-            nn.init.xavier_normal_(self.linears[0].weight)
-            nn.init.xavier_normal_(self.linears[2].weight)
-        else:
-            raise ValueError("Invalid n_layers")
-
-    def forward(self, inputs, training=None):
-        """
-        concatenate inputs along last dimensions and feed into MLP
-        :param inputs[i]: bs x ... x n_dims
-        :param training:
-        :return:
-        """
-        x = torch.cat(inputs, axis=-1)
-        for l in self.linears:
-            x = l(x)
-        return x
+# class F(torch.nn.Module): #TODO: is F used?
+#     def __init__(self, input_dims, output_dims, n_layers, name=None):
+#         super(F, self).__init__(name=name)
+#
+#         if n_layers == 1:
+#             self.linears = nn.ModuleList([nn.Linear(input_dims, output_dims),
+#                                           nn.Tanh()])
+#             nn.init.xavier_normal_(self.linears[0])
+#         elif n_layers == 2:
+#             self.linears = nn.ModuleList([nn.Linear(output_dims, input_dims),
+#                                           nn.LeakyReLU(),
+#                                           nn.Linear(output_dims),
+#                                           nn.Tanh()])
+#
+#             nn.init.xavier_normal_(self.linears[0].weight)
+#             nn.init.xavier_normal_(self.linears[2].weight)
+#         else:
+#             raise ValueError("Invalid n_layers")
+#
+#     def forward(self, inputs, training=None):
+#         """
+#         concatenate inputs along last dimensions and feed into MLP
+#         :param inputs[i]: bs x ... x n_dims
+#         :param training:
+#         :return:
+#         """
+#         x = torch.cat(inputs, axis=-1)
+#         for l in self.linears:
+#             x = l(x)
+#         return x
 
 class G(torch.nn.Module):
     def __init__(self, left_dims, right_dims, output_dims):
@@ -292,7 +292,7 @@ class AttentionFlow(nn.Module):
             raise KeyError
 
         # dense layer between steps
-        self.linear_between_steps = nn.Linear(n_dims_in, n_dims_out)
+        self.linear_between_steps = nn.Linear(n_dims_in, n_dims_out, bias=False)
         torch.nn.init.xavier_normal_(self.linear_between_steps.weight)
         self.act_between_steps = torch.nn.LeakyReLU()
 
