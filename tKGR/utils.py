@@ -72,6 +72,8 @@ class Data:
         test_mask = [evt[0] in seen_entities and evt[2] in seen_entities and evt[1] in seen_relations
                      for evt in self.test_data]
         test_mask_conjugate = ~np.array(test_mask)
+        print('seen dataset proportion: ' + str(np.asarray(test_mask).sum()/len(test_mask)))
+        print('unseen dataset proportion: ' + str(test_mask_conjugate.sum()/test_mask_conjugate.size))
         self.test_data_seen_entity = self.test_data[test_mask]
         self.test_data_unseen_entity = self.test_data[test_mask_conjugate]
         if add_reverse_relation:
