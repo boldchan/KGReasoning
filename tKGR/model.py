@@ -292,7 +292,7 @@ class AttentionFlow(nn.Module):
             raise KeyError
 
         # dense layer between steps
-        self.linear_between_steps = nn.Linear(n_dims_in, n_dims_out, bias=False) #TODO
+        self.linear_between_steps = nn.Linear(n_dims_in, n_dims_out, bias=True)
         torch.nn.init.xavier_normal_(self.linear_between_steps.weight)
         self.act_between_steps = torch.nn.LeakyReLU()
 
