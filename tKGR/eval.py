@@ -81,8 +81,12 @@ def prepare_inputs(contents, whole_or_seen, dataset='train', start_time=0, tc=No
     elif dataset == 'test':
         if whole_or_seen == 'whole':
             contents_dataset = contents.test_data
-        else:
+        elif whole_or_seen == 'seen':
             contents_dataset = contents.test_data_seen_entity
+        elif whole_or_seen == 'unseen':
+            contents_dataset = contents.test_data_unseen_entity
+        else:
+            raise NotImplemented
         assert start_time < max(contents_dataset[:, 3])
     else:
         raise ValueError("invalid input for dataset, choose 'train', 'valid' or 'test'")
@@ -181,7 +185,7 @@ def segment_rank(t, entities, target_idx_l):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
-parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen'], help='test on the whole set or only on seen entities.')
+parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen', 'unseen'], help='test on the whole set or only on seen entities.')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--emb_dim', type=int, default=256, help='dimension of embedding for node, realtion and time')
 parser.add_argument('--lr', type=float, default=0.001)

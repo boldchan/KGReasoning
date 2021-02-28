@@ -29,12 +29,8 @@ sys.path.insert(1, PackageDir)
 from utils import Data, NeighborFinder, Measure, save_config, get_git_version_short_hash, get_git_description_last_commit, load_checkpoint, new_checkpoint
 from model import tERTKG
 import config
-import local_config
 from segment import *
 from database_op import DBDriver
-
-save_dir = local_config.save_dir
-
 
 def reset_time_cost():
     return {'model': defaultdict(float), 'graph': defaultdict(float), 'grad': defaultdict(float),
@@ -110,7 +106,7 @@ def collate_wrapper(batch):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
-parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen'], help='test on the whole set or only on seen entities.')
+parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen', 'unseen'], help='test on the whole set or only on seen entities.')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
 parser.add_argument('--emb_dim', type=int, default=[256, 128, 64, 32], nargs='+', help='dimension of embedding for node, realtion and time')
 parser.add_argument('--lr', type=float, default=0.001)
@@ -145,6 +141,12 @@ parser.add_argument('--timer', action='store_true', default=None, help='set to p
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--diac_embed', action='store_true', help='use entity-specific frequency and phase of time embeddings')
 args = parser.parse_args()
+
+if not args.debug:
+    import local_config
+    save_dir = local_config.save_dir
+else:
+    save_dir = ''
 
 if __name__ == "__main__":
     # Reproducibility

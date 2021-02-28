@@ -71,7 +71,9 @@ class Data:
 
         test_mask = [evt[0] in seen_entities and evt[2] in seen_entities and evt[1] in seen_relations
                      for evt in self.test_data]
+        test_mask_conjugate = ~np.array(test_mask)
         self.test_data_seen_entity = self.test_data[test_mask]
+        self.test_data_unseen_entity = self.test_data[test_mask_conjugate]
         if add_reverse_relation:
             self.test_data = np.concatenate([self.test_data[:, :-1],
                                              np.vstack(
@@ -81,6 +83,10 @@ class Data:
                                                          np.vstack(
                                                              [[event[2], event[1] + num_relations, event[0], event[3]]
                                                               for event in self.test_data_seen_entity])], axis=0)
+            self.test_data_unseen_entity = np.concatenate([self.test_data_unseen_entity[:, :-1],
+                                                         np.vstack(
+                                                             [[event[2], event[1] + num_relations, event[0], event[3]]
+                                                              for event in self.test_data_unseen_entity])], axis=0)
 
         self.data = np.concatenate([self.train_data, self.valid_data, self.test_data], axis=0)
         #self.refined_data = np.concatenate([self.train_data, self.valid_data_seen_entity, self.valid_data_seen_entity], axis=0)
