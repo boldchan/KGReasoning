@@ -314,7 +314,7 @@ def training(args):
                 if performance[2] > best_val:
                     best_val = performance[2]
                     best_epoch = epoch
-                return  best_val, best_epoch, checkpoint_dir
+    return  best_val, best_epoch, checkpoint_dir
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
