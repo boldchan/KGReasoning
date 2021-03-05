@@ -16,7 +16,11 @@ from model import xERTE
 from segment import *
 from database_op import DBDriver
 from train import reset_time_cost, str_time_cost, prepare_inputs, SimpleCustomBatch, collate_wrapper
-
+if not args.debug:
+    import local_config
+    save_dir = local_config.save_dir
+else:
+    save_dir = ''
 def training(args):
     # check cuda
     if torch.cuda.is_available():
