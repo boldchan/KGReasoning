@@ -2,34 +2,26 @@ import os
 import sys
 import json
 import subprocess
-import pdb
-
 from collections import defaultdict
 import numpy as np
 import networkx as nx
-
 import torch
+from model import xERTE
 
 PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
-
-from model import tERTKG
-
-# import tKGR.data
 DataDir = os.path.join(os.path.dirname(__file__), 'data')
-
 
 class Data:
     def __init__(self, dataset=None, add_reverse_relation=False):
         """
-
         :param dataset:
         :param add_reverse_relation: if True, add reversed relation
         """
         # load data
         self.id2entity = self._id2entity(dataset=dataset)
         self.id2relation = self._id2relation(dataset=dataset)
-        num_relations = len(self.id2relation)  # number of pure relations, i.e. no reversed relation
+        num_relations = len(self.id2relation)  # number of original relations, i.e., no reversed relation
         reversed_id2relation = {}
         if add_reverse_relation:
             for ind, rel in self.id2relation.items():
@@ -49,33 +41,33 @@ class Data:
         # add reverse event into the data set
         if add_reverse_relation:
             self.train_data = np.concatenate([self.train_data[:, :-1],
-                                              np.vstack(
-                                                  [[event[2], event[1] + num_relations, event[0], event[3]]
+                                              np.vstack([[event[2], event[1] + num_relations, event[0], event[3]]
                                                    for event in self.train_data])], axis=0)
-        seen_entities = set(self.train_data[:, 0])
+        seen_entities = set(self.train_data[:, 0]).union(set(self.train_data[:, 2]))
         seen_relations = set(self.train_data[:, 1])
 
-        # remove events in valid data set and test data set that contains unseen entity and unseen relation
         val_mask = [evt[0] in seen_entities and evt[2] in seen_entities and evt[1] in seen_relations
                     for evt in self.valid_data]
         self.valid_data_seen_entity = self.valid_data[val_mask]
+
         if add_reverse_relation:
             self.valid_data = np.concatenate([self.valid_data[:, :-1],
-                                              np.vstack(
-                                                  [[event[2], event[1] + num_relations, event[0], event[3]]
+                                              np.vstack([[event[2], event[1] + num_relations, event[0], event[3]]
                                                    for event in self.valid_data])], axis=0)
             self.valid_data_seen_entity = np.concatenate([self.valid_data_seen_entity[:, :-1],
-                                                          np.vstack(
-                                                              [[event[2], event[1] + num_relations, event[0], event[3]]
+                                                    np.vstack([[event[2], event[1] + num_relations, event[0], event[3]]
                                                                for event in self.valid_data_seen_entity])], axis=0)
 
         test_mask = [evt[0] in seen_entities and evt[2] in seen_entities and evt[1] in seen_relations
                      for evt in self.test_data]
         test_mask_conjugate = ~np.array(test_mask)
+
         print('seen dataset proportion: ' + str(np.asarray(test_mask).sum()/len(test_mask)))
         print('unseen dataset proportion: ' + str(test_mask_conjugate.sum()/test_mask_conjugate.size))
+
         self.test_data_seen_entity = self.test_data[test_mask]
         self.test_data_unseen_entity = self.test_data[test_mask_conjugate]
+        
         if add_reverse_relation:
             self.test_data = np.concatenate([self.test_data[:, :-1],
                                              np.vstack(

@@ -8,18 +8,11 @@ import os
 # oldmask = os.umask(0o770)
 
 import sys
-import gc
-
-from collections import defaultdict
 import argparse
 import time
-import copy
-import pdb
 from collections import defaultdict
-
 import numpy as np
 import torch
-import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 
@@ -27,8 +20,6 @@ PackageDir = os.path.dirname(__file__)
 sys.path.insert(1, PackageDir)
 
 from utils import Data, NeighborFinder, Measure, save_config, load_checkpoint
-from model import tERTKG
-import config
 import local_config
 from segment import *
 from database_op import DBDriver

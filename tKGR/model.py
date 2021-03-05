@@ -559,7 +559,7 @@ class AttentionFlow(nn.Module):
         return self.act_between_steps(self.linear_between_steps(embedding))
 
 
-class tERTKG(torch.nn.Module):
+class xERTE(torch.nn.Module):
     def __init__(self, ngh_finder, num_entity=None, num_rel=None, emb_dim: List[int] = None,
                  DP_num_edges=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
@@ -588,7 +588,7 @@ class tERTKG(torch.nn.Module):
             update_prev_edges: if update node representation along previous selected edges
             device {str} -- [description] (default: {'cpu'})
         """
-        super(tERTKG, self).__init__()
+        super(xERTE, self).__init__()
         assert len(emb_dim) == DP_steps + 1
 
         self.DP_num_edges = DP_num_edges
