@@ -246,7 +246,6 @@ if __name__ == "__main__":
         args.max_attended_edges = max_attended_edges
         sp2o = contents.get_sp2o()
         test_spt2o = contents.get_spt2o('test')
-
     print(args)
 
     hit_1 = hit_3 = hit_10 = 0

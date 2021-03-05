@@ -391,3 +391,4 @@ if __name__ == "__main__":
         best_checkpoint_dir, args.epoch, args.whole_or_seen, args.device))
 
 
+# python HyperParaTuning.py  --dataset ICEWS18_forecasting  --device 0 --mongo
