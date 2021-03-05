@@ -304,18 +304,18 @@ if __name__ == "__main__":
     parser.add_argument('--emb_dim', type=int, default=[256, 128, 64, 32], nargs='+',
                         help='dimension of embedding for node, realtion and time')
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of edges after pruning')
+    parser.add_argument('--max_attended_edges', type=int, default=40, help='max number of edges after pruning')
     parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
                                                                       'ratio * self representation + (1 - ratio) * neighbors, '
                                                                       'if ratio==0, GCN style, ratio==1, no node representation update')
 
-    parser.add_argument('--DP_num_edges', type=int, default=40, help='number of edges at each sampling')
+    parser.add_argument('--DP_num_edges', type=int, default=15, help='number of edges at each sampling')
     parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
     parser.add_argument('--dataset', type=str, default=None, help='specify data set')
     parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen', 'unseen'],
                         help='test on the whole set or only on seen entities.')
     parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
-    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--lr', type=float, default=0.0002)
     parser.add_argument('--epoch', type=int, default=20)
     parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
     parser.add_argument('--sampling', type=int, default=3,
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     best_checkpoint_dir = None
     for ratioupdate in [0.25, 0.75]:
             for bs in [128, 64]:
-                for maxedge in [30, 20]:
+                for maxedge in [60, 40]:
                     for dims in [[512, 256, 128, 64], [256, 128, 64, 32]]:
                         args.emb_dim = dims
                         args.batch_size = bs
