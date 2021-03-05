@@ -1,4 +1,5 @@
 import os
+import argparse
 
 def training(args):
     # check cuda
@@ -301,6 +302,7 @@ def training(args):
                 return  best_val, best_epoch, checkpoint_dir
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
     parser.add_argument('--emb_dim', type=int, default=[256, 128, 64, 32], nargs='+', help='dimension of embedding for node, realtion and time')
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--max_attended_edges', type=int, default=40, help='max number of edges after pruning')
