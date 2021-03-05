@@ -1,5 +1,5 @@
 import os
-from train import *
+
 def training(args):
     # check cuda
     if torch.cuda.is_available():
