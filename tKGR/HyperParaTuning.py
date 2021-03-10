@@ -374,6 +374,12 @@ if __name__ == "__main__":
     for ratioupdate in [0.25, 0.75]:
             for dims in [[512, 256, 128, 64], [256, 128, 64, 32]]:
                 for DP_steps in [2, 3]:
+                    if DP_steps == 2:
+                        args.emb_dim = [256, 128, 64]
+                    elif DP_steps == 3:
+                        args.emb_dim = [256, 128, 64, 32]
+                    else:
+                        raise NotImplemented
                     args.emb_dim = dims
                     args.ratio_update = ratioupdate
                     args.DP_steps = DP_steps
