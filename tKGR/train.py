@@ -99,8 +99,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--emb_dim', type=int, default=[256, 128, 64, 32], nargs='+', help='dimension of embedding for node, realtion and time')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
-parser.add_argument('--DP_num_edges', type=int, default=40, help='number of edges at each sampling')
-parser.add_argument('--max_attended_edges', type=int, default=20, help='max number of edges after pruning')
+parser.add_argument('--DP_num_edges', type=int, default=15, help='number of edges at each sampling')
+parser.add_argument('--max_attended_edges', type=int, default=40, help='max number of edges after pruning')
 parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
                                                                   'ratio * self representation + (1 - ratio) * neighbors, '
                                                                   'if ratio==0, GCN style, ratio==1, no node representation update')

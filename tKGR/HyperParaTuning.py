@@ -376,6 +376,7 @@ if __name__ == "__main__":
                 for DP_steps in [2, 3]:
                     args.emb_dim = dims
                     args.ratio_update = ratioupdate
+                    args.DP_steps = DP_steps
                     val_hits1, val_checkpoint_dir = training(args)
                     if best_val < val_hits1:
                         best_val = val_hits1
