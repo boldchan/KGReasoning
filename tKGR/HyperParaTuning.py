@@ -316,7 +316,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--emb_dim', type=int, default=[256, 128, 64, 32], nargs='+', help='dimension of embedding for node, realtion and time')
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--max_attended_edges', type=int, default=40, help='max number of edges after pruning')
+    parser.add_argument('--max_attended_edges', type=int, default=60, help='max number of edges after pruning')
     parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
                                                                       'ratio * self representation + (1 - ratio) * neighbors, '
                                                                       'if ratio==0, GCN style, ratio==1, no node representation update')
@@ -372,17 +372,14 @@ if __name__ == "__main__":
     best_epoch = 0
     best_checkpoint_dir = None
     for ratioupdate in [0.25, 0.75]:
-            for bs in [128, 64]:
-                for maxedge in [60, 40]:
-                    for dims in [[512, 256, 128, 64], [256, 128, 64, 32]]:
-                        args.emb_dim = dims
-                        args.batch_size = bs
-                        args.max_attended_edges = maxedge
-                        args.ratio_update = ratioupdate
-                        val_hits1, val_checkpoint_dir = training(args)
-                        if best_val < val_hits1:
-                            best_val = val_hits1
-                            best_checkpoint_dir = val_checkpoint_dir
+            for dims in [[512, 256, 128, 64], [256, 128, 64, 32]]:
+                for DP_steps in [2, 3]:
+                    args.emb_dim = dims
+                    args.ratio_update = ratioupdate
+                    val_hits1, val_checkpoint_dir = training(args)
+                    if best_val < val_hits1:
+                        best_val = val_hits1
+                        best_checkpoint_dir = val_checkpoint_dir
 
     dbDriver.close()
     print("finished hyperparameter tuning")
