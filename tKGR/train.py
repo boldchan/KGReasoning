@@ -441,8 +441,8 @@ if __name__ == "__main__":
             performance_dict = {k: float(v) for k, v in zip(performance_key, performance)}
 
             dbDriver.log_evaluation(checkpoint_dir, epoch, performance_dict)
-            if performance[2] > best_val:
-                best_val = performance[2]
+            if performance[-1] > best_val:
+                best_val = performance[-1]
                 best_epoch = epoch
 
 
