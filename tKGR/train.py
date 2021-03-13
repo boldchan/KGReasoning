@@ -225,6 +225,7 @@ if __name__ == "__main__":
     best_val = 0
     for epoch in range(start_epoch, args.epoch):
         print("epoch: ", epoch)
+        training_time_epoch_start = time.time()
         # load data
         train_inputs = prepare_inputs(contents, start_time=args.warm_start_time, tc=time_cost)
         train_data_loader = DataLoader(train_inputs, batch_size=args.batch_size, collate_fn=collate_wrapper,
@@ -322,6 +323,7 @@ if __name__ == "__main__":
             #         pass
         running_loss /= batch_ndx + 1
 
+        print("training time per epoch without validation: " + str(time.time() - training_time_epoch_start))
         model.eval()
         if not args.debug:
             torch.save({
@@ -445,6 +447,7 @@ if __name__ == "__main__":
                 best_val = performance[-1]
                 best_epoch = epoch
 
+        print("training time per epoch with validation: " + str(time.time() - training_time_epoch_start))
 
     dbDriver.close()
     print("finished Training")
