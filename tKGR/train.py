@@ -104,7 +104,6 @@ parser.add_argument('--max_attended_edges', type=int, default=40, help='max numb
 parser.add_argument('--ratio_update', type=float, default=0, help='ratio_update: when update node representation: '
                                                                   'ratio * self representation + (1 - ratio) * neighbors, '
                                                                   'if ratio==0, GCN style, ratio==1, no node representation update')
-
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
 parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen', 'unseen'], help='test on the whole set or only on seen entities.')
 parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
@@ -120,12 +119,10 @@ parser.add_argument('--ent_score_aggregation', type=str, default='sum', choices=
 parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
-parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
 parser.add_argument('--random_seed', type=int, default=1)
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
-
 parser.add_argument('--gradient_iters_per_update', type=int, default=1, help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
@@ -184,7 +181,7 @@ if __name__ == "__main__":
                        DP_num_edges=args.DP_num_edges, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation, ent_score_aggregation=args.ent_score_aggregation,
                        ratio_update=args.ratio_update, device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
-                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding)
+                       use_time_embedding=not args.no_time_embedding)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
@@ -255,20 +252,9 @@ if __name__ == "__main__":
                 time_cost['grad']['apply'] += time.time() - t_start
 
             running_loss += loss.item()
-
-            # if batch_ndx % 1 == 0:
-            #     print('[%d, %5d] training loss: %.3f' % (epoch, batch_ndx, running_loss / 1))
-            #     running_loss = 0.0
             print(str_time_cost(time_cost))
             if args.timer:
                 time_cost = reset_time_cost()
-
-            # for obj in gc.get_objects():
-            #     try:
-            #         if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-            #             print(type(obj), obj.size())
-            #     except:
-            #         pass
         running_loss /= batch_ndx + 1
 
         print("training time per epoch without validation: " + str(time.time() - training_time_epoch_start))
@@ -316,12 +302,6 @@ if __name__ == "__main__":
 
                 val_running_loss += loss.item()
 
-                # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
-                # for i, target in enumerate(target_idx_l):
-                #     top10 = entities[indices[i]]
-                #     hit_1 += target == top10[0, 1]
-                #     hit_3 += target in top10[:3, 1]
-                #     hit_10 += target in top10[:, 1]
                 target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score,
                                                                                                      entities,
                                                                                                      target_idx_l,
@@ -330,7 +310,6 @@ if __name__ == "__main__":
                                                                                                      src_idx_l,
                                                                                                      rel_idx_l,
                                                                                                      cut_time_l)
-                # print(target_rank_l)
                 mean_degree_found += sum(degree_batch[found_mask])
                 hit_1 += np.sum(target_rank_l == 1)
                 hit_3 += np.sum(target_rank_l <= 3)

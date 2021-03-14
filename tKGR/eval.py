@@ -177,33 +177,21 @@ def segment_rank(t, entities, target_idx_l):
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default=None, help='specify data set')
 parser.add_argument('--whole_or_seen', type=str, default='whole', choices=['whole', 'seen', 'unseen'], help='test on the whole set or only on seen entities.')
-parser.add_argument('--warm_start_time', type=int, default=48, help="training data start from what timestamp")
-parser.add_argument('--emb_dim', type=int, default=256, help='dimension of embedding for node, realtion and time')
-parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--epoch', type=int, default=20)
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda device')
 parser.add_argument('--sampling', type=int, default=3,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors')
-parser.add_argument('--DP_steps', type=int, default=3, help='number of DP steps')
 parser.add_argument('--DP_num_neighbors', type=int, default=15, help='number of neighbors sampled for sampling horizon')
 parser.add_argument('--max_attended_edges', type=int, default=40, help='max number of nodes in attending from horizon')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
-parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight')
-parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
-parser.add_argument('--emb_static_ratio', type=float, default=1,
-                    help='ratio of static embedding to time(temporal) embeddings')
 parser.add_argument('--timer', action='store_true', default=None, help='set to profile time consumption for some func')
 parser.add_argument('--debug', action='store_true', default=None, help='in debug mode, checkpoint will not be saved')
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
-parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
 parser.add_argument('--gradient_iters_per_update', type=int, default=1,
                     help='gradient accumulation, update parameters every N iterations, default 1. set when GPU memo is small')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
-parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
-parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
-parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -217,7 +205,6 @@ if __name__ == "__main__":
     if args.timer:
         time_cost = reset_time_cost()
     whole_or_seen = args.whole_or_seen
-    analysis = args.explainability_analysis
     eval_batch_size = args.batch_size
 
     dbDriver = DBDriver(useMongo=True, useSqlite=args.sqlite, MongoServerIP=local_config.MongoServer,
@@ -226,9 +213,6 @@ if __name__ == "__main__":
     checkpoint = args.load_checkpoint
     DP_num_neighbors = args.DP_num_neighbors
     max_attended_edges = args.max_attended_edges
-
-    mongodb_analysis_collection_name = 'analysis_' + checkpoint
-
     if args.load_checkpoint is None:
         raise ValueError("please specify checkpoint")
     else:
@@ -269,41 +253,7 @@ if __name__ == "__main__":
         num_query += len(src_idx_l)
         degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
         mean_degree += sum(degree_batch)
-
-        if analysis:
-            entity_att_score, entities, tracking = model(sample, analysis=True)
-
-            for i in range(len(tracking)):
-                tracking[i].update({'subject': int(src_idx_l[i]),
-                                'subject(semantic)': contents.id2entity[src_idx_l[i]],
-                                'relation': int(rel_idx_l[i]),
-                                'relation(semantic)': contents.id2relation[rel_idx_l[i]],
-                                'timestamp': int(cut_time_l[i]),
-                                'object': int(target_idx_l[i]),
-                                'object(semantic)': contents.id2entity[target_idx_l[i]],
-                                'experiment_info': vars(args)})
-                for step in range(args.DP_steps):
-                    tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                         tracking[i][str(step)]["source_nodes"]]
-                    tracking[i][str(step)]["sampled_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                           contents.id2entity[edge[3]], str(edge[4]),
-                                                                           contents.id2relation[edge[5]]]
-                                                                          for edge in
-                                                                          tracking[i][str(step)]["sampled_edges"]]
-                    tracking[i][str(step)]["selected_edges(semantics)"] = [[contents.id2entity[edge[1]], str(edge[2]),
-                                                                            contents.id2entity[edge[3]], str(edge[4]),
-                                                                            contents.id2relation[edge[5]]]
-                                                                           for edge in
-                                                                           tracking[i][str(step)]["selected_edges"]]
-                    tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                              tracking[i][str(step)]["new_sampled_nodes"]]
-                    tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n in
-                                                                             tracking[i][str(step)]["new_source_nodes"]]
-                    tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
-                                                          tracking[i]['entity_candidate']]
-
-        else:
-            entity_att_score, entities = model(sample, analysis=False)
+        entity_att_score, entities = model(sample)
 
         loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
                           args.gradient_iters_per_update, args.loss_fn)
@@ -316,12 +266,6 @@ if __name__ == "__main__":
                                                                                              src_idx_l,
                                                                                              rel_idx_l,
                                                                                              cut_time_l)
-        if analysis:
-            for i in range(len(tracking)):
-                tracking[i]['prediction_rank'] = target_rank_l[i]
-            mongo_id = dbDriver.mongodb[mongodb_analysis_collection_name].insert_many(
-                [tracking[i] for i in range(len(tracking))]).inserted_ids
-
         mean_degree_found += sum(degree_batch[found_mask])
         hit_1 += np.sum(target_rank_l == 1)
         hit_3 += np.sum(target_rank_l <= 3)

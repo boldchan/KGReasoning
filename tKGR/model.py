@@ -64,7 +64,7 @@ class TimeEncode(torch.nn.Module):
         harmonic = torch.cos(map_ts)
         return harmonic
 
-class G3(torch.nn.Module):  # mimic Transformer
+class G3(torch.nn.Module):
     def __init__(self, dim_in, dim_out):
         """[summary]
         bilinear mapping along last dimension of x and y:
@@ -97,7 +97,7 @@ class G3(torch.nn.Module):  # mimic Transformer
         return torch.sum(self.query_proj(left_x) * self.key_proj(right_x), dim=-1) #/ np.sqrt(self.dim_out)
 
 class AttentionFlow(nn.Module):
-    def __init__(self, n_dims_in, n_dims_out, ratio_update=0, update_prev_edges=True, node_score_aggregation='sum',
+    def __init__(self, n_dims_in, n_dims_out, ratio_update=0, node_score_aggregation='sum',
                  device='cpu'):
         """[summary]
 
@@ -116,7 +116,6 @@ class AttentionFlow(nn.Module):
 
         self.node_score_aggregation = node_score_aggregation
         self.ratio_update = ratio_update
-        self.update_prev_edges = update_prev_edges
 
         self.query_src_ts_emb = None
         self.query_rel_emb = None
@@ -204,17 +203,6 @@ class AttentionFlow(nn.Module):
 
     def forward(self, visited_node_score, selected_edges_l=None, visited_node_representation=None, rel_emb_l=None,
                 max_edges=10, analysis=False, tc=None):
-        """
-
-        :param visited_node_score:
-        :param selected_edges_l:
-        :param visited_node_representation:
-        :param rel_emb_l:
-        :param max_edges:
-        :param analysis:
-        :param tc:
-        :return:
-        """
         """calculate attention score
 
         Arguments:
@@ -282,25 +270,21 @@ class AttentionFlow(nn.Module):
         else:
             raise ValueError("node score aggregate can only be mean, sum or max")
 
-        # only message passing and aggregation, apply dense and act layer
+        # only message passing and aggregation
         updated_visited_node_representation = self._update_node_representation_along_edges(pruned_edges,
                                                                                            visited_node_representation,
                                                                                            transition_logits_pruned_softmax,
                                                                                            linear_act=False)
 
-        if self.update_prev_edges:
-            for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
-                transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation,
-                                                              rel_emb)
-                transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
-                updated_edge_attention.append(transition_logits_softmax)
-                updated_visited_node_representation = self._update_node_representation_along_edges(selected_edges,
-                                                                                                   updated_visited_node_representation,
-                                                                                                   transition_logits_softmax,
-                                                                                                   linear_act=False)
-        else:
-            for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
-                updated_edge_attention.append(torch.ones(len(selected_edges), 1))
+        for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
+            transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation,
+                                                          rel_emb)
+            transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
+            updated_edge_attention.append(transition_logits_softmax)
+            updated_visited_node_representation = self._update_node_representation_along_edges(selected_edges,
+                                                                                               updated_visited_node_representation,
+                                                                                               transition_logits_softmax,
+                                                                                               linear_act=False)
 
         #apply dense layer and activation on updated_memorized_embedding
         updated_visited_node_representation = self.bypass_forward(updated_visited_node_representation)
@@ -368,7 +352,7 @@ class xERTE(torch.nn.Module):
                  DP_num_edges=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
                  node_score_aggregation='sum', ent_score_aggregation='sum', max_attended_edges=20, ratio_update=0,
-                 update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True):
+                 device='cpu', analysis=False, use_time_embedding=True):
         """[summary]
 
         Arguments:
@@ -389,7 +373,6 @@ class xERTE(torch.nn.Module):
             seq_len {[type]} -- [description] (default: {None})
             max_attended_nodes {int} -- [max number of nodes in attending-from horizon] (default: {20})
             ratio_update: new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
-            update_prev_edges: if update node representation along previous selected edges
             device {str} -- [description] (default: {'cpu'})
         """
         super(xERTE, self).__init__()
@@ -409,11 +392,8 @@ class xERTE(torch.nn.Module):
         nn.init.xavier_normal_(self.relation_raw_embed.weight)
         self.selfloop = num_rel  # index of relation "selfloop"
         self.att_flow_list = nn.ModuleList([AttentionFlow(emb_dim[_], emb_dim[_ + 1],
-                                                          # static_embed_dim=self.static_embed_dim[_],
-                                                          # temporal_embed_dim=self.temporal_embed_dim[_],
                                                           node_score_aggregation=node_score_aggregation,
-                                                          ratio_update=ratio_update,
-                                                          update_prev_edges=update_prev_edges, device=device)
+                                                          ratio_update=ratio_update, device=device)
                                             for _ in range(DP_steps)])
         if use_time_embedding:
             self.node_emb_proj = nn.Linear(2 * emb_dim[0], emb_dim[0])
@@ -484,13 +464,7 @@ class xERTE(torch.nn.Module):
         visited_node_representation = self.att_flow_list[0].query_src_ts_emb
         return attended_nodes, visited_nodes, visited_nodes_score, visited_node_representation
 
-    def forward(self, sample, analysis=False):
-        if analysis:
-            return self._analyse_forward(sample)
-        else:
-            return self._forward(sample)
-
-    def _forward(self, sample):
+    def forward(self, sample):
         src_idx_l, rel_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.ts
         self.set_init(src_idx_l, rel_idx_l, cut_time_l)
         attended_nodes, visited_nodes, visited_node_score, visited_node_representation = self.initialize()
@@ -504,56 +478,6 @@ class xERTE(torch.nn.Module):
                                                                 attended_nodes)
 
         return entity_att_score, entities
-
-    def _analyse_forward(self, sample):
-        src_idx_l, rel_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.ts
-        batch_size = len(src_idx_l)
-        self.set_init(src_idx_l, rel_idx_l, cut_time_l)
-        attended_nodes, visited_nodes, visited_node_score, visited_node_representation = self.initialize()
-        tracking = {i: {} for i in range(batch_size)}
-        for step in range(self.DP_steps):
-            #            print("{}-th DP step".format(step))
-            for i in range(batch_size):
-                mask = attended_nodes[:, 0] == i
-                attended_nodes_i = attended_nodes[mask]
-                tracking[i][str(step)] = {"source_nodes": attended_nodes_i.tolist(),
-                                          "source_nodes_score": visited_node_score.cpu().detach().numpy()[
-                                              attended_nodes_i[:, 3]].tolist()}
-            attended_nodes, visited_nodes, visited_node_score, visited_node_representation, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, updated_edge_attention = self._analyse_flow(
-                attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step=step)
-            visited_node_score = segment_norm_l1(visited_node_score, visited_nodes[:, 0])
-            for i in range(batch_size):
-                mask = sampled_edges[:, 0] == i
-                tracking[i][str(step)]["sampled_edges"] = sampled_edges[mask].tolist() # sampled_edges here mean the total edges sampled from the neighborhood of last attended_nodes
-                tracking[i][str(step)]["sampled_edges_attention"] = edge_attn_before_pruning[mask].tolist()
-                tracking[i][str(step)]["selected_edges"] = self.sampled_edges_l[-1][
-                    self.sampled_edges_l[-1][:, 0] == i].tolist() # self.sampled_edges is a list of sampled edges left after prunning, it's different than what the variable name means.
-                mask = self.sampled_edges_l[-1][:, 0] == i
-                selected_edge_source_score = visited_node_score.cpu().detach().numpy()[self.sampled_edges_l[-1][:, -2][mask]]
-                selected_edge_attention = updated_edge_attention[-1].cpu().detach().numpy()[mask]
-                contribution_score = selected_edge_source_score * selected_edge_attention
-                tracking[i][str(step)]["contribution_score"] = contribution_score.tolist()
-                for st, (selected_edges, selected_edge_att) in enumerate(
-                        zip(self.sampled_edges_l, updated_edge_attention)):
-                    mask = selected_edges[:, 0] == i
-                    tracking[i][str(st)].setdefault("selected_edges_attention", []).append(
-                        selected_edge_att.cpu().detach().numpy()[mask].tolist())
-                tracking[i][str(step)]["new_sampled_nodes"] = new_sampled_nodes[
-                    new_sampled_nodes[:, 0] == i].tolist()
-                mask = attended_nodes[:, 0] == i
-                attended_nodes_i = attended_nodes[mask]
-                tracking[i][str(step)]["new_source_nodes"] = attended_nodes_i.tolist()
-                tracking[i][str(step)]["new_source_nodes_score"] = visited_node_score.cpu().detach().numpy()[
-                    attended_nodes_i[:, 3]].tolist()
-
-        entity_att_score, entities = self.get_entity_attn_score(visited_node_score[attended_nodes[:, -1]],
-                                                                attended_nodes)
-
-        for i in range(batch_size):
-            mask = entities[:, 0] == i
-            tracking[i]['entity_score'] = entity_att_score.cpu().detach().numpy()[mask].tolist()
-            tracking[i]['entity_candidate'] = entities[mask][:, 1].tolist()
-        return entity_att_score, entities, tracking
 
     def _flow(self, attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step, tc=None):
         """[summary]
@@ -591,14 +515,12 @@ class xERTE(torch.nn.Module):
             assert max(sampled_edges[:, -1]) < self.num_existing_nodes
 
         self.sampled_edges_l.append(sampled_edges)
-        # print(sampled_edges)
 
         rel_emb = self.get_rel_emb(sampled_edges[:, 5], self.device)
         for i in range(step):
             rel_emb = self.att_flow_list[i].bypass_forward(rel_emb)
         # update relation representation of edges sampled from previous steps
         for j in range(step):
-            # pdb.set_trace()
             self.rel_emb_l[j] = self.att_flow_list[step - 1].bypass_forward(self.rel_emb_l[j])
         self.rel_emb_l.append(rel_emb)
 
@@ -618,80 +540,7 @@ class xERTE(torch.nn.Module):
         _, indices = np.unique(pruned_edges[:, [0, 4, 3]], return_index=True, axis=0)
         updated_attended_nodes = pruned_edges[:, [0, 3, 4, 7]][indices]
 
-        #        # normalize node prediction score, since we lose node prediction score in pruning
-        #        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
-
         return updated_attended_nodes, visited_nodes, new_visited_node_score, updated_visited_node_representation
-
-    def _analyse_flow(self, attended_nodes, visited_nodes, visited_node_score, visited_node_representation, step,
-                      tc=None):
-        """[summary]
-
-        Arguments:
-            attended_nodes {numpy.array} -- num_nodes x 4 (eg_idx, entity_id, ts, node_idx), dtype: numpy.int32, sort (eg_idx, ts, entity_id)
-            attended_node_score {Tensor} -- num_nodes, dtype: torch.float32
-        return:
-            pruned_node {numpy.array} -- num_selected x 3 (eg_idx, entity_id, ts) sorted by (eg_idx, entity_id, ts)
-            new_node_score {Tensor} -- num_selected
-            so that new_node_attention[i] is the attention of selected_node[i]
-            updated_memorized_embedding: dict {(e, t): TGAN_embedding}
-        """
-
-        # Sampling Horizon
-        # sampled_edges: (eg_idx, vi, ti, vj, tj, rel, idx_eg_vi_ti, idx_eg_vj_tj)
-        # src_attention: (Tensor) n_sampled_edges, attention score of the source node of sampled edges
-        # selfloop is added
-        sampled_edges, new_sampled_nodes, new_attended_nodes = self._get_sampled_edges(attended_nodes,
-                                                                                       num_neighbors=self.DP_num_edges,
-                                                                                       step=step, add_self_loop=True,
-                                                                                       tc=tc)
-        if len(new_sampled_nodes):
-            new_sampled_nodes_emb = self.get_node_emb(new_sampled_nodes[:, 1], new_sampled_nodes[:, 2],
-                                                      eg_idx=new_sampled_nodes[:, 0])
-
-            for i in range(step):
-                new_sampled_nodes_emb = self.att_flow_list[i].bypass_forward(new_sampled_nodes_emb)
-            visited_node_representation = torch.cat([visited_node_representation, new_sampled_nodes_emb], axis=0)
-            visited_nodes = np.concatenate([visited_nodes, new_sampled_nodes], axis=0)
-
-            assert len(visited_node_representation) == self.num_existing_nodes
-            assert max(new_sampled_nodes[:, -1]) + 1 == self.num_existing_nodes
-            assert max(sampled_edges[:, -1]) < self.num_existing_nodes
-
-        self.sampled_edges_l.append(sampled_edges)
-        # print(sampled_edges)
-
-        rel_emb = self.get_rel_emb(sampled_edges[:, 5], self.device)
-        for i in range(step):
-            rel_emb = self.att_flow_list[i].bypass_forward(rel_emb)
-        # update relation representation of edges sampled from previous steps
-        for j in range(step):
-            # pdb.set_trace()
-            self.rel_emb_l[j] = self.att_flow_list[step - 1].bypass_forward(self.rel_emb_l[j])
-        self.rel_emb_l.append(rel_emb)
-
-        new_node_score, updated_visited_node_representation, pruned_edges, orig_indices, edge_attn_before_pruning, edge_att = \
-            self.att_flow_list[step](
-                visited_node_score,
-                selected_edges_l=self.sampled_edges_l,
-                visited_node_representation=visited_node_representation,
-                rel_emb_l=self.rel_emb_l,
-                max_edges=self.max_attended_edges,
-                analysis=True, tc=tc)
-
-        assert len(pruned_edges) == len(orig_indices)
-        #        print("# pruned_edges {}".format(len(pruned_edges)))
-        self.sampled_edges_l[-1] = pruned_edges
-        self.rel_emb_l[-1] = self.rel_emb_l[-1][orig_indices]
-
-        # get pruned nodes
-        _, indices = np.unique(pruned_edges[:, [0, 4, 3]], return_index=True, axis=0)
-        updated_attended_nodes = pruned_edges[:, [0, 3, 4, 7]][indices]
-
-        #        # normalize node prediction score, since we lose node prediction score in pruning
-        #        new_node_score = segment_norm_l1_part(new_node_score, pruned_nodes[:, -1], pruned_nodes[:, 0])
-
-        return updated_attended_nodes, visited_nodes, new_node_score, updated_visited_node_representation, sampled_edges, new_sampled_nodes, edge_attn_before_pruning, edge_att
 
     def loss(self, entity_att_score, entities, target_idx_l, batch_size, gradient_iters_per_update=1, loss_fn='BCE'):
         one_hot_label = torch.from_numpy(
@@ -773,10 +622,6 @@ class xERTE(torch.nn.Module):
         trans_matrix_sparse = torch.sparse.FloatTensor(sparse_index, sparse_value,
                                                        torch.Size([len(entities), num_nodes])).to(device)
         entity_att_score = torch.squeeze(torch.sparse.mm(trans_matrix_sparse, logits.unsqueeze(1)))
-        # entity_att_score = torch.zeros(len(entities), dtype=torch.float32).to(device)
-
-        # for i in range(len(entities)):
-        #     entity_att_score[i] = torch.sum(logits[entities_idx == i])
 
         return entity_att_score, entities
 
@@ -821,7 +666,6 @@ class xERTE(torch.nn.Module):
                         src_ngh_nodes = src_ngh_nodes[mask]
                         src_ngh_eidx = src_ngh_eidx_batch[i][mask]
                         src_ngh_t = src_ngh_t_batch[i][mask]
-                        # problematic when different attention layer has diff dim
                         src_node_embed = self.get_node_emb(np.array([src_idx_l[i]] * len(src_ngh_nodes)),
                                                            np.array([cut_time_l[i]] * len(src_ngh_nodes)),
                                                            np.array([attended_nodes[i, 0] * len(src_ngh_nodes)]))
@@ -919,7 +763,6 @@ class xERTE(torch.nn.Module):
                 res_att.append(masked_node_attention)
             else:
                 topk_node_attention, indices = torch.topk(masked_node_attention, k)
-                # pdb.set_trace()
                 try:
                     res_nodes.append(masked_nodes[indices.cpu().numpy()])
                 except Exception as e:
