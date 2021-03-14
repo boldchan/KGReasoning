@@ -114,16 +114,14 @@ parser.add_argument('--device', type=int, default=-1, help='-1: cpu, >=0, cuda d
 parser.add_argument('--sampling', type=int, default=3,
                     help='strategy to sample neighbors, 0: uniform, 1: first num_neighbors, 2: last num_neighbors, 3: time-difference weighted')
 parser.add_argument('--load_checkpoint', type=str, default=None, help='train from checkpoints')
-parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale weight')
+parser.add_argument('--weight_factor', type=float, default=2, help='sampling 3, scale the time unit')
 parser.add_argument('--node_score_aggregation', type=str, default='sum', choices=['sum', 'mean', 'max'])
 parser.add_argument('--ent_score_aggregation', type=str, default='sum', choices=['sum', 'mean'])
 parser.add_argument('--emb_static_ratio', type=float, default=1, help='ratio of static embedding to time(temporal) embeddings')
 parser.add_argument('--add_reverse', action='store_true', default=True, help='add reverse relation into data set')
-parser.add_argument('--attention_func', type=str, default='G3', help='choice of attention functions')
 parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
-parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
 parser.add_argument('--random_seed', type=int, default=1)
 parser.add_argument('--sqlite', action='store_true', default=None, help='save information to sqlite')
 parser.add_argument('--mongo', action='store_true', default=None, help='save information to mongoDB')
@@ -186,8 +184,7 @@ if __name__ == "__main__":
                        DP_num_edges=args.DP_num_edges, max_attended_edges=args.max_attended_edges,
                        node_score_aggregation=args.node_score_aggregation, ent_score_aggregation=args.ent_score_aggregation,
                        ratio_update=args.ratio_update, device=device, diac_embed=args.diac_embed, emb_static_ratio=args.emb_static_ratio,
-                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding,
-                       attention_func = args.attention_func)
+                       update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding)
         # move a model to GPU before constructing an optimizer, http://pytorch.org/docs/master/optim.html
         model.to(device)
         model.entity_raw_embed.cpu()
@@ -234,55 +231,6 @@ if __name__ == "__main__":
         running_loss = 0.
 
         for batch_ndx, sample in tqdm(enumerate(train_data_loader)):
-            if args.explainability_analysis and batch_ndx % 50 == 0:
-                assert args.mongo
-                mongodb_analysis_collection_name = 'analysis_' + checkpoint_dir
-                src_idx_l, rel_idx_l, target_idx_l, cut_time_l = analysis_batch.src_idx, analysis_batch.rel_idx, analysis_batch.target_idx, analysis_batch.ts
-                mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
-                                                cut_time_l,
-                                                target_idx_l, vars(args), contents.id2entity, contents.id2relation)
-                model.eval()
-                entity_att_score, entities, tracking = model(analysis_batch, analysis=True)
-                target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(
-                    entity_att_score,
-                    entities,
-                    target_idx_l,
-                    sp2o,
-                    val_spt2o,
-                    src_idx_l,
-                    rel_idx_l,
-                    cut_time_l)
-                for i in range(args.batch_size):
-                    for step in range(args.DP_steps):
-                        tracking[i][str(step)]["source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])] for n
-                                                                             in
-                                                                             tracking[i][str(step)]["source_nodes"]]
-                        tracking[i][str(step)]["sampled_edges(semantics)"] = [
-                            [contents.id2entity[edge[1]], str(edge[2]),
-                             contents.id2entity[edge[3]], str(edge[4]),
-                             contents.id2relation[edge[5]]]
-                            for edge in
-                            tracking[i][str(step)]["sampled_edges"]]
-                        tracking[i][str(step)]["selected_edges(semantics)"] = [
-                            [contents.id2entity[edge[1]], str(edge[2]),
-                             contents.id2entity[edge[3]], str(edge[4]),
-                             contents.id2relation[edge[5]]]
-                            for edge in
-                            tracking[i][str(step)]["selected_edges"]]
-                        tracking[i][str(step)]["new_sampled_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])]
-                                                                                  for
-                                                                                  n in tracking[i][str(step)][
-                                                                                      "new_sampled_nodes"]]
-                        tracking[i][str(step)]["new_source_nodes(semantics)"] = [[contents.id2entity[n[1]], str(n[2])]
-                                                                                 for n
-                                                                                 in
-                                                                                 tracking[i][str(step)][
-                                                                                     "new_source_nodes"]]
-                    tracking[i]['entity_candidate(semantics)'] = [contents.id2entity[ent] for ent in
-                                                                  tracking[i]['entity_candidate']]
-                    tracking[i]['epoch'] = epoch
-                    tracking[i]['batch_idx'] = batch_ndx
-                    dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]}, {"$set": tracking[i]})
             optimizer.zero_grad()
             model.zero_grad()
             model.train()

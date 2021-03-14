@@ -64,109 +64,6 @@ class TimeEncode(torch.nn.Module):
         harmonic = torch.cos(map_ts)
         return harmonic
 
-
-# class F(torch.nn.Module): #TODO: is F used?
-#     def __init__(self, input_dims, output_dims, n_layers, name=None):
-#         super(F, self).__init__(name=name)
-#
-#         if n_layers == 1:
-#             self.linears = nn.ModuleList([nn.Linear(input_dims, output_dims),
-#                                           nn.Tanh()])
-#             nn.init.xavier_normal_(self.linears[0])
-#         elif n_layers == 2:
-#             self.linears = nn.ModuleList([nn.Linear(output_dims, input_dims),
-#                                           nn.LeakyReLU(),
-#                                           nn.Linear(output_dims),
-#                                           nn.Tanh()])
-#
-#             nn.init.xavier_normal_(self.linears[0].weight)
-#             nn.init.xavier_normal_(self.linears[2].weight)
-#         else:
-#             raise ValueError("Invalid n_layers")
-#
-#     def forward(self, inputs, training=None):
-#         """
-#         concatenate inputs along last dimensions and feed into MLP
-#         :param inputs[i]: bs x ... x n_dims
-#         :param training:
-#         :return:
-#         """
-#         x = torch.cat(inputs, axis=-1)
-#         for l in self.linears:
-#             x = l(x)
-#         return x
-
-class G(torch.nn.Module):
-    def __init__(self, left_dims, right_dims, output_dims):
-        """[summary]
-        bilinear mapping along last dimension of x and y:
-        output = MLP_1(x)^T A MLP_2(y), where A is two-dimenion matrix
-
-        Arguments:
-            left_dims {[type]} -- input dims of MLP_1
-            right_dims {[type]} -- input dims of MLP_2
-            output_dims {[type]} -- [description]
-        """
-        super(G, self).__init__()
-        self.left_dense = nn.Linear(left_dims, output_dims)
-        nn.init.normal_(self.left_dense.weight, mean=0, std=np.sqrt(2.0 / (left_dims)))
-        self.right_dense = nn.Linear(right_dims, output_dims)
-        nn.init.normal_(self.right_dense.weight, mean=0, std=np.sqrt(2.0 / (right_dims)))
-        self.center_dense = nn.Linear(output_dims, output_dims)
-        nn.init.xavier_normal_(self.center_dense.weight)
-        self.left_act = nn.LeakyReLU()
-        self.right_act = nn.LeakyReLU()
-
-    def forward(self, inputs):
-        """[summary]
-        Arguments:
-            inputs: (left, right)
-            left[i] -- tensor, bs x ... x left_dims
-            right[i] -- tensor, bs x ... x right_dims
-        """
-        left, right = inputs
-        left_x = torch.cat(left, dim=-1)
-        right_x = torch.cat(right, dim=-1)
-        # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
-        # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
-        return torch.sum(
-            self.left_act(self.left_dense(left_x)) * self.center_dense(self.right_act(self.right_dense(right_x))),
-            dim=-1)
-
-class G2(torch.nn.Module):  # No center_dense layer
-    def __init__(self, dim_in, dim_out):
-        """[summary]
-        bilinear mapping along last dimension of x and y:
-        output = MLP_1(x)^T A MLP_2(y), where A is two-dimenion matrix
-
-        Arguments:
-            left_dims {[type]} -- input dims of MLP_1
-            right_dims {[type]} -- input dims of MLP_2
-            output_dims {[type]} -- [description]
-        """
-        super(G2, self).__init__()
-        self.query_proj = nn.Linear(dim_in, dim_out, bias=False)
-        nn.init.normal_(self.query_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
-        self.key_proj = nn.Linear(dim_in, dim_out, bias=False)
-        nn.init.normal_(self.key_proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
-        self.left_act = nn.LeakyReLU()
-        self.right_act = nn.LeakyReLU()
-
-    def forward(self, inputs):
-        """[summary]
-        Arguments:
-            inputs: (left, right)
-            left[i] -- tensor, bs x ... x left_dims
-            right[i] -- tensor, bs x ... x right_dims
-        """
-        vi, vj = inputs
-        left_x = torch.cat(vi, dim=-1)
-        right_x = torch.cat(vj, dim=-1)
-        # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
-        # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
-        return torch.sum(
-            self.left_act(self.query_proj(left_x)) * self.right_act(self.key_proj(right_x)), dim=-1)
-
 class G3(torch.nn.Module):  # mimic Transformer
     def __init__(self, dim_in, dim_out):
         """[summary]
@@ -199,78 +96,9 @@ class G3(torch.nn.Module):  # mimic Transformer
         # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
         return torch.sum(self.query_proj(left_x) * self.key_proj(right_x), dim=-1) #/ np.sqrt(self.dim_out)
 
-class G4(torch.nn.Module):  # mimic GAT TODO: how to understand the a(.) function in GAT?
-    def __init__(self, dim_in, dim_out):
-        """[summary]
-        bilinear mapping along last dimension of x and y:
-        output = MLP_1(x)^T A MLP_2(y), where A is two-dimenion matrix
-
-        Arguments:
-            left_dims {[type]} -- input dims of MLP_1
-            right_dims {[type]} -- input dims of MLP_2
-            output_dims {[type]} -- [description]
-        """
-        super(G4, self).__init__()
-        self.dim_out = dim_out
-        self.proj = nn.Linear(dim_in, dim_out, bias=False)
-        nn.init.normal_(self.proj.weight, mean=0, std=np.sqrt(2.0 / (dim_in)))
-
-    def forward(self, inputs):
-        """[summary]
-        Arguments:
-            inputs: (left, right)
-            left[i] -- tensor, bs x ... x left_dims
-            right[i] -- tensor, bs x ... x right_dims
-        """
-        vi, vj = inputs
-        left_x = torch.cat(vi, dim=-1)
-        right_x = torch.cat(vj, dim=-1)
-        # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
-        # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
-        return torch.sum(self.proj(left_x) * self.proj(right_x), dim=-1) / np.sqrt(self.dim_out)
-
-class G_deprecated(torch.nn.Module):  # Problematic
-    def __init__(self, emb_dims, num_rel):
-        """[summary]
-        model different relation
-        output = MLP_1(x)^T A[rel] MLP_2(y), where A is three-dimenion matrix
-
-        Arguments:
-            left_dims {[type]} -- input dims of MLP_1
-            right_dims {[type]} -- input dims of MLP_2
-            output_dims {[type]} -- [description]
-        """
-        super(G_deprecated, self).__init__()
-        self.left_dense = nn.Linear(emb_dims, emb_dims)
-        nn.init.normal_(self.left_dense.weight, mean=0, std=np.sqrt(2.0 / (emb_dims)))
-        self.right_dense = nn.Linear(emb_dims, emb_dims)
-        nn.init.normal_(self.right_dense.weight, mean=0, std=np.sqrt(2.0 / (emb_dims)))
-        self.center_dense = nn.ModuleList([nn.Linear(emb_dims, emb_dims) for _ in range(num_rel)])
-        self.center_dense.apply(lambda x: nn.init.xavier_normal_(x.weight))
-        self.left_act = nn.LeakyReLU()
-        self.right_act = nn.LeakyReLU()
-
-    def forward(self, inputs):
-        """[summary]
-        TBD
-        Arguments:
-            inputs: (left(Tensor), right(Tensor), rel (int))
-            left[i] -- tensor, bs x ... x left_dims
-            right[i] -- tensor, bs x ... x right_dims
-        """
-        left, right, rel = inputs
-        left_x = torch.cat(left, dim=-1)
-        right_x = torch.cat(right, dim=-1)
-        # speed of batch-wise dot production: sum over element-wise product > matmul > bmm
-        # refer to https://discuss.pytorch.org/t/dot-product-batch-wise/9746/12
-        return torch.sum(
-            self.left_act(self.left_dense(left_x)) * self.center_dense[rel](self.right_act(self.right_dense(right_x))),
-            dim=-1)
-
-
 class AttentionFlow(nn.Module):
     def __init__(self, n_dims_in, n_dims_out, ratio_update=0, update_prev_edges=True, node_score_aggregation='sum',
-                 device='cpu', attention_func = 'G3'):
+                 device='cpu'):
         """[summary]
 
         Arguments:
@@ -279,17 +107,7 @@ class AttentionFlow(nn.Module):
             ratio_update -- new node representation = ratio*self+(1-ratio)\sum{aggregation of neighbors' representation}
         """
         super(AttentionFlow, self).__init__()
-
-        if attention_func == 'G':
-            self.transition_fn = G(4 * n_dims_in, 4 * n_dims_in, 2 * n_dims_in)
-        elif attention_func == 'G2':
-            self.transition_fn = G2(4 * n_dims_in, 4 * n_dims_in)
-        elif attention_func == 'G3':
-            self.transition_fn = G3(4 * n_dims_in, 4 * n_dims_in)
-        elif attention_func == 'G4':
-            self.transition_fn = G4(4 * n_dims_in, 4 * n_dims_in)
-        else:
-            raise KeyError
+        self.transition_fn = G3(4 * n_dims_in, 4 * n_dims_in)
 
         # dense layer between steps
         self.linear_between_steps = nn.Linear(n_dims_in, n_dims_out, bias=True)
@@ -474,10 +292,8 @@ class AttentionFlow(nn.Module):
             for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
                 transition_logits = self._cal_attention_score(selected_edges, updated_visited_node_representation,
                                                               rel_emb)
-                # possible solution, use updated rel_emb, but dimension mismatch between update along older edge and along latest edge, since we apply linear on updated node representation
                 transition_logits_softmax = segment_softmax_op_v2(transition_logits, selected_edges[:, -2], tc=tc)
                 updated_edge_attention.append(transition_logits_softmax)
-                # only message passing and aggregation, apply dense and act layer
                 updated_visited_node_representation = self._update_node_representation_along_edges(selected_edges,
                                                                                                    updated_visited_node_representation,
                                                                                                    transition_logits_softmax,
@@ -486,20 +302,8 @@ class AttentionFlow(nn.Module):
             for selected_edges, rel_emb in zip(selected_edges_l[:-1][::-1], rel_emb_l[:-1][::-1]):
                 updated_edge_attention.append(torch.ones(len(selected_edges), 1))
 
-        # the function's name is confusing, but it simply apply dense layer and activation on updated_memorized_embedding
+        #apply dense layer and activation on updated_memorized_embedding
         updated_visited_node_representation = self.bypass_forward(updated_visited_node_representation)
-
-        # # new_node_attention = segment_softmax_op_v2(attending_node_attention, selected_node[:, 0], tc=tc) #?
-        # if tc:
-        #     t_softmax = time.time()
-        #
-        #
-        # if tc:
-        #     tc['model']['DP_attn_aggr'] += time.time() - t_softmax
-        #     tc['model']['DP_attn_transition'] += t_transition - t_query
-        #     tc['model']['DP_attn_softmax'] += t_softmax - t_transition
-        #     tc['model']['DP_attn_proj'] += t_proj - t_start
-        #     tc['model']['DP_attn_query'] += t_query - t_proj
 
         if analysis:
             return updated_node_score, updated_visited_node_representation, pruned_edges, orig_indices, edge_attn_before_pruning, updated_edge_attention[
@@ -564,7 +368,7 @@ class xERTE(torch.nn.Module):
                  DP_num_edges=40, DP_steps=3,
                  emb_static_ratio=1, diac_embed=False,
                  node_score_aggregation='sum', ent_score_aggregation='sum', max_attended_edges=20, ratio_update=0,
-                 update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True, attention_func = 'G3', **kwargs):
+                 update_prev_edges=True, device='cpu', analysis=False, use_time_embedding=True):
         """[summary]
 
         Arguments:
@@ -596,9 +400,6 @@ class xERTE(torch.nn.Module):
         self.use_time_embedding = use_time_embedding
         self.ngh_finder = ngh_finder
 
-        #if not self.use_time_embedding:
-        #    emb_static_ratio = 1
-
         self.temporal_embed_dim = [int(emb_dim[_] * 2 / (1 + emb_static_ratio)) for _ in range(DP_steps)]
         self.static_embed_dim = [emb_dim[_] * 2 - self.temporal_embed_dim[_] for _ in range(DP_steps)]
 
@@ -612,8 +413,7 @@ class xERTE(torch.nn.Module):
                                                           # temporal_embed_dim=self.temporal_embed_dim[_],
                                                           node_score_aggregation=node_score_aggregation,
                                                           ratio_update=ratio_update,
-                                                          update_prev_edges=update_prev_edges,
-                                                          device=device, attention_func = 'G3')
+                                                          update_prev_edges=update_prev_edges, device=device)
                                             for _ in range(DP_steps)])
         if use_time_embedding:
             self.node_emb_proj = nn.Linear(2 * emb_dim[0], emb_dim[0])

@@ -83,9 +83,6 @@ class Data:
                                                               for event in self.test_data_unseen_entity])], axis=0)
 
         self.data = np.concatenate([self.train_data, self.valid_data, self.test_data], axis=0)
-        #self.refined_data = np.concatenate([self.train_data, self.valid_data_seen_entity, self.valid_data_seen_entity], axis=0)
-        #self.refined_data = np.concatenate([self.refined_data, np.arange(len(self.refined_data))[:, np.newaxis]], axis=1)
-
         self.timestamps = self._get_timestamps(self.data)
 
     def _load_data(self, data_dir, data_type="train"):
@@ -102,7 +99,6 @@ class Data:
 
     def neg_sampling_object(self, Q, dataset='train', start_time=0):
         '''
-
         :param Q: number of negative sampling for each real quadruple
         :param start_time: neg sampling for events since start_time (inclusive), used for warm start training
         :param dataset: indicate which data set to choose negative sampling from
@@ -314,37 +310,6 @@ class NeighborFinder:
             temp_degree.append(self.off_set_t_l[src_idx][int(cut_time / self.time_granularity)])  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
         return np.array(temp_degree)
 
-    # def find_before(self, src_idx, cut_time):
-    #     """
-    #     build neighborhood sequence of entity sec_idx before cut_time
-    #     Params
-    #     ------
-    #     src_idx: int
-    #     cut_time: float
-    #     """
-    #     neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-    #     neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-    #     neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
-    #
-    #     if len(neighbors_idx) == 0 or len(neighbors_ts) == 0:
-    #         return neighbors_idx, neighbors_ts, neighbors_e_idx
-    #
-    #     left = 0
-    #     right = len(neighbors_idx) - 1
-    #
-    #     while left + 1 < right:
-    #         mid = (left + right) // 2
-    #         curr_t = neighbors_ts[mid]
-    #         if curr_t < cut_time:
-    #             left = mid
-    #         else:
-    #             right = mid
-    #
-    #     if neighbors_ts[right] < cut_time:
-    #         return neighbors_idx[:right + 1], neighbors_e_idx[:right + 1], neighbors_ts[:right + 1]
-    #     else:
-    #         return neighbors_idx[:left + 1], neighbors_e_idx[:left + 1], neighbors_ts[:left + 1]
-
     def find_before(self, src_idx, cut_time):
         neighbors_idx = self.node_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
         neighbors_ts = self.node_ts_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
@@ -438,9 +403,7 @@ class NeighborFinder:
             neighbors_e_idx = self.edge_idx_l[self.off_set_l[src_idx]:self.off_set_l[src_idx + 1]]
             mid = self.off_set_t_l[src_idx][
                 int(cut_time / self.time_granularity)]  # every timestamp in neighbors_ts[:mid] is smaller than cut_time
-            # mid = np.searchsorted(neighbors_ts, cut_time)
             ngh_idx, ngh_eidx, ngh_ts = neighbors_idx[:mid], neighbors_e_idx[:mid], neighbors_ts[:mid]
-            # ngh_idx, ngh_eidx, ngh_ts = self.find_before(src_idx, cut_time)
 
             if len(ngh_idx) > 0:
                 if self.sampling == 0:
@@ -452,20 +415,10 @@ class NeighborFinder:
                     out_ngh_t_batch[i, :] = ngh_ts[sampled_idx]
                     out_ngh_eidx_batch[i, :] = ngh_eidx[sampled_idx]
 
-                    # # resort based on time
-                    # pos = out_ngh_t_batch[i, :].argsort()
-                    # out_ngh_node_batch[i, :] = out_ngh_node_batch[i, :][pos]
-                    # out_ngh_t_batch[i, :] = out_ngh_t_batch[i, :][pos]
-                    # out_ngh_eidx_batch[i, :] = out_ngh_eidx_batch[i, :][pos]
                 elif self.sampling == 1:
                     ngh_ts = ngh_ts[:num_neighbors]
                     ngh_idx = ngh_idx[:num_neighbors]
                     ngh_eidx = ngh_eidx[:num_neighbors]
-                    #
-                    # assert (len(ngh_idx) <= num_neighbors)
-                    # assert (len(ngh_ts) <= num_neighbors)
-                    # assert (len(ngh_eidx) <= num_neighbors)
-                    #
                     out_ngh_node_batch[i, num_neighbors - len(ngh_idx):] = ngh_idx
                     out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
                     out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
@@ -473,18 +426,10 @@ class NeighborFinder:
                     ngh_ts = ngh_ts[-num_neighbors:]
                     ngh_idx = ngh_idx[-num_neighbors:]
                     ngh_eidx = ngh_eidx[-num_neighbors:]
-                    #
-                    # assert (len(ngh_idx) <= num_neighbors)
-                    # assert (len(ngh_ts) <= num_neighbors)
-                    # assert (len(ngh_eidx) <= num_neighbors)
-                    #
                     out_ngh_node_batch[i, num_neighbors - len(ngh_idx):] = ngh_idx
                     out_ngh_t_batch[i, num_neighbors - len(ngh_ts):] = ngh_ts
                     out_ngh_eidx_batch[i, num_neighbors - len(ngh_eidx):] = ngh_eidx
                 elif self.sampling == 3:
-                    # ngh_ts = ngh_ts + 1e-9
-                    # weights = ngh_ts / sum(ngh_ts)
-
                     delta_t = (ngh_ts - cut_time)/(self.time_granularity*self.weight_factor)
                     weights = np.exp(delta_t) + 1e-9
                     weights = weights / sum(weights)
@@ -593,12 +538,6 @@ class Measure:
         self.mrr[raw_or_fil] += (1.0 / rank)
 
     def batch_update(self, rank_l, raw_or_fil):
-        '''
-
-        :param rank: [batch_size,]
-        :param raw_or_fil:
-        :return:
-        '''
         self.hit1[raw_or_fil] += np.sum(rank_l == 1)
         self.hit3[raw_or_fil] += np.sum(rank_l <= 3)
         self.hit10[raw_or_fil] += np.sum(rank_l <= 10)
@@ -680,11 +619,6 @@ def load_checkpoint(checkpoint_dir, device='cpu', args=None):
 
         nf = NeighborFinder(adj, sampling=args.sampling, max_time=max_time, num_entities=len(contents.id2entity),
                             weight_factor=args.weight_factor, time_granularity=time_granularity)
-#        model = tERTKG(nf, len(contents.id2entity), len(contents.id2relation), args.emb_dim, args.emb_dim_sm,
-#                       DP_num_neighbors=args.DP_num_neighbors, max_attended_edges=args.max_attended_edges,
-#                       recalculate_att_after_prun=args.recalculate_att_after_prun,
-#                       node_score_aggregation=args.node_score_aggregation,
-#                       device=device)
         kwargs = vars(args)
         kwargs['device'] = device
         model = xERTE(nf, contents.num_entities, contents.num_relations, update_prev_edges=not args.stop_update_prev_edges, use_time_embedding=not args.no_time_embedding, **kwargs)

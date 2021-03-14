@@ -67,16 +67,6 @@ def segment_softmax_op(logits, segment_ids, tc=None):
                                                       torch.Size([len_logits, len_logits])).to(device)
     softmax_den = torch.squeeze(torch.sparse.mm(trans_matrix_sparse_th, torch.exp(logits).unsqueeze(1)))
     logits_segment_softmax = torch.exp(logits) / softmax_den
-    # logits_segment_softmax = logits.clone()
-    # for segment_id in sorted(set(segment_ids)):
-    #     # segment_mask = segment_ids==segment_id # somehow no grad is generated
-    #     segment_idx = np.where(segment_ids == segment_id)[0]
-    #     logits_max = torch.max(logits[segment_idx])
-    #     logits_diff = logits[segment_idx] - logits_max
-    #     logits_exp = torch.exp(logits_diff)
-    #     logits_expsum = torch.sum(logits_exp)
-    #     logits_norm = logits_exp / logits_expsum
-    #     logits_segment_softmax[segment_idx] = logits_norm
     return logits_segment_softmax
 
 

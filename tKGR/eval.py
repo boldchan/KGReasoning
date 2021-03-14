@@ -204,13 +204,6 @@ parser.add_argument('--loss_fn', type=str, default='BCE', choices=['BCE', 'CE'])
 parser.add_argument('--explainability_analysis', action='store_true', default=None, help='set to return middle output for explainability analysis')
 parser.add_argument('--stop_update_prev_edges', action='store_true', default=False, help='stop updating node representation along previous selected edges')
 parser.add_argument('--no_time_embedding', action='store_true', default=False, help='set to stop use time embedding')
-# parser.add_argument('--simpl_att', action='store_true', help='use simplified attention function.')
-# parser.add_argument('--diac_embed', action='store_true',
-#                     help='use entity-specific frequency and phase of time embeddings')
-# parser.add_argument('--recalculate_att_after_prun', action='store_true', default=False,
-#                     help='in attention module, whether re-calculate attention score after pruning')
-# parser.add_argument('--emb_dim_sm', type=int, default=48, help='smaller dimension of embedding, '
-#                                                                'ease the computation of attention for attending from horizon')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -273,10 +266,6 @@ if __name__ == "__main__":
         model.eval()
 
         src_idx_l, rel_idx_l, target_idx_l, cut_time_l = sample.src_idx, sample.rel_idx, sample.target_idx, sample.ts
-        # mongo_id = dbDriver.register_query_mongo(mongodb_analysis_collection_name, src_idx_l, rel_idx_l,
-        #                                          cut_time_l,
-        #                                          target_idx_l, vars(args), contents.id2entity, contents.id2relation)
-
         num_query += len(src_idx_l)
         degree_batch = model.ngh_finder.get_temporal_degree(src_idx_l, cut_time_l)
         mean_degree += sum(degree_batch)
@@ -319,12 +308,6 @@ if __name__ == "__main__":
         loss = model.loss(entity_att_score, entities, target_idx_l, args.batch_size,
                           args.gradient_iters_per_update, args.loss_fn)
 
-        # _, indices = segment_topk(entity_att_score, entities[:, 0], 10, sorted=True)
-        # for i, target in enumerate(target_idx_l):
-        #     top10 = entities[indices[i]]
-        #     hit_1 += target == top10[0, 1]
-        #     hit_3 += target in top10[:3, 1]
-        #     hit_10 += target in top10[:, 1]
         target_rank_l, found_mask, target_rank_fil_l, target_rank_fil_t_l = segment_rank_fil(entity_att_score,
                                                                                              entities,
                                                                                              target_idx_l,
@@ -338,11 +321,7 @@ if __name__ == "__main__":
                 tracking[i]['prediction_rank'] = target_rank_l[i]
             mongo_id = dbDriver.mongodb[mongodb_analysis_collection_name].insert_many(
                 [tracking[i] for i in range(len(tracking))]).inserted_ids
-        # for i in range(args.batch_size):
-        #     dbDriver.mongodb[mongodb_analysis_collection_name].update_one({"_id": mongo_id[i]},
-        #                                                                   {"$set": {
-        #                                                                       "prediction_rank": target_rank_l[i]}})
-        # print(target_rank_l)
+
         mean_degree_found += sum(degree_batch[found_mask])
         hit_1 += np.sum(target_rank_l == 1)
         hit_3 += np.sum(target_rank_l <= 3)
